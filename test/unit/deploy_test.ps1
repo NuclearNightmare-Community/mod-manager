@@ -28,15 +28,28 @@ $cases = @(
 foreach ($c in $cases) { Eq (Test-VersionNeed -Version $c[0] -Need $c[1] -Floor $c[2]) $c[3] "need: '$($c[0])' for '$($c[1])' (floor '$($c[2])')" }
 Throws { Test-VersionNeed -Version '0.8.0' -Need '<0.9.0' } 'unsupported version need' 'need: a bad need throws'
 
-# ---------------------------------------------------------------- core ids (Scripts/modid.lua's rule, plus the legacy bare id)
-Eq (ConvertTo-ModId 'github.com/NuclearNightmare-Community.nucleus') 'nuclearnightmare-community.nucleus' 'id: github.com/ form'
-Eq (ConvertTo-ModId 'NuclearNightmare-Community.Nucleus') 'nuclearnightmare-community.nucleus' 'id: lowercased'
-foreach ($bad in @('nucleus', 'www.github.com/a.b', 'https://github.com/a.b', 'gitlab.com/a.b', 'a.b.c', 'a.b_c', '', ('a' * 100 + '.' + 'b' * 100), 3)) {
-    Ok ($null -eq (ConvertTo-ModId $bad)) "id: '$bad' refused"
+# ---------------------------------------------------------------- core ids (the shared cases of core's nucleus.modid)
+# The workspace's shared cases (tools/release/tests/modid-cases.json): ConvertTo-ModId must accept and refuse the same
+# ids and return the same normalized id (it returns no message). The workspace is the parent of mods/, found from the
+# repo's git common dir so a worktree finds it too.
+$common = git -C $repo rev-parse --path-format=absolute --git-common-dir 2>$null
+$casesFile = if ($common) { Join-Path (Split-Path (Split-Path (Split-Path $common))) 'tools/release/tests/modid-cases.json' }
+if ($casesFile -and (Test-Path -LiteralPath $casesFile)) {
+    $shared = Get-Content -LiteralPath $casesFile -Raw | ConvertFrom-Json
+    $n = 0
+    foreach ($c in $shared.cases) {
+        $n++
+        $want = if ($c.PSObject.Properties.Name -ccontains 'id') { $c.id } else { $null }
+        $got = ConvertTo-ModId $c.input
+        Ok ($got -ceq $want) "shared case '$($c.name)'" "got '$got', want '$want'"
+    }
+    Ok ($n -ge 40) 'shared cases: read' $n
+} else {
+    Write-Host "NOTE the workspace's tools/release/tests/modid-cases.json is absent: the shared id cases are skipped"
 }
 Ok (Test-CoreId 'nuclearnightmare-community.nucleus') 'core id: the namespaced id'
 Ok (Test-CoreId 'github.com/NuclearNightmare-Community.Nucleus') 'core id: the long form'
-Ok ((Test-CoreId 'nucleus') -and (Test-CoreId 'Nucleus')) 'core id: the legacy bare id, any case'
+Ok (-not (Test-CoreId 'nucleus') -and -not (Test-CoreId 'Nucleus')) 'core id: the bare nucleus is not core (the legacy alias is gone)'
 Ok (-not (Test-CoreId 'other.nucleus') -and -not (Test-CoreId 'www.github.com/NuclearNightmare-Community.nucleus') -and -not (Test-CoreId $null)) 'core id: others are not core'
 
 # ---------------------------------------------------------------- mods.txt editing
@@ -58,14 +71,14 @@ $m = Get-Content (Join-Path $repo 'mod.json') -Raw | ConvertFrom-Json
 Ok ($m.id -eq 'nuclearnightmare-community.mod-manager' -and $m.name -eq 'ModManager' -and $m.displayName -eq 'Mod Manager' -and $m.scope -eq 'client') 'mod.json: id, name, displayName, scope'
 Ok ($m.version -match '^\d+\.\d+\.\d+$') 'mod.json: semver version'
 Ok ($m.name -cmatch '^[A-Za-z0-9][A-Za-z0-9_-]*$') 'mod.json: name is a folder name (no space: UE4SS removes spaces from mods.txt lines)'
-Ok ($m.dependsOn.Count -eq 1 -and $m.dependsOn[0].id -eq 'nuclearnightmare-community.nucleus' -and $m.dependsOn[0].version -eq '>=0.8.0') 'mod.json: dependsOn nuclearnightmare-community.nucleus >=0.8.0'
+Ok ($m.dependsOn.Count -eq 1 -and $m.dependsOn[0].id -eq 'nuclearnightmare-community.nucleus' -and $m.dependsOn[0].version -eq '>=0.12.0') 'mod.json: dependsOn nuclearnightmare-community.nucleus >=0.12.0'
 Ok ($m.ue4ss -eq 'v3.0.1-1181-g83330635' -and $m.game.version -eq 'V8.2.3' -and $m.game.build -eq '26601774') 'mod.json: ue4ss and game build'
 Ok ($null -eq $m.settings) 'mod.json: no settings (the gear is dimmed)'
 $mainLua = Get-Content (Join-Path $repo 'Scripts\main.lua') -Raw
-Ok ($mainLua -match 'local CORE, NEED, ME = "Nucleus", ">=0\.8\.0", "ModManager"') 'main.lua: NEED = dependsOn (>=0.8.0)'
+Ok ($mainLua -match 'local CORE, NEED, ME = "Nucleus", ">=0\.12\.0", "ModManager"') 'main.lua: NEED = dependsOn (>=0.12.0)'
 foreach ($f in $ModScripts) { Ok (Test-Path (Join-Path $repo "Scripts\$f")) "Scripts/$f exists" }
 $long = Get-Content (Join-Path $repo 'test\ModManagerLong\mod.json') -Raw | ConvertFrom-Json
-Ok ($long.displayName.Length -eq 64 -and $long.displayName.StartsWith('ModManagerLong') -and $long.dependsOn[0].id -eq 'nucleus' -and $long.dependsOn[0].version -eq '>=0.2.0') 'fixture Long: 64-character displayName, bare nucleus >=0.2.0'
+Ok ($long.displayName.Length -eq 64 -and $long.displayName.StartsWith('ModManagerLong') -and $long.dependsOn[0].id -eq 'nuclearnightmare-community.nucleus' -and $long.dependsOn[0].version -eq '>=0.2.0') 'fixture Long: 64-character displayName, nuclearnightmare-community.nucleus >=0.2.0'
 $fx = Get-Content (Join-Path $repo 'test\ModManagerFixture\mod.json') -Raw | ConvertFrom-Json
 Ok ($fx.version -eq '9.9.9' -and $fx.game.version -eq 'V0.0.0' -and $fx.game.build -eq '1' -and @($fx.settings.PSObject.Properties).Count -eq 1 -and $fx.dependsOn[0].version -eq '>=0.1.0') 'fixture: 9.9.9, V0.0.0/1, one setting, >=0.1.0'
 
@@ -93,7 +106,7 @@ try {
     $coreTxt = "Nucleus : 1`r`n" + $stockTxt
     $modsTxt = Join-Path $mods 'mods.txt'
     $coreJson = Join-Path $mods 'Nucleus\mod.json'
-    function Set-Core([string] $version, [string] $floor, [string] $id = 'nucleus') {
+    function Set-Core([string] $version, [string] $floor, [string] $id = 'nuclearnightmare-community.nucleus') {
         $compat = if ($floor) { ", `"compat`": { `"floor`": `"$floor`" }" } else { '' }
         Set-Content $coreJson "{ `"id`": `"$id`", `"name`": `"Nucleus`", `"version`": `"$version`"$compat }"
     }
@@ -117,25 +130,28 @@ try {
     # Core too old, floor, not core's manifest, disabled.
     New-Item -ItemType Directory -Force (Join-Path $mods 'Nucleus\Scripts') | Out-Null
     [IO.File]::WriteAllText($modsTxt, $coreTxt)
-    Set-Core '0.7.0'
+    Set-Core '0.11.0'
     $d = Deploy @()
-    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.7\.0 is installed, but ModManager needs >=0\.8\.0; update Nucleus\.') 'deploy: core 0.7.0 -> refused, naming both versions' $d.Out
-    Set-Core '0.9.0' '0.9.0'
+    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.11\.0 is installed, but ModManager needs >=0\.12\.0; update Nucleus\.') 'deploy: core 0.11.0 -> refused, naming both versions' $d.Out
+    Set-Core '0.13.0' '0.13.0'
     $d = Deploy @()
-    Ok ($d.Code -eq 1 -and $d.Out -match 'ModManager was made for Nucleus >=0\.8\.0, which this Nucleus 0\.9\.0 no longer supports') 'deploy: floor above the need -> refused' $d.Out
-    Set-Core '0.8.0' $null 'other.nucleus'
+    Ok ($d.Code -eq 1 -and $d.Out -match 'ModManager was made for Nucleus >=0\.12\.0, which this Nucleus 0\.13\.0 no longer supports') 'deploy: floor above the need -> refused' $d.Out
+    Set-Core '0.12.0' $null 'other.nucleus'
     $d = Deploy @()
     Ok ($d.Code -eq 1 -and $d.Out -match "is not Nucleus's manifest") 'deploy: a manifest with another id -> refused' $d.Out
-    Set-Core '0.8.0' $null 'nuclearnightmare-community.nucleus'
+    Set-Core '0.12.0' $null 'nucleus'
+    $d = Deploy @()
+    Ok ($d.Code -eq 1 -and $d.Out -match "is not Nucleus's manifest") 'deploy: the old bare id nucleus -> refused (no legacy alias)' $d.Out
+    Set-Core '0.12.0' $null 'nuclearnightmare-community.nucleus'
     [IO.File]::WriteAllText($modsTxt, "Nucleus : 0`r`n" + $stockTxt)
     $d = Deploy @()
     Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus is installed but disabled in mods\.txt') 'deploy: core disabled -> refused' $d.Out
 
-    # Good core (the legacy id the installed Nucleus still carries): installed below Nucleus, above Keybinds.
-    Set-Core '0.8.0'
+    # Good core: installed below Nucleus, above Keybinds.
+    Set-Core '0.12.0'
     [IO.File]::WriteAllText($modsTxt, "ModManager : 1`r`n" + $coreTxt)
     $d = Deploy @()
-    Ok ($d.Code -eq 0) 'deploy: core 0.8.0 (id nucleus) -> installed' $d.Out
+    Ok ($d.Code -eq 0) 'deploy: core 0.12.0 -> installed' $d.Out
     Eq (Txt) ("Nucleus : 1`r`nModManager : 1`r`n" + $stockTxt) 'deploy: ModManager below Nucleus, above Keybinds'
     $files = @(Get-ChildItem (Join-Path $mods 'ModManager') -Recurse -File | ForEach-Object { $_.FullName.Substring((Join-Path $mods 'ModManager').Length + 1) } | Sort-Object)
     Eq ($files -join ',') ((@('mod.json') + @($ModScripts | ForEach-Object { "Scripts\$_" }) | Sort-Object) -join ',') 'deploy: exactly the Mod Manager files'

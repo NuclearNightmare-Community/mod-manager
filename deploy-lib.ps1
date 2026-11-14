@@ -11,29 +11,30 @@
 
 # The Scripts/ files a deploy installs and a release ships under ue4ss/Mods/<name>/Scripts/ (deploy.ps1 and
 # build.ps1 both use this list).
-$ModScripts = 'main.lua', 'json.lua', 'modid.lua', 'inventory.lua', 'strings.lua', 'screen.lua'
+$ModScripts = 'main.lua', 'json.lua', 'inventory.lua', 'strings.lua', 'screen.lua'
 
-# Core's id, and the legacy bare id installed mods (Nucleus's own mod.json too) still carry until the id renames
-# before the public release (distribution story 13; Scripts/inventory.lua has the same alias).
+# Core's id (distribution story 13, mod-ids.md).
 $CoreId = 'nuclearnightmare-community.nucleus'
-$CoreLegacyId = 'nucleus' # LEGACY nucleus id: remove after the renames (distribution story 13)
 
-# ConvertTo-ModId <id> -> the normalized id, or $null: the rule of Scripts/modid.lua (mod-ids.md "Normalizer"):
-# lowercase; github.com/<owner>.<mod> -> <owner>.<mod>; [a-z0-9-] owner and mod part; other hosts, www./http(s)://
-# and a bare id refused; at most 200 characters.
+# ConvertTo-ModId <id> -> the normalized id, or $null (dev-only; no message): the rule of core's nucleus.modid
+# (mod-ids.md "Normalizer"): lowercase; github.com/<owner>.<mod> -> <owner>.<mod>; [a-z0-9-] owner and mod part;
+# other hosts, www./http(s):// and a bare id refused; at most 200 characters. test/unit/deploy_test.ps1 runs it over
+# the workspace's shared cases (tools/release/tests/modid-cases.json).
 function ConvertTo-ModId {
     param([AllowNull()] [AllowEmptyString()] [object] $Id)
     if ($Id -isnot [string] -or $Id.Length -eq 0 -or $Id.Length -gt 200) { return $null }
+    # Non-ASCII is never part of an id; refusing it first keeps ToLowerInvariant from mapping, say, the Kelvin sign to k.
+    if ($Id -cnotmatch '\A[\x00-\x7F]*\z') { return $null }
     $s = $Id.ToLowerInvariant()
     if ($s.StartsWith('github.com/')) { $s = $s.Substring(11) }
+    if ($s.StartsWith('www.')) { return $null }
     if ($s -cnotmatch '\A[a-z0-9-]+\.[a-z0-9-]+\z') { return $null }
     return $s
 }
 
-# Test-CoreId <id> -> $true when the id names Nucleus (normalized, or the legacy bare id in any case).
+# Test-CoreId <id> -> $true when the id names Nucleus (through the normalizer).
 function Test-CoreId {
     param([AllowNull()] [AllowEmptyString()] [object] $Id)
-    if ($Id -is [string] -and $Id.ToLowerInvariant() -eq $CoreLegacyId) { return $true }
     return (ConvertTo-ModId $Id) -eq $CoreId
 }
 

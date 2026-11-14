@@ -5,6 +5,7 @@
 local ROOT = (arg and arg[0] or ""):match("^(.*)[/\\]test[/\\]unit[/\\][^/\\]+$") or "."
 local MAIN = ROOT .. "/Scripts/main.lua"
 package.path = ROOT .. "/test/unit/?.lua;" .. package.path
+dofile(ROOT .. "/test/unit/nucleus_pkg.lua")(ROOT) -- nucleus.modid from the Nucleus repo (in the game: Mods/Nucleus/Scripts/)
 local FakeUi = require("fakeui")
 
 local passed, failed = 0, 0
@@ -91,11 +92,11 @@ local function boot(opts)
         paks = { "NuclearNightmare-Windows.pak", "ModManagerPak_P.pak" }, logicMods = { "Nucleus.pak" },
         files = {
             [MODS .. "\\mods.txt"] = "Nucleus : 1\r\nModManager : 1\r\nModManagerFixture : 0\r\nKeybinds : 1\r\n",
-            [MODS .. "\\Nucleus\\mod.json"] = '{"id":"nucleus","version":"0.8.0","game":{"version":"V8.2.3","build":"26601774"},"dependsOn":[]}',
-            [MODS .. "\\ModManager\\mod.json"] = '{"name":"ModManager","displayName":"Mod Manager","version":"0.1.0","dependsOn":[{"id":"nuclearnightmare-community.nucleus","version":">=0.8.0"}]}',
+            [MODS .. "\\Nucleus\\mod.json"] = '{"id":"nuclearnightmare-community.nucleus","version":"0.8.0","game":{"version":"V8.2.3","build":"26601774"},"dependsOn":[]}',
+            [MODS .. "\\ModManager\\mod.json"] = '{"name":"ModManager","displayName":"Mod Manager","version":"0.1.0","dependsOn":[{"id":"nuclearnightmare-community.nucleus","version":">=0.12.0"}]}',
             [MODS .. "\\ModManagerFixture\\mod.json"] = '{"version":"9.9.9","game":{"version":"V0.0.0","build":"1"},"dependsOn":[{"id":"nuclearnightmare-community.nucleus","version":">=0.1.0"}],"settings":{"x":{}}}',
         } }
-    for _, m in ipairs({ "nucleus.client", "json", "modid", "inventory", "strings", "screen" }) do package.loaded[m] = nil end
+    for _, m in ipairs({ "nucleus.client", "json", "nucleus.modid", "inventory", "strings", "screen" }) do package.loaded[m] = nil end
     package.preload["nucleus.client"] = nil
     if opts.client ~= false then
         package.preload["nucleus.client"] = function() return { connect = function(o) W.connects[#W.connects + 1] = o end } end
@@ -112,7 +113,7 @@ local function boot(opts)
 end
 local function newCore(o)
     o = o or {}
-    local core = { name = "Nucleus", version = "0.8.0", log = newLog("ModManager"), clock = { micros = function() return 100 end } }
+    local core = { name = "Nucleus", version = "0.12.0", log = newLog("ModManager"), clock = { micros = function() return 100 end } }
     if o.ui ~= false then core.ui = FakeUi.new() end
     return core
 end
@@ -127,23 +128,23 @@ do -- Nucleus missing: exactly one [ModManager] line, the bootstrap's own.
     eq(#W.connects, 0, "no core: no connect")
     restore()
 end
-do -- Nucleus present: connect{ mod = "ModManager", need = ">=0.8.0" }, nothing logged before it answers.
+do -- Nucleus present: connect{ mod = "ModManager", need = ">=0.12.0" }, nothing logged before it answers.
     boot()
     eq(#W.connects, 1, "connect called once")
     local c = W.connects[1]
-    ok(c.mod == "ModManager" and c.need == ">=0.8.0", "connect{ mod = 'ModManager', need = '>=0.8.0' }", tostring(c.mod) .. " " .. tostring(c.need))
+    ok(c.mod == "ModManager" and c.need == ">=0.12.0", "connect{ mod = 'ModManager', need = '>=0.12.0' }", tostring(c.mod) .. " " .. tostring(c.need))
     eq(#W.printed, 0, "nothing printed during main.lua")
-    -- older than 0.8.0: connect logs its one line and calls onFail, which adds nothing
-    c.onFail("Nucleus 0.7.0 is older than ModManager needs (>=0.8.0). Update Nucleus.")
+    -- older than 0.12.0: connect logs its one line and calls onFail, which adds nothing
+    c.onFail("Nucleus 0.11.0 is older than ModManager needs (>=0.12.0). Update Nucleus.")
     eq(#W.printed, 0, "onFail adds no line (connect's is the only one)")
     eq(W.iterations, 0, "onFail scans nothing")
     restore()
 end
 do -- mod.json and main.lua agree on the need.
     local mj = assert(realOpen(ROOT .. "/mod.json", "rb")):read("a")
-    ok(mj:find('"version": ">=0.8.0"', 1, true) and mj:find('"id": "nuclearnightmare-community.nucleus"', 1, true), "mod.json dependsOn nuclearnightmare-community.nucleus >=0.8.0")
+    ok(mj:find('"version": ">=0.12.0"', 1, true) and mj:find('"id": "nuclearnightmare-community.nucleus"', 1, true), "mod.json dependsOn nuclearnightmare-community.nucleus >=0.12.0")
     local src = assert(realOpen(MAIN, "rb")):read("a")
-    ok(src:find('local CORE, NEED, ME = "Nucleus", ">=0.8.0", "ModManager"', 1, true), "main.lua NEED = dependsOn")
+    ok(src:find('local CORE, NEED, ME = "Nucleus", ">=0.12.0", "ModManager"', 1, true), "main.lua NEED = dependsOn")
 end
 
 -- ---------------------------------------------------------------- start
@@ -172,7 +173,7 @@ do -- The entry, READY, a click, the window, the gear, warnings once, faults onc
     eq(#U.entries, 1, "one menu entry")
     local e = U.entries[1]
     ok(e.id == "manage" and e.style == "options" and e.label.en == "MANAGE MODS" and type(e.onClick) == "function", "entry{ id = 'manage', label = { en = 'MANAGE MODS' }, style = 'options' }")
-    eq(#lines("^%[ModManager%] READY entry=manage need=>=0%.8%.0$"), 1, "one READY line after onReady")
+    eq(#lines("^%[ModManager%] READY entry=manage need=>=0%.12%.0$"), 1, "one READY line after onReady")
     eq(W.iterations, 0, "nothing scanned before a click")
     eq(U.count("screen.open"), 0, "no window before a click")
 

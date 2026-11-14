@@ -12,7 +12,7 @@ $script:passed = 0; $script:failed = 0
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("mod-manager-check-test-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory $tmp | Out-Null
 $coreManifest = Join-Path $tmp 'nucleus-mod.json'
-Set-Content $coreManifest '{ "id": "nucleus", "name": "Nucleus", "version": "0.8.0", "game": { "version": "V8.2.3", "build": "26601774" }, "dependsOn": [] }'
+Set-Content $coreManifest '{ "id": "nuclearnightmare-community.nucleus", "name": "Nucleus", "version": "0.8.0", "game": { "version": "V8.2.3", "build": "26601774" }, "dependsOn": [] }'
 
 $script:t = 0
 function L([string] $tag, [string] $msg) { $script:t++; "[2026-11-14 01:00:{0:D2}.{1:D7}] [Lua] [$tag] $msg" -f [int]($script:t / 1000 % 60), $script:t }
@@ -37,7 +37,7 @@ function Start-Log { @(
     (U "Starting Lua mod '$D'"), (U "Starting Lua mod '$M'")) }
 $rowLines = @(
     "ROW Nucleus | 0.8.0 | toggle=lock | gear=dim | status=0 | need=- | build=V8.2.3 26601774"
-    "ROW Mod Manager | 0.1.0 | toggle=lock | gear=dim | status=0 | need=>=0.8.0 | build=V8.2.3 26601774"
+    "ROW Mod Manager | 0.1.0 | toggle=lock | gear=dim | status=0 | need=>=0.12.0 | build=V8.2.3 26601774"
     "ROW ModManagerBare | - | toggle=off | gear=dim | status=0 | need=- | build=-"
     "ROW ModManagerDriver | - | toggle=on | gear=dim | status=0 | need=- | build=-"
     "ROW ModManagerFixture | 9.9.9 | toggle=off | gear=lit | status=0 | need=>=0.1.0 | build=V0.0.0 1"
@@ -48,7 +48,7 @@ $rowLines = @(
 function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE name width=680.0 desired=820.5 right=1225.0 verLeft=1233.0 headerLeft=405.0 rowLeft=405.0', [string[]] $inert = @(), [string] $files = '[run.ps1] FILES unchanged') {
     $l = (Start-Log) + @(
         (L $D 'SCENARIO screen'), (L $D 'LOADED 7 steps'),
-        (L $M 'CONNECT ok Nucleus 0.8.0 (pong 0.8.0 boot=1)'), (L $M 'READY entry=manage need=>=0.8.0'),
+        (L $M 'CONNECT ok Nucleus 0.8.0 (pong 0.8.0 boot=1)'), (L $M 'READY entry=manage need=>=0.12.0'),
         (L $D 'ENTRY menu1 text=MANAGE MODS above=OPTIONS below=QUIT'),
         (L $D 'OK ENTRYPOS menu1 between OPTIONS (UI_Button_Master_2) and QUIT (UI_Button_Master_3)'), (L $D 'OK ENTRYLOOK menu1 style x / x font y / y (the options style)'),
         (L $M 'MOD 1 Nucleus | Nucleus | 0.8.0 | locked | settings=no | need=- | build=V8.2.3 26601774'),
@@ -84,7 +84,7 @@ Expect (Screen-Log -rows ($rowLines + $rowLines[4])) 'screen' 1 'screen: a row t
 Expect (Screen-Log -rows (@($rowLines[1], $rowLines[0]) + $rowLines[2..7])) 'screen' 1 'screen: Nucleus after Mod Manager fails' 'out of order'
 Expect (Screen-Log -rows (@($rowLines[0..3]) + ($rowLines[4] -replace 'toggle=off', 'toggle=on') + $rowLines[5..7])) 'screen' 1 'screen: the fixture on fails' 'got 9.9.9 \| toggle=on'
 Expect (Screen-Log -rows (@($rowLines[0..3]) + ($rowLines[4] -replace 'gear=lit', 'gear=dim') + $rowLines[5..7])) 'screen' 1 'screen: the fixture gear dimmed fails'
-Expect (Screen-Log -rows (@($rowLines[0..4]) + ($rowLines[5] -replace 'need=>=0\.2\.0', 'need=-') + $rowLines[6..7])) 'screen' 1 'screen: the legacy need missing fails'
+Expect (Screen-Log -rows (@($rowLines[0..4]) + ($rowLines[5] -replace 'need=>=0\.2\.0', 'need=-') + $rowLines[6..7])) 'screen' 1 'screen: the Long need missing fails'
 Expect (Screen-Log -rows (@($rowLines[0..5]) + ($rowLines[6] -replace 'status=0', 'status=1') + $rowLines[7])) 'screen' 1 'screen: a status icon fails' 'status slot'
 Expect (Screen-Log -rows ($rowLines + 'ROW Keybinds | - | toggle=on | gear=dim | status=0 | need=- | build=-')) 'screen' 1 'screen: a built-in row fails' 'must be absent: Keybinds'
 Expect (Screen-Log -rows ($rowLines + 'ROW NuclearNightmare-Windows | UNMANAGED | toggle=on | gear=dim | status=0 | need=- | build=-')) 'screen' 1 'screen: the base pak row fails' 'must be absent'
@@ -107,7 +107,7 @@ Expect ($good | Where-Object { $_ -notmatch 'OK BLOCKEDGEAR' }) 'screen' 1 'scre
 Expect ($good | Where-Object { $_ -notmatch 'OK CFGDIMOPEN' }) 'screen' 1 'screen: no dimmed-gear Configure fails'
 Expect ($good | Where-Object { $_ -notmatch 'OK SAME' }) 'screen' 1 'screen: no SAME (DW-59) fails'
 Expect ($good | Where-Object { $_ -notmatch 'ENTRY menu1 text=' }) 'screen' 1 'screen: no entry text fails'
-Expect ($good + (L $M 'READY entry=manage need=>=0.8.0')) 'screen' 1 'screen: two READY lines fail'
+Expect ($good + (L $M 'READY entry=manage need=>=0.12.0')) 'screen' 1 'screen: two READY lines fail'
 Expect (($good | Where-Object { $_ -notmatch "\[$M\] OPEN rows" }) + (L $M 'OPEN rows=8 total=8 lang=en')) 'screen' 1 'screen: one OPEN fails' 'opened twice'
 $swapped = [Collections.Generic.List[string]]::new([string[]]$good)
 $ic = $swapped.FindIndex({ param($l) $l -match '\[ModManager\] CONNECT ok' }); $ir = $swapped.FindIndex({ param($l) $l -match '\[ModManager\] READY ' })
@@ -119,14 +119,14 @@ $noCore = @((U "Starting Lua mod '$D'"), (L $D 'SCENARIO no-core'), (U "Starting
     (L $M 'Nucleus is not installed. ModManager will not run.'), (L $D 'OK NOENTRY no MANAGE MODS entry in the menu for 15 s'),
     (L $D 'END result=PASS checks=2 failures=0'), '[run.ps1] FILES unchanged')
 Expect $noCore 'no-core' 0 'no-core: passes' 'All checks passed'
-Expect ($noCore + (L $M 'READY entry=manage need=>=0.8.0')) 'no-core' 1 'no-core: a second [ModManager] line fails'
+Expect ($noCore + (L $M 'READY entry=manage need=>=0.12.0')) 'no-core' 1 'no-core: a second [ModManager] line fails'
 Expect ($noCore | Where-Object { $_ -notmatch 'NOENTRY' }) 'no-core' 1 'no-core: no NOENTRY fails'
 $oldCore = (Start-Log) + @((L $D "OLDCORE published nucleus.version=0.1.0 (from Nucleus's installed mod.json)"),
-    (L $M 'ERROR Nucleus 0.1.0 is older than ModManager needs (>=0.8.0). Update Nucleus. ModManager will not run.'),
+    (L $M 'ERROR Nucleus 0.1.0 is older than ModManager needs (>=0.12.0). Update Nucleus. ModManager will not run.'),
     (L $D 'OK NOENTRY no MANAGE MODS entry in the menu for 15 s'), (L $D 'END result=PASS checks=2 failures=0'), '[run.ps1] FILES unchanged')
 Expect $oldCore 'old-core' 0 'old-core: passes' 'All checks passed'
 Expect ($oldCore + (L $M 'ERROR start failed: x')) 'old-core' 1 'old-core: a second [ModManager] line fails'
-Expect ($oldCore -replace 'needs \(>=0\.8\.0\)', 'needs (>=0.7.0)') 'old-core' 1 'old-core: the wrong need fails'
+Expect ($oldCore -replace 'needs \(>=0\.12\.0\)', 'needs (>=0.7.0)') 'old-core' 1 'old-core: the wrong need fails'
 
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ("check_test: {0} passed, {1} failed" -f $script:passed, $script:failed)

@@ -12,7 +12,9 @@
 -- Nothing here writes anything, opens a shell, or builds a path from a name that hasn't passed NAME_RX. Each warning
 -- has a key; the caller logs each key once per session.
 local J = require("json")
-local MID = require("modid")
+-- Core's id normalizer (nucleus.modid, a pure module; the dependent bootstrap in main.lua puts core's Scripts/ on the
+-- path). Distribution story 13 replaced the local copy.
+local MID = require(("Nucleus"):lower() .. ".modid")
 
 local I = {}
 
@@ -62,10 +64,8 @@ function I.dataText(v)
     return v
 end
 
--- The normalized id, with the legacy bare id: installed mods still list "nucleus" until the id renames before the
--- public release (distribution story 13; user, 2026-11-13).
+-- The normalized id (mod-ids.md "Normalizer"), or nil.
 local function coreIdOf(id)
-    if type(id) == "string" and id:lower() == "nucleus" then return I.CORE_ID end -- LEGACY nucleus id: remove after the renames (distribution story 13)
     return (MID.normalize(id))
 end
 

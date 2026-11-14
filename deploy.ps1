@@ -4,8 +4,8 @@
 .DESCRIPTION
   Refuses (exit 1, one line) unless Nucleus (core) is installed in the copy, enabled in mods.txt, and its installed
   mod.json version satisfies the Mod Manager's dependsOn (a minimum, not below the installed core's compat.floor;
-  deploy-lib.ps1). Core's dependsOn entry is the one whose id names Nucleus (nuclearnightmare-community.nucleus, or
-  the legacy bare "nucleus" that installed mods still carry). -Force installs anyway, for the failure scenarios (the
+  deploy-lib.ps1). Core's dependsOn entry is the one whose id names Nucleus (nuclearnightmare-community.nucleus,
+  compared through the id normalizer). -Force installs anyway, for the failure scenarios (the
   mod's own runtime check then has to catch it).
   Installs ue4ss/Mods/ModManager/{mod.json, Scripts/*.lua} and writes "ModManager : 1" into mods.txt right below
   Nucleus's line and above "Keybinds : 1", moving it there if it was elsewhere. Never bundles any of core's files.

@@ -3,6 +3,7 @@
 -- IterateGameDirectories and io (read-only). Run from the repo root:  texlua test/unit/inventory_test.lua
 local ROOT = (arg and arg[0] or ""):match("^(.*)[/\\]test[/\\]unit[/\\][^/\\]+$") or "."
 package.path = ROOT .. "/Scripts/?.lua;" .. package.path
+dofile(ROOT .. "/test/unit/nucleus_pkg.lua")(ROOT) -- nucleus.modid from the Nucleus repo
 local I = require("inventory")
 
 local passed, failed = 0, 0
@@ -79,14 +80,14 @@ end
 -- ---------------------------------------------------------------- the matrix
 do -- Managed mod: Nucleus, a fixture off, the Mod Manager, displayName, Long, Bare, enabled.txt, pak-only, built-ins.
     local F = stockFs()
-    F.folder("Nucleus", manifest{ id = "nucleus", name = "Nucleus", version = "0.8.0", game = { version = "V8.2.3", build = "26601774" }, dependsOn = setmetatable({}, { __metatable = "array" }) })
+    F.folder("Nucleus", manifest{ id = "nuclearnightmare-community.nucleus", name = "Nucleus", version = "0.8.0", game = { version = "V8.2.3", build = "26601774" }, dependsOn = setmetatable({}, { __metatable = "array" }) })
     F.lm("Nucleus.pak")
     F.folder("ModManager", manifest{ id = "nuclearnightmare-community.mod-manager", name = "ModManager", displayName = "Mod Manager", version = "0.1.0",
         game = { version = "V8.2.3", build = "26601774" }, dependsOn = { { id = "nuclearnightmare-community.nucleus", version = ">=0.8.0" } } })
     F.folder("ModManagerFixture", manifest{ name = "ModManagerFixture", version = "9.9.9", game = { version = "V0.0.0", build = "1" },
         dependsOn = { { id = "nuclearnightmare-community.nucleus", version = ">=0.1.0" } }, settings = { example = { type = "int", default = 1 } } })
     local long = "ModManagerLong " .. string.rep("W", 49)
-    F.folder("ModManagerLong", manifest{ name = "ModManagerLong", displayName = long, version = "1.0.0", dependsOn = { { id = "nucleus", version = ">=0.2.0" } } })
+    F.folder("ModManagerLong", manifest{ name = "ModManagerLong", displayName = long, version = "1.0.0", dependsOn = { { id = "nuclearnightmare-community.nucleus", version = ">=0.2.0" } } })
     F.folder("ModManagerBare")
     F.dirs[MODS .. "\\ModManagerBare\\Scripts"] = true
     F.folder("ModManagerDriver", nil, { ["Scripts\\main.lua"] = "-- driver" })
@@ -108,7 +109,7 @@ do -- Managed mod: Nucleus, a fixture off, the Mod Manager, displayName, Long, B
     ok(fx.state == "off" and fx.version == "9.9.9" and fx.settings == true and fx.need == ">=0.1.0" and fx.build == "V0.0.0 1",
         "Fixture: off, 9.9.9, settings, NUCLEUS >=0.1.0, GAME BUILD V0.0.0 1")
     local lg = rowOf(res, "ModManagerLong")
-    ok(lg.name == long and #lg.name == 64 and lg.need == ">=0.2.0", "Long: the 64-character name in full, need from the legacy bare id")
+    ok(lg.name == long and #lg.name == 64 and lg.need == ">=0.2.0", "Long: the 64-character name in full, its need")
     local bare = rowOf(res, "ModManagerBare")
     ok(bare.state == "off" and bare.version == nil and bare.settings == false and bare.need == nil and bare.build == nil, "Bare: off, all -")
     local drv = rowOf(res, "ModManagerDriver")
@@ -185,7 +186,7 @@ end
 do -- Nucleus id forms in dependsOn.
     local forms = {
         { "github.com/NuclearNightmare-Community.nucleus", ">=0.3.0" }, { "NuclearNightmare-Community.Nucleus", ">=0.3.0" },
-        { "nucleus", ">=0.3.0" }, { "Nucleus", ">=0.3.0" },
+        { "nucleus", nil }, { "Nucleus", nil }, -- the bare id is no longer core (distribution story 13)
         { "www.github.com/NuclearNightmare-Community.nucleus", nil }, { "other.nucleus", nil }, { 7, nil },
     }
     for _, f in ipairs(forms) do
@@ -195,7 +196,7 @@ do -- Nucleus id forms in dependsOn.
         eq(rowOf(res, "Dep").need, f[2], "dependsOn id " .. tostring(f[1]))
     end
     local F = stockFs()
-    F.folder("Dep", manifest{ dependsOn = { { id = "nucleus", version = 3 } } })
+    F.folder("Dep", manifest{ dependsOn = { { id = "nuclearnightmare-community.nucleus", version = 3 } } })
     local res = I.scan(F, PATHS)
     ok(rowOf(res, "Dep").need == nil and warnsLike(res, "wrong%-typed values %(dependsOn version%)") == 1, "a wrong-typed need: - and one WARN")
 end
