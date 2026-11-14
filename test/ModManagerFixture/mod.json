@@ -1,0 +1,11 @@
+{
+  "id": "nuclearnightmare-community.mod-manager-fixture",
+  "name": "ModManagerFixture",
+  "version": "9.9.9",
+  "scope": "client",
+  "game": { "version": "V0.0.0", "build": "1" },
+  "dependsOn": [ { "id": "nuclearnightmare-community.nucleus", "version": ">=0.1.0" } ],
+  "settings": {
+    "example": { "type": "int", "default": 1, "min": 1, "max": 9, "label": "Example", "changeable": "anytime" }
+  }
+}

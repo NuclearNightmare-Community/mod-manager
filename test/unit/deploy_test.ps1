@@ -1,0 +1,179 @@
+<#
+.SYNOPSIS
+  Unit tests for deploy-lib.ps1 (version needs, core ids, mods.txt editing) and deploy.ps1 end to end against a fake
+  game instance in a temp folder (never a real copy: no game, no UE4SS, only the files deploy.ps1 looks at), and
+  build.ps1's package.
+.EXAMPLE
+  pwsh -NoProfile -File test/unit/deploy_test.ps1
+#>
+$ErrorActionPreference = 'Stop'
+$repo = Split-Path (Split-Path $PSScriptRoot)
+. (Join-Path $repo 'deploy-lib.ps1')
+$script:passed = 0; $script:failed = 0
+function Ok([bool] $cond, [string] $name, $detail) {
+    if ($cond) { $script:passed++ } else { $script:failed++; Write-Host "FAIL $name$(if ($null -ne $detail) { " -- $detail" })" }
+}
+function Eq($got, $want, [string] $name) { Ok ($got -eq $want) $name "got '$got', want '$want'" }
+function Throws([scriptblock] $b, [string] $text, [string] $name) {
+    try { & $b; Ok $false $name 'did not throw' } catch { Ok ($_.Exception.Message -like "*$text*") $name $_.Exception.Message }
+}
+
+# ---------------------------------------------------------------- version needs (core story 18's rule, as Clock's)
+$cases = @(
+    @('0.8.0', '>=0.8.0', $null, 'ok'), @('0.9.0', '>=0.8.0', $null, 'ok'), @('1.0.0', '>=0.8.0', '0.1.0', 'ok'),
+    @('0.7.0', '>=0.8.0', $null, 'core-too-old'), @('0.1.0', '>=0.8.0', $null, 'core-too-old'),
+    @('0.9.0', '>=0.8.0', '0.9.0', 'mod-too-old'), @('0.9.0', '>=0.8.0', 'x', 'ok'),
+    @('0.8', '>=0.8.0', $null, 'bad-have'), @($null, '>=0.8.0', $null, 'bad-have')
+)
+foreach ($c in $cases) { Eq (Test-VersionNeed -Version $c[0] -Need $c[1] -Floor $c[2]) $c[3] "need: '$($c[0])' for '$($c[1])' (floor '$($c[2])')" }
+Throws { Test-VersionNeed -Version '0.8.0' -Need '<0.9.0' } 'unsupported version need' 'need: a bad need throws'
+
+# ---------------------------------------------------------------- core ids (Scripts/modid.lua's rule, plus the legacy bare id)
+Eq (ConvertTo-ModId 'github.com/NuclearNightmare-Community.nucleus') 'nuclearnightmare-community.nucleus' 'id: github.com/ form'
+Eq (ConvertTo-ModId 'NuclearNightmare-Community.Nucleus') 'nuclearnightmare-community.nucleus' 'id: lowercased'
+foreach ($bad in @('nucleus', 'www.github.com/a.b', 'https://github.com/a.b', 'gitlab.com/a.b', 'a.b.c', 'a.b_c', '', ('a' * 100 + '.' + 'b' * 100), 3)) {
+    Ok ($null -eq (ConvertTo-ModId $bad)) "id: '$bad' refused"
+}
+Ok (Test-CoreId 'nuclearnightmare-community.nucleus') 'core id: the namespaced id'
+Ok (Test-CoreId 'github.com/NuclearNightmare-Community.Nucleus') 'core id: the long form'
+Ok ((Test-CoreId 'nucleus') -and (Test-CoreId 'Nucleus')) 'core id: the legacy bare id, any case'
+Ok (-not (Test-CoreId 'other.nucleus') -and -not (Test-CoreId 'www.github.com/NuclearNightmare-Community.nucleus') -and -not (Test-CoreId $null)) 'core id: others are not core'
+
+# ---------------------------------------------------------------- mods.txt editing
+$stock = @('CheatManagerEnablerMod : 1', 'BPModLoaderMod : 1', 'Keybinds : 1', '', '; comment')
+$withCore = @('Nucleus : 1') + $stock
+$r = Edit-ModsTxt -Lines $withCore -Add @('ModManagerDriver', 'ModManager') -Disabled @('ModManagerFixture') -After 'Nucleus'
+Eq ($r -join '|') (@('Nucleus : 1', 'ModManagerDriver : 1', 'ModManager : 1', 'ModManagerFixture : 0') + $stock -join '|') 'mods.txt: driver, mod, then the fixture off, below Nucleus'
+$r = Edit-ModsTxt -Lines (@('ModManagerFixture : 1', 'ModManager : 1') + $withCore) -Add @('ModManager') -Disabled @('ModManagerFixture') -After 'Nucleus'
+Eq ($r -join '|') (@('Nucleus : 1', 'ModManager : 1', 'ModManagerFixture : 0') + $stock -join '|') 'mods.txt: old lines (above Nucleus, on) replaced'
+$r = Edit-ModsTxt -Lines @('Nucleus : 1', 'ModManager : 1', 'ModManagerX : 1', 'Keybinds : 1') -Remove @('ModManager')
+Eq ($r -join '|') 'Nucleus : 1|ModManagerX : 1|Keybinds : 1' 'mods.txt: remove only ModManager (not ModManagerX)'
+$r = Edit-ModsTxt -Lines $stock -Add @('ModManager') -After 'Nucleus'
+Eq ($r[2]) 'ModManager : 1' 'mods.txt: no Nucleus line -> above Keybinds'
+
+# ---------------------------------------------------------------- mod.json and main.lua
+$m = Get-Content (Join-Path $repo 'mod.json') -Raw | ConvertFrom-Json
+Ok ($m.id -eq 'nuclearnightmare-community.mod-manager' -and $m.name -eq 'ModManager' -and $m.displayName -eq 'Mod Manager' -and $m.scope -eq 'client') 'mod.json: id, name, displayName, scope'
+Ok ($m.version -match '^\d+\.\d+\.\d+$') 'mod.json: semver version'
+Ok ($m.name -cmatch '^[A-Za-z0-9][A-Za-z0-9_-]*$') 'mod.json: name is a folder name (no space: UE4SS removes spaces from mods.txt lines)'
+Ok ($m.dependsOn.Count -eq 1 -and $m.dependsOn[0].id -eq 'nuclearnightmare-community.nucleus' -and $m.dependsOn[0].version -eq '>=0.8.0') 'mod.json: dependsOn nuclearnightmare-community.nucleus >=0.8.0'
+Ok ($m.ue4ss -eq 'v3.0.1-1181-g83330635' -and $m.game.version -eq 'V8.2.3' -and $m.game.build -eq '26601774') 'mod.json: ue4ss and game build'
+Ok ($null -eq $m.settings) 'mod.json: no settings (the gear is dimmed)'
+$mainLua = Get-Content (Join-Path $repo 'Scripts\main.lua') -Raw
+Ok ($mainLua -match 'local CORE, NEED, ME = "Nucleus", ">=0\.8\.0", "ModManager"') 'main.lua: NEED = dependsOn (>=0.8.0)'
+foreach ($f in $ModScripts) { Ok (Test-Path (Join-Path $repo "Scripts\$f")) "Scripts/$f exists" }
+$long = Get-Content (Join-Path $repo 'test\ModManagerLong\mod.json') -Raw | ConvertFrom-Json
+Ok ($long.displayName.Length -eq 64 -and $long.displayName.StartsWith('ModManagerLong') -and $long.dependsOn[0].id -eq 'nucleus' -and $long.dependsOn[0].version -eq '>=0.2.0') 'fixture Long: 64-character displayName, bare nucleus >=0.2.0'
+$fx = Get-Content (Join-Path $repo 'test\ModManagerFixture\mod.json') -Raw | ConvertFrom-Json
+Ok ($fx.version -eq '9.9.9' -and $fx.game.version -eq 'V0.0.0' -and $fx.game.build -eq '1' -and @($fx.settings.PSObject.Properties).Count -eq 1 -and $fx.dependsOn[0].version -eq '>=0.1.0') 'fixture: 9.9.9, V0.0.0/1, one setting, >=0.1.0'
+
+$tmp = Join-Path ([IO.Path]::GetTempPath()) ("mod-manager-deploy-test-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+New-Item -ItemType Directory $tmp | Out-Null
+try {
+    # ------------------------------------------------------------ build.ps1: the package holds mod.json and Scripts only
+    $out = & pwsh -NoProfile -NonInteractive -File (Join-Path $repo 'build.ps1') 2>&1 | Out-String
+    Ok ($LASTEXITCODE -eq 0) 'build: exit 0' $out
+    $pkg = Join-Path $repo 'build\package'
+    $files = @(Get-ChildItem $pkg -Recurse -File | ForEach-Object { $_.FullName.Substring($pkg.Length + 1).Replace('\', '/') } | Sort-Object)
+    $wantFiles = @('Mods/ModManager/mod.json') + @($ModScripts | ForEach-Object { "Mods/ModManager/Scripts/$_" }) | Sort-Object
+    Eq ($files -join ',') ($wantFiles -join ',') 'build: Mods/ModManager/{mod.json, Scripts/*.lua} only'
+
+    # ------------------------------------------------------------ deploy.ps1 end to end, fake instance
+    $inst = Join-Path $tmp 'game-instances\fake'
+    $win64 = Join-Path $inst 'NuclearNightmare\Binaries\Win64'
+    $mods = Join-Path $win64 'ue4ss\Mods'
+    $paks = Join-Path $inst 'NuclearNightmare\Content\Paks'
+    New-Item -ItemType Directory -Force (Join-Path $mods 'Nucleus\Scripts'), (Join-Path $mods 'Keybinds'), (Join-Path $paks 'LogicMods') | Out-Null
+    Set-Content (Join-Path $win64 'NuclearNightmare-Win64-Shipping.exe') 'fake'
+    Set-Content (Join-Path $win64 'ue4ss\UE4SS.dll') 'fake'
+    Set-Content (Join-Path $paks 'NuclearNightmare-Windows.pak') 'fake'
+    $stockTxt = "CheatManagerEnablerMod : 1`r`nBPModLoaderMod : 1`r`nKeybinds : 1`r`n"
+    $coreTxt = "Nucleus : 1`r`n" + $stockTxt
+    $modsTxt = Join-Path $mods 'mods.txt'
+    $coreJson = Join-Path $mods 'Nucleus\mod.json'
+    function Set-Core([string] $version, [string] $floor, [string] $id = 'nucleus') {
+        $compat = if ($floor) { ", `"compat`": { `"floor`": `"$floor`" }" } else { '' }
+        Set-Content $coreJson "{ `"id`": `"$id`", `"name`": `"Nucleus`", `"version`": `"$version`"$compat }"
+    }
+    function Deploy([string[]] $a) {
+        $cmd = "function Get-Process { }; & '$(Join-Path $repo 'deploy.ps1')' -Instance '$inst' $($a -join ' '); exit `$LASTEXITCODE"
+        $out = & pwsh -NoProfile -NonInteractive -Command $cmd 2>&1 | Out-String
+        return @{ Code = $LASTEXITCODE; Out = $out }
+    }
+    function Txt { [IO.File]::ReadAllText($modsTxt) }
+    function Names([string] $d) { (@(Get-ChildItem $d -File | ForEach-Object Name | Sort-Object)) -join ',' }
+
+    # Core missing.
+    [IO.File]::WriteAllText($modsTxt, $stockTxt)
+    Remove-Item (Join-Path $mods 'Nucleus') -Recurse -Force
+    $d = Deploy @()
+    Ok ($d.Code -eq 1 -and $d.Out -match 'ModManager not deployed: Nucleus is not installed') 'deploy: core missing -> refused' $d.Out
+    Ok (($d.Out.Trim() -split "`r?`n").Count -eq 1) 'deploy: refusal is one line' $d.Out
+    Ok (-not (Test-Path (Join-Path $mods 'ModManager'))) 'deploy: refused -> nothing installed'
+    Eq (Txt) $stockTxt 'deploy: refused -> mods.txt untouched'
+
+    # Core too old, floor, not core's manifest, disabled.
+    New-Item -ItemType Directory -Force (Join-Path $mods 'Nucleus\Scripts') | Out-Null
+    [IO.File]::WriteAllText($modsTxt, $coreTxt)
+    Set-Core '0.7.0'
+    $d = Deploy @()
+    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.7\.0 is installed, but ModManager needs >=0\.8\.0; update Nucleus\.') 'deploy: core 0.7.0 -> refused, naming both versions' $d.Out
+    Set-Core '0.9.0' '0.9.0'
+    $d = Deploy @()
+    Ok ($d.Code -eq 1 -and $d.Out -match 'ModManager was made for Nucleus >=0\.8\.0, which this Nucleus 0\.9\.0 no longer supports') 'deploy: floor above the need -> refused' $d.Out
+    Set-Core '0.8.0' $null 'other.nucleus'
+    $d = Deploy @()
+    Ok ($d.Code -eq 1 -and $d.Out -match "is not Nucleus's manifest") 'deploy: a manifest with another id -> refused' $d.Out
+    Set-Core '0.8.0' $null 'nuclearnightmare-community.nucleus'
+    [IO.File]::WriteAllText($modsTxt, "Nucleus : 0`r`n" + $stockTxt)
+    $d = Deploy @()
+    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus is installed but disabled in mods\.txt') 'deploy: core disabled -> refused' $d.Out
+
+    # Good core (the legacy id the installed Nucleus still carries): installed below Nucleus, above Keybinds.
+    Set-Core '0.8.0'
+    [IO.File]::WriteAllText($modsTxt, "ModManager : 1`r`n" + $coreTxt)
+    $d = Deploy @()
+    Ok ($d.Code -eq 0) 'deploy: core 0.8.0 (id nucleus) -> installed' $d.Out
+    Eq (Txt) ("Nucleus : 1`r`nModManager : 1`r`n" + $stockTxt) 'deploy: ModManager below Nucleus, above Keybinds'
+    $files = @(Get-ChildItem (Join-Path $mods 'ModManager') -Recurse -File | ForEach-Object { $_.FullName.Substring((Join-Path $mods 'ModManager').Length + 1) } | Sort-Object)
+    Eq ($files -join ',') ((@('mod.json') + @($ModScripts | ForEach-Object { "Scripts\$_" }) | Sort-Object) -join ',') 'deploy: exactly the Mod Manager files'
+    Ok (-not (Test-Path (Join-Path $mods 'ModManagerDriver')) -and -not (Test-Path (Join-Path $mods 'ModManagerFixture'))) 'deploy: no driver or fixture without -Test'
+    Eq (Names $paks) 'NuclearNightmare-Windows.pak' 'deploy: no fixture pak without -Test'
+
+    # -Test: the driver, the fixtures, the paks, mods.txt.
+    $d = Deploy @('-Test', '-Scenario', 'screen')
+    Ok ($d.Code -eq 0) 'deploy -Test: installed' $d.Out
+    Eq (Txt) ("Nucleus : 1`r`nModManagerDriver : 1`r`nModManager : 1`r`nModManagerFixture : 0`r`n" + $stockTxt) 'deploy -Test: Nucleus, the driver, ModManager, the fixture off'
+    Eq ([IO.File]::ReadAllText((Join-Path $mods 'ModManagerDriver\Scripts\scenario.txt'))) 'screen' 'deploy -Test: scenario.txt'
+    Ok ((Test-Path (Join-Path $mods 'ModManagerFixture\mod.json')) -and @(Get-ChildItem (Join-Path $mods 'ModManagerFixture') -Recurse).Count -eq 1) 'deploy -Test: ModManagerFixture holds mod.json only'
+    Ok ((Test-Path (Join-Path $mods 'ModManagerBare\Scripts')) -and @(Get-ChildItem (Join-Path $mods 'ModManagerBare') -Recurse -File).Count -eq 0) 'deploy -Test: ModManagerBare has an empty Scripts/'
+    Ok ((Get-Content (Join-Path $mods 'ModManagerLong\mod.json') -Raw) -match 'ModManagerLong W') 'deploy -Test: ModManagerLong'
+    Eq (Names $paks) 'ModManagerPak_P.pak,ModManagerPakOff_P.pak.disabled,NuclearNightmare-Windows.pak' 'deploy -Test: the fixture paks in Content/Paks'
+    Eq (Names (Join-Path $paks 'LogicMods')) '' 'deploy -Test: nothing in LogicMods'
+    # Redeploy without -Test: the driver and the fixtures go.
+    $d = Deploy @()
+    Ok ($d.Code -eq 0 -and -not (Test-Path (Join-Path $mods 'ModManagerDriver')) -and -not (Test-Path (Join-Path $mods 'ModManagerBare'))) 'deploy without -Test removes the driver and fixtures' $d.Out
+    Eq (Names $paks) 'NuclearNightmare-Windows.pak' 'deploy without -Test removes the fixture paks'
+    Eq (Txt) ("Nucleus : 1`r`nModManager : 1`r`n" + $stockTxt) 'deploy without -Test: mods.txt back to one line'
+
+    # -Force without core.
+    Remove-Item (Join-Path $mods 'Nucleus') -Recurse -Force
+    [IO.File]::WriteAllText($modsTxt, $stockTxt)
+    $d = Deploy @('-Force', '-Test', '-Scenario', 'no-core')
+    Ok ($d.Code -eq 0 -and $d.Out -match 'forced: Nucleus is not installed') 'deploy -Force: warns and installs' $d.Out
+
+    # -Remove: back to exactly the stock files.
+    $d = Deploy @('-Remove')
+    Ok ($d.Code -eq 0 -and -not (Test-Path (Join-Path $mods 'ModManager'))) 'deploy -Remove: no Mod Manager files' $d.Out
+    Eq (Txt) $stockTxt 'deploy -Remove: mods.txt byte-identical to stock'
+    Ok ((Get-ChildItem $mods -Directory | ForEach-Object Name | Sort-Object) -join ',' -eq 'Keybinds') 'deploy -Remove: Mods/ holds only what was there'
+    Eq (Names $paks) 'NuclearNightmare-Windows.pak' 'deploy -Remove: the fixture paks gone'
+    $before = Txt
+    Deploy @('-Remove') | Out-Null
+    Eq (Txt) $before 'deploy -Remove twice: nothing changes'
+} finally {
+    Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+Write-Host ("deploy_test: {0} passed, {1} failed" -f $script:passed, $script:failed)
+exit $(if ($script:failed) { 1 } else { 0 })
