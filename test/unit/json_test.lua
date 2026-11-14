@@ -113,7 +113,7 @@ end
 -- A real mod.json: Clock's shape.
 do
     local v, objs = J.decode([[{
-  "id": "clock", "name": "Clock", "version": "0.1.0", "scope": "client",
+  "id": "nuclearnightmare-community.clock", "name": "Clock", "version": "0.1.0", "scope": "client",
   "game": { "version": "V8.2.3", "build": "26601774" },
   "dependsOn": [ { "id": "nuclearnightmare-community.nucleus", "version": ">=0.2.0" } ],
   "settings": { "updateEvery": { "type": "int", "default": 1, "min": 1, "max": 60, "label": "Update every N game minutes" } }

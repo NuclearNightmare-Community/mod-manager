@@ -206,7 +206,7 @@ do -- Bad mod.json: too big, invalid, a non-object, wrong field types; one WARN 
     F.folder("Big", '{"version":"1.0.0","pad":"' .. string.rep("x", 1000) .. '"}' .. string.rep(" ", 65536))
     F.folder("Invalid", '{"version": "1.0.0",}')
     F.folder("Array", '["version"]')
-    F.folder("Types", manifest{ name = 5, version = 2, game = "V8", dependsOn = { id = "nucleus" }, settings = { 1, 2 } })
+    F.folder("Types", manifest{ name = 5, version = 2, game = "V8", dependsOn = { id = "nuclearnightmare-community.nucleus" }, settings = { 1, 2 } })
     F.folder("Locked", nil); F.files[MODS .. "\\Locked\\mod.json"] = false
     local res = I.scan(F, PATHS)
     for _, k in ipairs({ "Big", "Invalid", "Array", "Types", "Locked" }) do
