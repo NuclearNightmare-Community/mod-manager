@@ -12,14 +12,13 @@
 -- Nothing here writes anything, opens a shell, or builds a path from a name that hasn't passed NAME_RX. Each warning
 -- has a key; the caller logs each key once per session.
 local J = require("json")
--- Core's id normalizer (nucleus.modid, a pure module; the dependent bootstrap in main.lua puts core's Scripts/ on the
--- path). Distribution story 13 replaced the local copy.
-local MID = require(("Nucleus"):lower() .. ".modid")
-
 local I = {}
 
 I.CORE_ID = "nuclearnightmare-community.nucleus"
 I.CORE_FOLDER = "Nucleus"
+-- Core's id normalizer (nucleus.modid, a pure module; the dependent bootstrap in main.lua puts core's Scripts/ on the
+-- path). Distribution story 13 replaced the local copy.
+local MID = require(I.CORE_FOLDER:lower() .. ".modid")
 I.SELF_FOLDER = "ModManager"
 I.MAX_ROWS = 200
 I.MAX_JSON = 65536
