@@ -90,7 +90,7 @@ $expect = @{
         "\[$D\] OK MEASURECUT ", "\[$D\] OK MEASUREEDGE ", "\[$D\] OK MEASUREALIGN "
         "\[$D\] OK INERT the toggle boxes changed nothing"
         "\[$D\] OK CFGTOP ", "\[$D\] OK CFGFIXTURE ", "\[$D\] OK CFGCLOSE ", "\[$D\] OK CFGDIM ", "\[$D\] OK CFGDIMOPEN "
-        "\[$D\] OK BLOCKED ", "\[$D\] OK CFGCLOSE2 ", "\[$D\] OK CLOSEMAIN ", "\[$D\] OK MENUBACK "
+        "\[$D\] OK BLOCKEDGEAR ", "\[$D\] OK BLOCKED ", "\[$D\] OK CFGCLOSE2 ", "\[$D\] OK CLOSEMAIN ", "\[$D\] OK MENUBACK "
         "\[$D\] OK ENTRYUP2 ", "\[$D\] OK OPEN after the match ", "\[$D\] OK SAME ", "\[$D\] OK CLOSEEND "
         "\[$M\] CONFIGURE \d+ "
     )

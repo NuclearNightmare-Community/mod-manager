@@ -64,7 +64,7 @@ function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE n
     foreach ($i in $inert) { $l += $i }
     $l += L $D 'INERT end'
     foreach ($ok in 'INERT the toggle boxes changed nothing on screen (rows the same: true, no Configure, main window on top)', 'CFGTOP x', 'CFGFIXTURE x', 'CFGCLOSE x', 'CFGDIM x', 'CFGDIMOPEN x',
-            'BLOCKED x', 'CFGCLOSE2 x', 'CLOSEMAIN x', 'MENUBACK x', 'ENTRYUP2 x', 'ENTRYPOS menu2 x', 'ENTRYLOOK menu2 x', 'OPEN after the match x', 'SAME x', 'CLOSEEND x') {
+            'BLOCKEDGEAR x', 'BLOCKED x', 'CFGCLOSE2 x', 'CLOSEMAIN x', 'MENUBACK x', 'ENTRYUP2 x', 'ENTRYPOS menu2 x', 'ENTRYLOOK menu2 x', 'OPEN after the match x', 'SAME x', 'CLOSEEND x') {
         $l += L $D "OK $ok"
     }
     $l += L $M 'OPEN rows=8 total=8 lang=en us=3000'
@@ -102,7 +102,8 @@ Expect ($good + (L $M 'WARN hud slow tick 1.4 ms (steady state)')) 'screen' 0 'v
 Expect ($good + (L $M 'ERROR boom')) 'screen' 1 'screen: an ERROR fails'
 Expect ($good + (U 'stack traceback:')) 'screen' 1 'screen: a traceback fails'
 Expect ($good + (L $D "FAIL SAME x")) 'screen' 1 'screen: a driver FAIL fails'
-Expect ($good | Where-Object { $_ -notmatch 'OK BLOCKED' }) 'screen' 1 'screen: no BLOCKED fails'
+Expect ($good | Where-Object { $_ -notmatch 'OK BLOCKED ' }) 'screen' 1 'screen: no BLOCKED fails'
+Expect ($good | Where-Object { $_ -notmatch 'OK BLOCKEDGEAR' }) 'screen' 1 'screen: no BLOCKEDGEAR fails'
 Expect ($good | Where-Object { $_ -notmatch 'OK CFGDIMOPEN' }) 'screen' 1 'screen: no dimmed-gear Configure fails'
 Expect ($good | Where-Object { $_ -notmatch 'OK SAME' }) 'screen' 1 'screen: no SAME (DW-59) fails'
 Expect ($good | Where-Object { $_ -notmatch 'ENTRY menu1 text=' }) 'screen' 1 'screen: no entry text fails'

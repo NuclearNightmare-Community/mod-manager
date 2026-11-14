@@ -441,14 +441,26 @@ local function buildScreen()
     end)
     closeConfigure("Nucleus")
     configureOf(fixture, "fixture again")
-    -- 5. The main window's Close while Configure is up: blocked.
+    -- 5. The main window under Configure takes no input. Its gears: a click on Nucleus's gear, under Configure's
+    -- backdrop, changes nothing. Its Close: core puts every window's Close at the same top-right spot, so Configure's
+    -- own Close covers it and a click there can only reach Configure's; had it reached the main window's Close, both
+    -- windows would close (a Close closes the windows above too). So the main window must still be open after it.
+    clickOn("Nucleus's gear under Configure", function() return R.nucleus and cell(R.nucleus, "cfg") end)
+    settle(1)
+    step("blocked gear", function()
+        check(screenOf("configure") ~= nil and cfgText("title") == "ModManagerFixture" and screenOf("main") ~= nil,
+            "BLOCKEDGEAR a click on the main window's gear under Configure changed nothing (Configure still shows %s)", tostring(cfgText("title")))
+    end)
     clickOn("the main window's Close under Configure", function() return closeOf("main") end)
     settle(1)
     step("blocked", function()
-        check(screenOf("main") ~= nil and screenOf("configure") ~= nil, "BLOCKED the main window's Close did nothing while Configure was on top")
+        check(screenOf("main") ~= nil and visOf(screenOf("main")) == VIS_VISIBLE,
+            "BLOCKED the main window's Close did not act under Configure: the main window is still open (the click reached the top window's own Close: Configure open=%s)", tostring(screenOf("configure") ~= nil))
     end)
-    -- 6. Configure's Close, then the main window's Close: the menu with the entry.
-    closeConfigure("before the main window's")
+    -- 6. Configure's Close (if the click above didn't already), then the main window's Close: the menu with the entry.
+    step("configure: close if open", function()
+        if screenOf("configure") then nested(function() closeConfigure("before the main window's") end) end
+    end)
     step("configure: closed again", function()
         check(screenOf("configure") == nil and visOf(screenOf("main")) == VIS_VISIBLE, "CFGCLOSE2 Configure closed; the main window takes input again")
     end)
