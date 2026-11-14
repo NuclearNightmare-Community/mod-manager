@@ -1,4 +1,4 @@
--- Mod Manager story 3: the main window and the Configure window, through core.ui only (Nucleus >= 0.8.0).
+-- Mod Manager story 3: the main window and the Configure window, through core.ui only (Nucleus >= 0.8.0 for core.ui; the mod needs 0.12.0).
 --
 --   local view = Screen.new(ui, strings)
 --   view:openMain(rows, lang, size)   opens (or refreshes) the main window with inventory rows; size = { w, h } in

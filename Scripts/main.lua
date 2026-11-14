@@ -4,7 +4,7 @@
 -- written anywhere (writes start in story 6).
 -- Runs on Nucleus (core) through the dependent bootstrap (core's api-contract.md) and uses only core's public API
 -- (connect, core.ui, core.log). Holds no UObject between calls: element handles, plain tables and strings only.
-local CORE, NEED, ME = "Nucleus", ">=0.8.0", "ModManager"
+local CORE, NEED, ME = "Nucleus", ">=0.12.0", "ModManager"
 local ENTRY = "manage"
 local MAX_WARN_KEYS = 64     -- distinct warnings logged per session; then one line says the rest are dropped
 local MAX_LOGGED_ROWS = 512  -- distinct mods whose data is logged per session

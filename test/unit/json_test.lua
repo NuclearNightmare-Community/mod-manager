@@ -115,7 +115,7 @@ do
     local v, objs = J.decode([[{
   "id": "clock", "name": "Clock", "version": "0.1.0", "scope": "client",
   "game": { "version": "V8.2.3", "build": "26601774" },
-  "dependsOn": [ { "id": "nucleus", "version": ">=0.2.0" } ],
+  "dependsOn": [ { "id": "nuclearnightmare-community.nucleus", "version": ">=0.2.0" } ],
   "settings": { "updateEvery": { "type": "int", "default": 1, "min": 1, "max": 60, "label": "Update every N game minutes" } }
 }]])
     ok(v and v.game.build == "26601774" and v.dependsOn[1].version == ">=0.2.0" and J.isObject(objs, v.settings), "Clock's mod.json")

@@ -4,20 +4,20 @@ A Nuclear Nightmare mod that adds **MANAGE MODS** to the title-screen menu, betw
 
 - Story 3 is **read-only**: nothing is written anywhere. The toggle box shows on, off, or a lock for Nucleus and the Mod Manager (they can't be turned off), and does nothing yet; the status slot stays empty; the gear opens a Configure window with the mod's details, which only closes. Turning mods on and off (story 6), the status icons (story 6) and settings (story 8) come later.
 - Scope `client`: it reads the local game folder only, sends nothing over the network and reads nothing from other players.
-- Version 0.1.0, built for game V8.2.3 (build 26601774) and UE4SS `v3.0.1-1181-g83330635`. Needs Nucleus `>=0.8.0`.
+- Version 0.1.0, built for game V8.2.3 (build 26601774) and UE4SS `v3.0.1-1181-g83330635`. Needs Nucleus `>=0.12.0`.
 - Id `nuclearnightmare-community.mod-manager`; folder, `mods.txt` line and log tag `ModManager` (UE4SS removes spaces from `mods.txt` lines, so the folder can't be `Mod Manager`); shown as "Mod Manager" through `displayName`.
 - License: MIT (`LICENSE`); changes: `CHANGELOG.md`; `build.ps1` stages the release package for the workspace's `tools/release/release.ps1`.
 
 ## Install
 
-Nucleus 0.8.0 or newer must be installed in the dev copy first (its own `deploy.ps1`). Then, from this repo (from a worktree, pass the main checkout's instance path):
+Nucleus 0.12.0 or newer must be installed in the dev copy first (its own `deploy.ps1`). Then, from this repo (from a worktree, pass the main checkout's instance path):
 
 ```powershell
 ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2.3-build26601774
 ./deploy.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2.3-build26601774 -Remove
 ```
 
-`deploy.ps1` refuses, with one line and exit code 1, when Nucleus isn't installed in the copy, is disabled in `mods.txt`, or its installed `mod.json` version doesn't satisfy `dependsOn` (`>=0.8.0`: a minimum, and not below the installed core's `compat.floor`). Core's `dependsOn` entry is the one whose id names Nucleus: `nuclearnightmare-community.nucleus`, or the legacy bare `nucleus` that installed mods (Nucleus's own `mod.json` too) carry until the id renames before the public release. Otherwise it copies `mod.json` and `Scripts/` to `Mods/ModManager/` and puts `ModManager : 1` in `mods.txt` right below Nucleus's line and above `Keybinds : 1`. It never bundles core's files. `-Remove` takes all of it out again; `mods.txt` keeps its exact bytes otherwise.
+`deploy.ps1` refuses, with one line and exit code 1, when Nucleus isn't installed in the copy, is disabled in `mods.txt`, or its installed `mod.json` version doesn't satisfy `dependsOn` (`>=0.12.0`: a minimum, and not below the installed core's `compat.floor`). Core's `dependsOn` entry is the one whose id names Nucleus: `nuclearnightmare-community.nucleus`, compared through the id normalizer (any case, or the `github.com/` long form). Otherwise it copies `mod.json` and `Scripts/` to `Mods/ModManager/` and puts `ModManager : 1` in `mods.txt` right below Nucleus's line and above `Keybinds : 1`. It never bundles core's files. `-Remove` takes all of it out again; `mods.txt` keeps its exact bytes otherwise.
 
 Launch only with the workspace's `tools/launch.ps1 -Instance <copy>`.
 
@@ -33,15 +33,15 @@ Launch only with the workspace's `tools/launch.ps1 -Instance <copy>`.
 - The window's layout: core's `screen` host, a title, a one-row header list and the list of rows, both 360 layout units in from each side. The game scales UI by the shortest side (1080 = 1.0), so 1280x720 and 1920x1080 look the same, and a wider screen only widens the columns.
 - **Strings:** every string the player sees is in `Scripts/strings.lua`, per language (English required, upper case), picked by the game's language (`GetCurrentLanguage`): the exact tag, then the prefix before `-`, then English.
 
-Log lines (`UE4SS.log`): `[ModManager] CONNECT ok ...`, `READY entry=manage need=>=0.8.0`, `OPEN rows=<n> total=<n> lang=<tag> us=<scan and build>` at each open, `MOD <n> <folder> | <name> | <version> | <state> | settings=<yes|no> | need=<..> | build=<..>` once per mod (again when it changes), `CONFIGURE <n> <folder>` when a gear opens Configure, and one `WARN` per problem per session.
+Log lines (`UE4SS.log`): `[ModManager] CONNECT ok ...`, `READY entry=manage need=>=0.12.0`, `OPEN rows=<n> total=<n> lang=<tag> us=<scan and build>` at each open, `MOD <n> <folder> | <name> | <version> | <state> | settings=<yes|no> | need=<..> | build=<..>` once per mod (again when it changes), `CONFIGURE <n> <folder>` when a gear opens Configure, and one `WARN` per problem per session.
 
 ## How it works
 
-- `Scripts/main.lua`: the dependent bootstrap from core's `api-contract.md`, then `connect{ mod = "ModManager", need = ">=0.8.0" }`. In `onReady` it adds the menu entry (`core.ui.menu.entry`, style `options`). A click scans and opens (or refreshes) the window; every callback runs under `pcall`, and a fault is logged once with context.
+- `Scripts/main.lua`: the dependent bootstrap from core's `api-contract.md`, then `connect{ mod = "ModManager", need = ">=0.12.0" }`. In `onReady` it adds the menu entry (`core.ui.menu.entry`, style `options`). A click scans and opens (or refreshes) the window; every callback runs under `pcall`, and a fault is logged once with context.
 - `Scripts/inventory.lua`: the scan, a pure function over a file system it is given (`listDir`, `readFile`, `exists`), so the unit tests run it offline; the game adapter lists folders and paks through `IterateGameDirectories()` and reads `mods.txt` and `mod.json` with `io.open(path, "rb")`. No shell, no write, no path built from a name that hasn't passed the name rule.
-- `Scripts/modid.lua`: a copy of the mod id normalizer of `_bmad-output/specs/spec-distribution-v0/mod-ids.md`, until distribution story 13's shared one. The legacy bare `nucleus` alias is one marked line in `inventory.lua`.
+- Mod ids go through core's normalizer `nucleus.modid` (Nucleus 0.12.0, distribution story 13; `_bmad-output/specs/spec-distribution-v0/mod-ids.md`), loaded with `require` like any pure core module. The Mod Manager ships no copy of it, and the bare `nucleus` is no longer read as core's id.
 - `Scripts/screen.lua`: the windows. Elements are made once per session and reused at every open (index-based ids `r<n>.on|name|ver|st|cfg`); rows past the current count are hidden, never removed.
-- If core is missing, disabled, failed or older than 0.8.0, the log has exactly one `[ModManager]` line naming the cause and the mod does nothing else.
+- If core is missing, disabled, failed or older than 0.12.0, the log has exactly one `[ModManager]` line naming the cause and the mod does nothing else.
 
 ## Tests
 
@@ -51,7 +51,7 @@ Log lines (`UE4SS.log`): `[ModManager] CONNECT ok ...`, `READY entry=manage need
 ./test.ps1                      # or: ./check.ps1 -Scenario unit
 ```
 
-Lua (any Lua 5.3/5.4 on PATH; MiKTeX's `texlua.exe` is one): `json_test` (the reader, its caps and refusals), `modid_test` (the normalizer on mod-ids.md's cases), `strings_test` (the tables, the picker), `inventory_test` (every row of story 3's I/O matrix against a fake file system, `mods.txt` the way UE4SS reads it, the adapter over a stubbed `IterateGameDirectories`), `screen_test` (the windows against a fake `core.ui`: ids, icons, dimmed, tooltips, overflow, the header, reuse, the 200 rows), `main_test` (the bootstrap, the entry, the click, warnings and faults once, nothing written), `driver_test` (the driver loads in every scenario). PowerShell: `deploy_test` (version needs, core ids, `mods.txt` editing, `deploy.ps1` against a fake instance, `build.ps1`'s package), `check_test` (each scenario's checks against synthetic logs), `run_guard_test` (the workspace's run guard).
+Lua (any Lua 5.3/5.4 on PATH; MiKTeX's `texlua.exe` is one): `json_test` (the reader, its caps and refusals), `strings_test` (the tables, the picker), `inventory_test` (every row of story 3's I/O matrix against a fake file system, `mods.txt` the way UE4SS reads it, the adapter over a stubbed `IterateGameDirectories`), `screen_test` (the windows against a fake `core.ui`: ids, icons, dimmed, tooltips, overflow, the header, reuse, the 200 rows), `main_test` (the bootstrap, the entry, the click, warnings and faults once, nothing written), `driver_test` (the driver loads in every scenario). PowerShell: `deploy_test` (version needs, core ids, `mods.txt` editing, `deploy.ps1` against a fake instance, `build.ps1`'s package), `check_test` (each scenario's checks against synthetic logs), `run_guard_test` (the workspace's run guard).
 
 ### Scenarios (in game, unattended)
 
@@ -79,7 +79,7 @@ Fixtures (`deploy.ps1 -Test`, never shipped): `Mods/ModManagerFixture` (mod.json
 | Path | What |
 |---|---|
 | `mod.json` | The manifest (id, name, displayName, version, scope, game build, UE4SS, `dependsOn`) |
-| `Scripts/*.lua` | The mod (what ships): `main`, `inventory`, `json`, `modid`, `strings`, `screen` |
+| `Scripts/*.lua` | The mod (what ships): `main`, `inventory`, `json`, `strings`, `screen` |
 | `deploy.ps1`, `deploy-lib.ps1` | Install/remove; the lib holds the version-need check, the core id rule and `mods.txt` editing |
 | `build.ps1` | The release package (`-Fixtures`: the fixture pak) |
 | `check.ps1`, `run.ps1`, `test.ps1` | Judge a log, run a scenario, run the unit tests |

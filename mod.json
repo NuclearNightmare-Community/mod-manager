@@ -6,6 +6,6 @@
   "scope": "client",
   "game": { "version": "V8.2.3", "build": "26601774" },
   "ue4ss": "v3.0.1-1181-g83330635",
-  "dependsOn": [ { "id": "nuclearnightmare-community.nucleus", "version": ">=0.8.0" } ],
+  "dependsOn": [ { "id": "nuclearnightmare-community.nucleus", "version": ">=0.12.0" } ],
   "license": "MIT"
 }
