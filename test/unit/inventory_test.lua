@@ -140,10 +140,30 @@ do -- Pak joins: a folder plus both paks, case-insensitive; a pak-only row on wh
     ok(rowOf(res, "Weird_P") ~= nil, "LogicMods keeps _P in the name (only Paks drops it)")
 end
 
+do -- LogicMods subfolders (BPModLoaderMod loads their paks too); built-in and shared stems are never rows.
+    local F = stockFs()
+    F.folder("Joined", manifest{ version = "1.0.0" })
+    F.dirs[LM .. "\\Sub"] = true
+    F.files[LM .. "\\Sub\\Deep.pak"] = "pak"
+    F.files[LM .. "\\Sub\\Joined.pak.disabled"] = "pak"
+    F.files[LM .. "\\Sub\\notes.txt"] = "x"
+    F.dirs[LM .. "\\bad dir"] = true
+    F.files[LM .. "\\bad dir\\Hidden.pak"] = "pak"
+    F.pak("Keybinds_P.pak"); F.lm("BPModLoaderMod.pak"); F.lm("shared.pak"); F.pak("BPML_GenericFunctions_P.pak.disabled")
+    local res = I.scan(F, PATHS)
+    local deep = rowOf(res, "Deep")
+    ok(deep and deep.pakOnly and deep.state == "on", "a pak in a LogicMods subfolder is a row (on)")
+    eq(table.concat(rowOf(res, "Joined").paks, ","), "Joined.pak.disabled", "a subfolder pak joins its folder's row")
+    ok(rowOf(res, "Hidden") == nil and warnsLike(res, "^LogicMods folder 'bad dir' is not a mod name") == 1, "a subfolder that isn't a mod name: skipped, one WARN")
+    ok(rowOf(res, "Keybinds") == nil and rowOf(res, "BPModLoaderMod") == nil and rowOf(res, "shared") == nil and rowOf(res, "BPML_GenericFunctions") == nil,
+        "paks named like a built-in or shared: no row")
+    eq(names(res), "Deep,Joined", "only Deep and Joined")
+end
+
 do -- displayName: a bad one is ignored with one WARN per folder, then name, then the folder name.
     local cases = {
         { 5, "a number" }, { string.rep("x", 65), "65 characters" }, { " Lead", "a leading space" }, { "Trail ", "a trailing space" },
-        { "a\nb", "a newline" }, { "a\tb", "a tab" }, { "a\7b", "U+0007" }, { "", "empty" },
+        { "a\nb", "a newline" }, { "a\tb", "a tab" }, { "a\7b", "U+0007" }, { "a\194\133b", "U+0085 (C1)" }, { "\194\159", "U+009F (C1)" }, { "", "empty" },
     }
     for _, c in ipairs(cases) do
         local F = stockFs()
@@ -277,6 +297,8 @@ do
     eq(I.dataText(26601774), "26601774", "dataText: an integer build")
     eq(I.dataText(1.5), nil, "dataText: a float is wrong-typed")
     eq(I.dataText(""), nil, "dataText: empty")
+    eq(I.dataText("1.0\194\133"), nil, "dataText: a C1 control character")
+    eq(I.dataText("1.0\194\160"), "1.0\194\160", "dataText: U+00A0 is not a control character")
     eq(I.dataText(string.rep("\228\184\173", 70)), string.rep("\228\184\173", 64), "dataText: 64 characters, not bytes")
     ok(I.validName("A-b_9") and not I.validName("a.b") and not I.validName("") and not I.validName(string.rep("a", 65)) and I.validName(string.rep("a", 64)), "validName")
 end

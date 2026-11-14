@@ -128,32 +128,8 @@ function Deploy-Scenario {
 }
 
 # ---------------------------------------------------------------- files: the mod writes nothing
-# The state of a copy: mods.txt's SHA-256 and the file names under Content/Paks and Content/Paks/LogicMods.
-function Get-FileState([string] $instance) {
-    $mt = Join-Path $instance 'NuclearNightmare\Binaries\Win64\ue4ss\Mods\mods.txt'
-    $pk = Join-Path $instance 'NuclearNightmare\Content\Paks'
-    $names = { param($d) if (Test-Path $d) { (@(Get-ChildItem -LiteralPath $d -File -Force | ForEach-Object Name | Sort-Object) -join '|') } else { '' } }
-    [pscustomobject]@{
-        ModsTxt = if (Test-Path $mt) { (Get-FileHash -LiteralPath $mt -Algorithm SHA256).Hash } else { 'missing' }
-        Paks = & $names $pk
-        LogicMods = & $names (Join-Path $pk 'LogicMods')
-    }
-}
-# "[run.ps1] FILES unchanged" or "[run.ps1] FILES changed: <what>" (or "not recorded"), appended to the kept log.
-function Get-FilesLine($before, $after) {
-    if (-not $before -or -not $after) { return '[run.ps1] FILES not recorded' }
-    $what = @()
-    if ($before.ModsTxt -ne $after.ModsTxt) { $what += "mods.txt sha256 $($before.ModsTxt) -> $($after.ModsTxt)" }
-    foreach ($k in 'Paks', 'LogicMods') {
-        if ($before.$k -ne $after.$k) {
-            $b = @($before.$k -split '\|' | Where-Object { $_ }); $a = @($after.$k -split '\|' | Where-Object { $_ })
-            $gone = @($b | Where-Object { $_ -notin $a }); $new = @($a | Where-Object { $_ -notin $b })
-            $what += "$k$(if ($gone) { ' removed ' + ($gone -join ',') })$(if ($new) { ' added ' + ($new -join ',') })"
-        }
-    }
-    if ($what) { return "[run.ps1] FILES changed: $($what -join '; ')" }
-    return '[run.ps1] FILES unchanged'
-}
+# Get-FileState and Get-FilesLine live in deploy-lib.ps1 (tested in test/unit/deploy_test.ps1).
+. (Join-Path $here 'deploy-lib.ps1')
 function Add-FilesLine([string] $kept, [string] $line) {
     Write-Host $line
     if (Test-Path $kept) { Add-Content -LiteralPath $kept -Value $line }

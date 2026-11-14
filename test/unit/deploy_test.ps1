@@ -171,6 +171,25 @@ try {
     $before = Txt
     Deploy @('-Remove') | Out-Null
     Eq (Txt) $before 'deploy -Remove twice: nothing changes'
+
+    # ------------------------------------------------------------ run.ps1's FILES check (Get-FileState, Get-FilesLine)
+    $s0 = Get-FileState $inst
+    Eq (Get-FilesLine $s0 (Get-FileState $inst)) '[run.ps1] FILES unchanged' 'files: nothing changed -> unchanged'
+    Ok ($s0.Paks -eq 'NuclearNightmare-Windows.pak' -and $s0.LogicMods -eq '' -and $s0.ModsTxt -match '^[0-9A-F]{64}$') 'files: the state (sha256, Paks, LogicMods)' "$($s0.ModsTxt) $($s0.Paks) $($s0.LogicMods)"
+    [IO.File]::WriteAllText($modsTxt, (Txt) + ' ')
+    Ok ((Get-FilesLine $s0 (Get-FileState $inst)) -match '^\[run\.ps1\] FILES changed: mods\.txt sha256 [0-9A-F]{64} -> [0-9A-F]{64}$') 'files: a mods.txt byte -> changed: mods.txt'
+    [IO.File]::WriteAllText($modsTxt, $before)
+    Set-Content (Join-Path $paks 'New_P.pak') 'x'
+    Eq (Get-FilesLine $s0 (Get-FileState $inst)) '[run.ps1] FILES changed: Paks added New_P.pak' 'files: a pak added in Paks -> changed'
+    Move-Item (Join-Path $paks 'New_P.pak') (Join-Path $paks 'LogicMods\New.pak')
+    Eq (Get-FilesLine $s0 (Get-FileState $inst)) '[run.ps1] FILES changed: LogicMods added New.pak' 'files: a pak added in LogicMods -> changed'
+    $s1 = Get-FileState $inst
+    Remove-Item (Join-Path $paks 'LogicMods\New.pak')
+    Eq (Get-FilesLine $s1 (Get-FileState $inst)) '[run.ps1] FILES changed: LogicMods removed New.pak' 'files: a pak removed in LogicMods -> changed'
+    Rename-Item (Join-Path $paks 'NuclearNightmare-Windows.pak') 'NuclearNightmare-Windows.pak.disabled'
+    Eq (Get-FilesLine $s0 (Get-FileState $inst)) '[run.ps1] FILES changed: Paks removed NuclearNightmare-Windows.pak added NuclearNightmare-Windows.pak.disabled' 'files: a rename in Paks -> changed'
+    Eq (Get-FilesLine $null $s0) '[run.ps1] FILES not recorded' 'files: no state before -> not recorded'
+    Eq (Get-FilesLine $s0 $null) '[run.ps1] FILES not recorded' 'files: no state after -> not recorded'
 } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }

@@ -45,7 +45,7 @@ function I.displayText(v)
     local n = utf8.len(v)
     if not n then return nil, "not UTF-8" end
     if n < 1 or n > I.MAX_TEXT then return nil, "not 1-64 characters" end
-    if v:find("[%z\1-\31\127]") then return nil, "has a control character" end
+    if v:find("[%z\1-\31\127]") or v:find("\194[\128-\159]") then return nil, "has a control character" end -- C0, DEL, C1
     if v:find("^%s") or v:find("%s$") then return nil, "has a leading or trailing space" end
     return v
 end
@@ -57,7 +57,7 @@ function I.dataText(v)
     if type(v) ~= "string" or v == "" then return nil end
     if v:find("[%z\1-\31\127]") then return nil end
     local n = utf8.len(v)
-    if not n then return nil end
+    if not n or v:find("\194[\128-\159]") then return nil end -- not UTF-8, or a C1 control character
     if n > I.MAX_TEXT then v = v:sub(1, utf8.offset(v, I.MAX_TEXT + 1) - 1) end
     return v
 end
@@ -229,10 +229,11 @@ function I.scan(fs, paths)
         end
     end
 
-    -- Paks: <F>_P.pak[.disabled] in Paks and <F>.pak[.disabled] in LogicMods join the row of folder <F>; a pak with no
-    -- folder is a pak-only row, named after its file (without _P), on when any of its paks is enabled.
-    local function addPaks(path, what, base)
-        local files = capped(listOf(fs, path, what, warn).files, what, warn)
+    -- Paks: <F>_P.pak[.disabled] in Paks and <F>.pak[.disabled] in LogicMods (and in its subfolders, which
+    -- BPModLoaderMod loads too) join the row of folder <F>; a pak with no folder is a pak-only row, named after its file
+    -- (without _P), on when any of its paks is enabled. A pak named like a UE4SS built-in or shared is never a row.
+    local function addPaks(listed, what, base)
+        local files = capped(listed, what, warn)
         table.sort(files)
         for _, f in ipairs(files) do
             if type(f) == "string" then
@@ -241,7 +242,7 @@ function I.scan(fs, paths)
                     if base then stem = stem:gsub("_P$", "") end
                     if not I.validName(stem) then
                         warn("name:" .. shown(f), string.format("pak '%s' is not a mod name (1-64 of A-Z a-z 0-9 _ -); not listed", shown(f)))
-                    else
+                    elseif not BUILTIN[stem:lower()] then
                         local key = stem:lower()
                         local row = byKey[key]
                         if not row then
@@ -257,8 +258,18 @@ function I.scan(fs, paths)
             end
         end
     end
-    addPaks(paths.paks, "Paks", true)
-    addPaks(paths.logicMods, "LogicMods", false)
+    addPaks(listOf(fs, paths.paks, "Paks", warn).files, "Paks", true)
+    local lm = listOf(fs, paths.logicMods, "LogicMods", warn)
+    addPaks(lm.files, "LogicMods", false)
+    local subs = capped(lm.dirs, "LogicMods folders", warn)
+    table.sort(subs)
+    for _, d in ipairs(subs) do
+        if not I.validName(d) then
+            warn("name:" .. shown(d), string.format("LogicMods folder '%s' is not a mod name (1-64 of A-Z a-z 0-9 _ -); its paks are not listed", shown(d)))
+        else
+            addPaks(listOf(fs, join(paths.logicMods, d), "LogicMods/" .. d, warn).files, "LogicMods/" .. d, false)
+        end
+    end
 
     -- Order: Nucleus, then the Mod Manager, then the rest by shown name, ignoring case.
     local function rank(r)
