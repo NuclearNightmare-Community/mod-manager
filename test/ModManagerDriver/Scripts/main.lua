@@ -405,7 +405,13 @@ local function buildScreen()
         R.before = sig(readRows())
         say("INERT begin")
     end)
+    -- Each row into the list's view first (step 2 may have scrolled it), as the Configure steps do.
+    local function viewRow(nOf, label)
+        step("view " .. label, function() local n = nOf() if n then nested(function() intoView(n) end) end end)
+    end
+    viewRow(function() return R.fixture end, "the fixture's toggle box")
     clickOn("the fixture's toggle box", function() return R.fixture and cell(R.fixture, "on") end)
+    viewRow(function() return R.nucleus end, "Nucleus's lock")
     clickOn("Nucleus's lock", function() return R.nucleus and cell(R.nucleus, "on") end)
     settle(1)
     step("inert: end", function()

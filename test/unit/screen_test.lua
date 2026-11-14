@@ -165,6 +165,21 @@ do -- Language: German strings when a de table exists; the layout size changes t
     eq(U.byId["hdr.list"].size.w, U.byId.list.size.w, "the header follows")
 end
 
+do -- A create inside build raises once: the next open builds again and works.
+    local U = FakeUi.new()
+    local v = Screen.new(U, S)
+    U.failOn = "hdr.name"
+    local okO = pcall(v.openMain, v, ROWS, "en", SIZE)
+    ok(not okO, "build failing partway raises out of openMain")
+    U.failOn = nil
+    local okO2, err = pcall(v.openMain, v, ROWS, "en", SIZE)
+    ok(okO2, "the next open works", err)
+    ok(U.byId["hdr.name"] ~= nil and U.byId.list ~= nil and U.byId["r5.cfg"] ~= nil and U.byId["r1.name"].text == "Nucleus", "the next open built the header, list and rows")
+    local creates = U.count("text.create")
+    v:openMain(ROWS, "en", SIZE)
+    eq(U.count("text.create"), creates, "and the open after it creates nothing")
+end
+
 do -- A failing core call raises out of openMain (main.lua's guard catches it).
     local U = FakeUi.new()
     U.noMenu = true

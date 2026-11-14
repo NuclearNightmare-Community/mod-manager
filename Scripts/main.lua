@@ -96,6 +96,7 @@ local function start(core)
             result = { rows = {}, total = 0, warns = {} }
         end
         for _, w in ipairs(result.warns) do warnOnce(w.key, "%s", w.msg) end
+        view.lang = lang -- this open's language for the MOD lines too (UNMANAGED)
         logRows(result.rows)
         view:openMain(result.rows, lang, layoutSize())
         log.info("OPEN rows=%d total=%d lang=%s%s", #result.rows, result.total, lang, t0 and string.format(" us=%d", micros() - t0) or "")

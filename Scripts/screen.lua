@@ -142,9 +142,12 @@ function Screen:openMain(rows, lang, size)
     self.data = rows or {}
     self.lang = lang or "en"
     local ui = self.ui
-    if not self.main then
+    if not self.built then
+        -- Marked built only once build succeeds: a failure partway leaves the next open to build again (the same
+        -- ids update what was already made).
         self.main = ui.screen.open{ id = "main" }
         self:build(size)
+        self.built = true
         self:fill()
         return self.main
     end
