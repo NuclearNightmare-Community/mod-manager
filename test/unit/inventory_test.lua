@@ -130,6 +130,7 @@ do -- Pak joins: a folder plus both paks, case-insensitive; a pak-only row on wh
     F.pak("Split_P.pak.disabled"); F.lm("Split.pak")
     F.lm("Logic.pak.disabled")
     F.pak("NoSuffix.pak")
+    F.folder("Lower", '{"version":"1.0.0"}'); F.pak("Lower_p.pak")
     F.lm("Weird_P.pak")
     local res = I.scan(F, PATHS)
     eq(#rowOf(res, "Both").paks, 2, "a folder's _P.pak and LogicMods pak join it (any case)")
@@ -137,6 +138,7 @@ do -- Pak joins: a folder plus both paks, case-insensitive; a pak-only row on wh
     ok(rowOf(res, "Split").pakOnly and rowOf(res, "Split").state == "on" and #rowOf(res, "Split").paks == 2, "pak-only: one row for both paks, on when one is .pak")
     eq(rowOf(res, "Logic").state, "off", "a LogicMods .pak.disabled alone: off")
     ok(rowOf(res, "NoSuffix") ~= nil, "a base pak without _P: named after its file")
+    ok(rowOf(res, "Lower_p") == nil and table.concat(rowOf(res, "Lower").paks, ",") == "Lower_p.pak", "a base pak's _p (any case) joins its folder")
     ok(rowOf(res, "Weird_P") ~= nil, "LogicMods keeps _P in the name (only Paks drops it)")
 end
 
@@ -351,6 +353,29 @@ do
     ok(f3 == nil and tostring(why):find("IterateGameDirectories failed", 1, true), "adapter: a failing IterateGameDirectories is an error, not a raise")
     IterateGameDirectories = function() return {} end
     ok(I.gameFs("x") == nil, "adapter: no Game folder")
+    -- The adapter's own bounds: a mods.txt over its cap is refused from its size, unread, and a folder with more
+    -- entries than MAX_ENTRIES is cut, with one WARN.
+    local MD = R .. "\\Binaries\\Win64\\ue4ss\\Mods"
+    local many = {}
+    for i = 1, 5000 do local n = string.format("M%04d", i) many[n] = dir(MD .. "\\" .. n) end
+    tree.Game.Binaries.Win64.ue4ss.Mods = dir(MD, many, { "mods.txt" })
+    IterateGameDirectories = function() return tree end
+    content[MD .. "\\mods.txt"] = string.rep("x", I.MAX_MODS_TXT + 1)
+    local wrapped = io.open
+    local reads = 0
+    io.open = function(p, mode)
+        local f, e = wrapped(p, mode)
+        if f then local r = f.read f.read = function(...) reads = reads + 1 return r(...) end end
+        return f, e
+    end
+    local fsBig, pathsBig = I.gameFs("C:/nn/copy/NuclearNightmare/Binaries/Win64/ue4ss/Mods")
+    local text, err = fsBig.readFile(pathsBig.mods .. "\\mods.txt", I.MAX_MODS_TXT)
+    ok(text == nil and tostring(err):find("262145 bytes", 1, true) and reads == 0, "adapter: a mods.txt over the cap is refused unread", tostring(err))
+    eq(#fsBig.listDir(pathsBig.mods).dirs, I.MAX_ENTRIES + 1, "adapter: listing stops one past MAX_ENTRIES")
+    local resBig = I.scan(fsBig, pathsBig)
+    eq(warnsLike(resBig, "^the Mods folder has %d+ entries"), 1, "adapter: too many folders: one WARN")
+    eq(resBig.total, I.MAX_ENTRIES + 2, "adapter: at most MAX_ENTRIES folders looked at (+ the X and Nucleus pak rows)")
+    eq(warnsLike(resBig, "^mods%.txt could not be read %(262145 bytes"), 1, "adapter: the big mods.txt's WARN comes through the adapter")
     io.open = realOpen
     IterateGameDirectories = nil
     local src = assert(realOpen(ROOT .. "/Scripts/inventory.lua", "rb")):read("a"):gsub("%-%-[^\n]*", "")

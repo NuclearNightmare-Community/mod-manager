@@ -239,7 +239,7 @@ function I.scan(fs, paths)
             if type(f) == "string" then
                 local stem, enabled = pakParts(f)
                 if stem and not (base and ignoredBasePak(f:lower())) then
-                    if base then stem = stem:gsub("_P$", "") end
+                    if base then stem = stem:gsub("_[Pp]$", "") end -- any case, as the engine reads _P.pak
                     if not I.validName(stem) then
                         warn("name:" .. shown(f), string.format("pak '%s' is not a mod name (1-64 of A-Z a-z 0-9 _ -); not listed", shown(f)))
                     elseif not BUILTIN[stem:lower()] then

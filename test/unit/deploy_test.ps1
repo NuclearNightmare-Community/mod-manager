@@ -50,6 +50,8 @@ $r = Edit-ModsTxt -Lines @('Nucleus : 1', 'ModManager : 1', 'ModManagerX : 1', '
 Eq ($r -join '|') 'Nucleus : 1|ModManagerX : 1|Keybinds : 1' 'mods.txt: remove only ModManager (not ModManagerX)'
 $r = Edit-ModsTxt -Lines $stock -Add @('ModManager') -After 'Nucleus'
 Eq ($r[2]) 'ModManager : 1' 'mods.txt: no Nucleus line -> above Keybinds'
+$r = Edit-ModsTxt -Lines @('Keybinds : 1', 'Nucleus : 1') -Add @('ModManager') -After 'Nucleus'
+Eq ($r -join '|') 'ModManager : 1|Keybinds : 1|Nucleus : 1' 'mods.txt: Nucleus below Keybinds -> still above Keybinds'
 
 # ---------------------------------------------------------------- mod.json and main.lua
 $m = Get-Content (Join-Path $repo 'mod.json') -Raw | ConvertFrom-Json

@@ -193,6 +193,14 @@ do -- The entry, READY, a click, the window, the gear, warnings once, faults onc
     eq(W.iterations, 2, "a second click rescans")
     eq(#lines("^%[ModManager%] MOD %d "), 4, "unchanged data is not logged again")
 
+    -- A mod's data changes: its line is logged once more, the others are not.
+    W.files[MODS .. "\\ModManagerFixture\\mod.json"] = W.files[MODS .. "\\ModManagerFixture\\mod.json"]:gsub("9%.9%.9", "9.9.10")
+    e.onClick()
+    eq(#lines("^%[ModManager%] MOD %d "), 5, "changed data: one more line")
+    eq(#lines("^%[ModManager%] MOD 3 ModManagerFixture | ModManagerFixture | 9%.9%.10 | off | "), 1, "the fixture's new data line")
+    e.onClick()
+    eq(#lines("^%[ModManager%] MOD %d "), 5, "the changed data is not logged again")
+
     -- A bad mod.json appears: one WARN, however many clicks.
     W.folders.Broken = { "mod.json" }
     W.files[MODS .. "\\Broken\\mod.json"] = "{nope"
