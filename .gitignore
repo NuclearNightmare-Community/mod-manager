@@ -1,0 +1,9 @@
+# Worktrees (all work happens in one, then merges to main)
+.worktrees/
+# Build output and logs
+build/
+*.log
+# Written by a test run next to the driver (only ever in a game instance, but never commit a stray copy)
+test/ModManagerDriver/Scripts/scenario.txt
+test/ModManagerDriver/Scripts/request.txt
+test/ModManagerDriver/Scripts/done.txt
