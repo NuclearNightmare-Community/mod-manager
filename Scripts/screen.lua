@@ -69,8 +69,9 @@ function Screen.listSize(size)
 end
 
 -- The lists' places and sizes for a layout size. Both stack in the card's top-left corner after the title: the
--- header list a normal gap below it, the list a tight gap below the header (nudged to the header's left edge). A later call (a new layout size) re-creates
--- both with the same ids and places: core updates them in place and keeps their stack order.
+-- header list a normal gap below it, the list a tight gap below the header (nudged to the header's left edge). A
+-- later call (a new layout size) re-creates both with the same ids and places: core updates them in place and keeps
+-- their stack order.
 function Screen:lists(size)
     local ls = Screen.listSize(size)
     local ui = self.ui

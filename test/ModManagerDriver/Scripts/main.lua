@@ -496,7 +496,7 @@ local function buildScreen()
     -- backdrop, changes nothing. Its Close (core 0.12.0: BACK in the bottom-left of the main window's card): a click
     -- there lands on Configure's backdrop (or, were the cards alike, on Configure's own BACK); had it reached the main
     -- window's BACK, both windows would close (a Close closes the windows above too). So the main window must still be
-    -- open after it, whether Configure is.
+    -- open after it, whether or not Configure is still open.
     clickOn("Nucleus's gear under Configure", function() return R.nucleus and cell(R.nucleus, "cfg") end)
     settle(1)
     step("blocked gear", function()
