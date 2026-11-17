@@ -90,8 +90,10 @@ local function stubGlobals()
     end
     os.execute = function() W.shell = W.shell + 1 end
     io.popen = function() W.shell = W.shell + 1 end
+    local footer = { GetText = function() return { ToString = function() return W.footer end } end }
     local menu = { IsValid = function() return true end, IsInViewport = function() return W.menuUp end,
-        NN_MainFooter = { GetText = function() return { ToString = function() return W.footer end } end } }
+        GetWidgetFromName = function(_, n) if n == "NN_MainFooter" then return footer end return nil end }
+    FName = function(s) return s end
     FindAllOf = function(c) if c == "MainMenu_C" then return { menu } end return nil end
     local pc = { IsValid = function() return true end, GetWorld = function() return "world" end }
     StaticFindObject = function(p)
@@ -109,6 +111,8 @@ local function stubGlobals()
     FindFirstOf = function(c) W.finds = W.finds + 1 return pc end
     LoopAsync = function() W.async = W.async + 1 end
     ExecuteInGameThread = function() W.async = W.async + 1 end
+    -- runs at once here (the game runs it on the next game-thread tick); counted
+    ExecuteInGameThreadWithDelay = function(ms, fn) W.delayed = W.delayed + 1 fn() end
 end
 local function restore()
     print, io.open, os.rename, os.remove, os.execute, io.popen = realPrint, realOpen, realRename, realRemove, realExecute, realPopen
@@ -137,7 +141,7 @@ local TXT0 = "\239\187\191Nucleus : 1\r\nModManager : 1\r\nModManagerFixture : 0
 local function boot(opts)
     opts = opts or {}
     W = { printed = {}, connects = {}, opens = {}, writes = {}, badModes = 0, shell = 0, iterations = 0, finds = 0, async = 0, lang = "en",
-        quits = {}, menuUp = true, footer = "NUCLEAR NIGHTMARE EA V8.2.3",
+        quits = {}, delayed = 0, menuUp = true, footer = "NUCLEAR NIGHTMARE EA V8.2.3",
         folders = { Nucleus = { "mod.json" }, ModManager = { "mod.json" }, ModManagerFixture = { "mod.json" }, ModManagerBase = { "mod.json" },
             ModManagerDep = { "mod.json" }, ModManagerBare = {}, Keybinds = {}, shared = {} },
         paks = { "NuclearNightmare-Windows.pak", "ModManagerPak_P.pak" }, logicMods = { "Nucleus.pak" },
@@ -277,6 +281,7 @@ do -- The entry, READY, a click, the window, the gear, warnings once, faults onc
     -- The gear opens Configure (dimmed or not) and logs it; the fixture's has problem lines and controls.
     U.byId["r1.cfg"].onClick()
     eq(#lines("^%[ModManager%] CONFIGURE 1 Nucleus$"), 1, "Nucleus's dimmed gear opens Configure")
+    eq(W.delayed, 1, "Configure is built on the next game-thread tick (outside the click hook)")
     ok(U.byId["cfg.need"].text == "NUCLEUS -" and U.byId["cfg.none"].visible, "Nucleus: NUCLEUS -, NO SETTINGS")
     fx = rowOf(U, "ModManagerFixture")
     U.byId["r" .. fx .. ".cfg"].onClick()

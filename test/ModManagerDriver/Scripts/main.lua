@@ -192,6 +192,9 @@ local function readRow(n)
     end
     local icon = prop(cell(n, "cfg"), "Icon")
     local tint = try(function() return icon.ColorAndOpacity end)
+    -- Core 0.12.1 draws a focused dimmed button like its undimmed self, so a gear holding keyboard focus reads "focus".
+    local btn = prop(cell(n, "cfg"), "Btn")
+    local focused = btn ~= nil and try(function() return btn:HasKeyboardFocus() end) == true
     local icons, tips = {}, {}
     for k = 1, 3 do
         local img = prop(cell(n, "s" .. k), "Img")
@@ -199,7 +202,7 @@ local function readRow(n)
         if kind then icons[#icons + 1] = kind; tips[#tips + 1] = tipOf(img) or "" end
     end
     return { n = n, name = textOf(cell(n, "name")) or "?", ver = textOf(cell(n, "ver")) or "?", toggle = toggle, box = box,
-        gear = near4(tint, DIM) and "dim" or (tint and "lit" or "?"), status = #icons, icons = #icons > 0 and table.concat(icons, ",") or "-",
+        gear = focused and "focus" or (near4(tint, DIM) and "dim" or (tint and "lit" or "?")), status = #icons, icons = #icons > 0 and table.concat(icons, ",") or "-",
         tips = tips, rect = absR(r) }
 end
 local function readRows()
@@ -213,7 +216,8 @@ local function readRows()
 end
 local function sig(rows)
     local t = {}
-    for i, r in ipairs(rows) do t[i] = string.format("%s|%s|%s|%s|%s|%d|%s", r.name, r.ver, r.toggle, r.box, r.gear, r.status, r.icons) end
+    -- (the gear is judged by the ROW lines and CFGDIM: keyboard focus changes how it is drawn)
+    for i, r in ipairs(rows) do t[i] = string.format("%s|%s|%s|%s|%d|%s", r.name, r.ver, r.toggle, r.box, r.status, r.icons) end
     return table.concat(t, "\n")
 end
 
@@ -434,6 +438,10 @@ local function buildScreen()
         check(#R.rows >= 8, "ROWS %d visible rows (at least the 8 the scenario installs)", #R.rows)
         nested(function()
             for _, r in ipairs(R.rows) do
+                -- the gear read before its own click, while keyboard focus sits on another row's gear
+                step("gear " .. r.n, function()
+                    if r.gear == "focus" then local again = readRow(r.n) if again then r.gear = again.gear end end
+                end)
                 configureOf(function() return r.n end, r.name)
                 step("ROW " .. r.n, function()
                     local d = R.cfg[r.n]

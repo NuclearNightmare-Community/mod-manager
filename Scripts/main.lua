@@ -61,7 +61,8 @@ local function runningGame(fs, paths)
     pcall(function()
         for _, m in ipairs(FindAllOf("MainMenu_C") or {}) do
             if m:IsValid() and m:IsInViewport() then
-                local t = m.NN_MainFooter
+                -- a widget-tree child, not a reflected property: found by name
+                local t = m:GetWidgetFromName(FName("NN_MainFooter"))
                 local s = t:GetText():ToString()
                 if type(s) == "string" and #s <= 256 then
                     for tok in s:gmatch("%S+") do if tok:match("^V%d") then version = tok end end
@@ -387,10 +388,19 @@ local function start(core)
 
     -- ---------------------------------------------------------------- Configure and settings
     local cfgFolder, cfgKey
+    -- The gear's click arrives inside the button's click hook. Configure may create a control kind for the first time
+    -- (core loads its widget class then), and an asset load inside a hook stalls the engine ("Loading is stuck",
+    -- VM run 2026-11-17): so the window is built on the next game-thread tick, outside the hook.
+    local function soon(what, fn)
+        if type(ExecuteInGameThreadWithDelay) == "function" and pcall(ExecuteInGameThreadWithDelay, 10, function() guard(what, fn) end) then return end
+        guard(what, fn)
+    end
     view.onGearClick = function(n)
-        guard("Configure", function()
+        local r0 = view.data[n]
+        local key = r0 and r0.key
+        soon("Configure", function()
             local r = view.data[n]
-            if not r then return end
+            if not r or r.key ~= key then return end -- the list changed in between: nothing opens
             local list = (r.folder and r.settings) and describe(r.folder) or {}
             cfgFolder, cfgKey = r.folder, r.key
             if view:openConfigure(n, list or {}) then log.info("CONFIGURE %d %s", n, r.folder or ("pak:" .. r.key)) end
