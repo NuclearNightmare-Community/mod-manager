@@ -19,6 +19,9 @@
       is "none"; the fixture's names both games and both dependency problems.
     - MEASURE: the long name's desired width over its allotted width (cut), its right edge left of the version
       column's left edge, the header's NAME within 1 unit of the row's name.
+    - TGFIRST (story 11): the first toggle of the session, before any Configure: ENTER on Dep's focused checkbox
+      (TGFIRSTFOCUS) turns it off within 10 s with the restart icon (TGFIRST), a mouse click turns it back on within
+      10 s (TGFIRSTCLICK); so Dep is toggled off and on twice in the run, five TOGGLE lines in all.
     - FIXED: no [ModManager] line between the driver's FIXED begin and FIXED end (the lock and a pak's box log nothing).
     - QUIT: the game closed itself ("[run.ps1] RUN game exited") with "[ModManager] QUIT pending=" after the driver's
       "END result=PASS".
@@ -111,8 +114,10 @@ $expect = @{
         "\[$D\] OK PENDINGOFF ", "\[$D\] OK STATEON ", "\[$D\] OK CONFIRMTEXT ", "\[$D\] OK CONFIRMWAIT ", "\[$D\] OK CONFIRMBACK "
         "\[$D\] OK CONFIRMCLOSED ", "\[$D\] OK CONFIRMOFF ", "\[$D\] OK TGBASEICON ", "\[$D\] OK DEPICON ", "\[$D\] OK PENDINGUI2 "
         "\[$D\] OK STATEBASE ", "\[$D\] OK PAKFIXED ", "\[$D\] OK FIXEDINERT "
-        "#1|\[$M\] TOGGLE ModManagerDep off\s*$", "#1|\[$M\] TOGGLE ModManagerDep on\s*$", "#1|\[$M\] TOGGLE ModManagerBase off\s*$"
-        "#3|\[$M\] TOGGLE "
+        # story 11: the first toggle before any Configure (cold T_Restart): ENTER on Dep's focused checkbox, then a mouse click
+        "\[$D\] OK TGFIRSTFOCUS ", "\[$D\] OK TGFIRST ", "\[$D\] OK TGFIRSTCLICK "
+        "#2|\[$M\] TOGGLE ModManagerDep off\s*$", "#2|\[$M\] TOGGLE ModManagerDep on\s*$", "#1|\[$M\] TOGGLE ModManagerBase off\s*$"
+        "#5|\[$M\] TOGGLE "
         "#1|\[$M\] CONFIRM ModManagerBase cancelled \(close\)\s*$"
         # story 6: Configure's problem lines and settings
         "\[$D\] OK CFGPROBLEMS ", "\[$D\] OK SETKINDS ", "\[$D\] OK SETBY ", "\[$D\] OK SETRO ", "\[$D\] OK SETMARK ", "\[$D\] OK SETFILE "

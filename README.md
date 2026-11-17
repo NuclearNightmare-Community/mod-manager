@@ -3,7 +3,7 @@
 A Nuclear Nightmare mod that adds **MANAGE MODS** to the title-screen menu, between OPTIONS and QUIT. It opens a **MOD MANAGER** window (on Nucleus's window card) that lists every installed mod, one row each: `toggle | name | version | status icons | gear`. A player can turn mods on and off for the next start, see what needs attention, change a mod's settings and quit the game to apply the changes. Built on **Nucleus** (core): its menu entry, windows, lists, rows, images, checkbox, choice and slider controls are core's (`core.ui`), and settings go through core's settings service (`core.settings`). Spec: `_bmad-output/specs/spec-mod-manager-v1/` in the workspace (stories 3 and 6).
 
 - Scope `client`: it reads and writes the local game folder only, sends nothing over the network and reads nothing from other players.
-- Version 0.2.0, built for game V8.2.3 (build 26601774) and UE4SS `v3.0.1-1181-g83330635`. Needs Nucleus `>=0.12.0`.
+- Version 0.2.1, built for game V8.2.3 (build 26601774) and UE4SS `v3.0.1-1181-g83330635`. Needs Nucleus `>=0.12.0`.
 - Id `nuclearnightmare-community.mod-manager`; folder, `mods.txt` line and log tag `ModManager` (UE4SS removes spaces from `mods.txt` lines, so the folder can't be `Mod Manager`); shown as "Mod Manager" through `displayName`.
 - License: MIT (`LICENSE`); changes: `CHANGELOG.md`; `build.ps1` stages the release package for the workspace's `tools/release/release.ps1`.
 

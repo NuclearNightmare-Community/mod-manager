@@ -120,8 +120,16 @@ local function stubGlobals()
     FindFirstOf = function(c) W.finds = W.finds + 1 return pc end
     LoopAsync = function() W.async = W.async + 1 end
     ExecuteInGameThread = function() W.async = W.async + 1 end
-    -- runs at once here (the game runs it on the next game-thread tick); counted
-    ExecuteInGameThreadWithDelay = function(ms, fn) W.delayed = W.delayed + 1 fn() end
+    -- runs at once here (the game runs it on the next game-thread tick); counted. W.queue (a table): queued instead, run
+    -- by drain(), as the game would on its next tick (story 11).
+    ExecuteInGameThreadWithDelay = function(ms, fn)
+        W.delayed = W.delayed + 1
+        if W.queue then W.queue[#W.queue + 1] = fn else fn() end
+    end
+end
+-- The game's next tick: runs what was queued (and what that queues), in order.
+local function drain()
+    while W.queue and #W.queue > 0 do table.remove(W.queue, 1)() end
 end
 local function restore()
     print, io.open, os.rename, os.remove, os.execute, io.popen = realPrint, realOpen, realRename, realRemove, realExecute, realPopen
@@ -215,10 +223,10 @@ do -- Nucleus present: connect{ mod = "ModManager", need = ">=0.12.0" }, nothing
     eq(#W.writes, 0, "onFail writes nothing")
     restore()
 end
-do -- mod.json and main.lua agree on the need; 0.2.0.
+do -- mod.json and main.lua agree on the need; 0.2.1.
     local mj = assert(realOpen(ROOT .. "/mod.json", "rb")):read("a")
     ok(mj:find('"version": ">=0.12.0"', 1, true) and mj:find('"id": "nuclearnightmare-community.nucleus"', 1, true), "mod.json dependsOn nuclearnightmare-community.nucleus >=0.12.0")
-    ok(mj:find('"version": "0.2.0"', 1, true), "mod.json version 0.2.0")
+    ok(mj:find('"version": "0.2.1"', 1, true), "mod.json version 0.2.1")
     local src = assert(realOpen(MAIN, "rb")):read("a")
     ok(src:find('local CORE, NEED, ME = "Nucleus", ">=0.12.0", "ModManager"', 1, true), "main.lua NEED = dependsOn")
 end
@@ -479,6 +487,199 @@ do -- Locked and pak rows: nothing changes, no file changes.
     U.byId["r" .. pak .. ".tg"].checked = false
     U.byId["r" .. pak .. ".tg"].onChange(U.byId["r" .. pak .. ".tg"].handle, false)
     ok(U.byId["r" .. pak .. ".tg"].checked == true and #W.writes == 0, "a stray callback on a fixed row: back on, nothing written")
+    restore()
+end
+
+-- ---------------------------------------------------------------- story 11: no ui work inside core's hook
+-- Core calls onChange / onClick inside a Blueprint hook; an asset load there (the first restart icon loads T_Restart)
+-- stalls the engine. The work runs on the next tick (W.queue, drain()); the fake's hookCalls records any ui.* call
+-- made while the hook flag is up.
+local function hookNames(U) local r = {} for _, c in ipairs(U.hookCalls) do r[#r + 1] = c.name end return table.concat(r, ", ") end
+
+do -- A toggle, queued: nothing on return; after the tick: ': 0', TOGGLE, STATUS, the restart icon.
+    local core, U = session()
+    W.queue = {}
+    local dep = rowOf(U, "Mod Manager Dep")
+    local calls, delayed = #U.calls, W.delayed
+    U.toggle("r" .. dep .. ".tg")
+    eq(W.files[TXT], TXT0, "queued toggle: mods.txt unchanged on return")
+    eq(#lines("TOGGLE"), 0, "queued toggle: no TOGGLE on return")
+    eq(#U.calls, calls, "queued toggle: no ui call on return")
+    eq(W.delayed, delayed + 1, "queued toggle: one ExecuteInGameThreadWithDelay")
+    drain()
+    local off = TXT0:gsub("ModManagerDep : 1", "ModManagerDep : 0")
+    eq(W.files[TXT], off, "after the tick: ': 0'")
+    eq(#lines("^%[ModManager%] TOGGLE ModManagerDep off$"), 1, "after the tick: TOGGLE")
+    eq(#lines("^%[ModManager%] STATUS ModManagerDep restart | "), 1, "after the tick: STATUS")
+    eq(icons(U, rowOf(U, "Mod Manager Dep")), "restart", "after the tick: the restart icon")
+    ok(U.byId.quit.visible and U.byId.banner.visible, "after the tick: banner and QUIT GAME")
+    U.toggle("r" .. rowOf(U, "Mod Manager Dep") .. ".tg")
+    eq(W.files[TXT], off, "back on, queued: nothing written on return")
+    drain()
+    eq(W.files[TXT], TXT0, "back on after the tick: the start's bytes")
+    eq(#U.hookCalls, 0, "no ui call inside the hook", hookNames(U))
+    eq(#lines("WARN"), 0, "no WARN")
+    restore()
+end
+
+do -- The list changed before the tick: nothing written, box n shows its own row.
+    local core, U = session()
+    W.queue = {}
+    local dep = rowOf(U, "Mod Manager Dep")
+    U.toggle("r" .. dep .. ".tg")
+    W.folders.AaaFirst = {} -- sorts first: every mod row after the fixed two moves down one
+    U.open.main = nil; U.entries[1].onClick()
+    ok(rowOf(U, "Mod Manager Dep") ~= dep, "Dep moved")
+    local other = U.byId["r" .. dep .. ".name"].text
+    U.byId["r" .. dep .. ".tg"].checked = false -- as a click would have left it
+    drain()
+    eq(W.files[TXT], TXT0, "list changed: nothing written")
+    eq(#lines("TOGGLE"), 0, "list changed: no TOGGLE")
+    eq(U.byId["r" .. dep .. ".tg"].checked, true, "box n = its own row's state (" .. tostring(other) .. ", on)")
+    eq(#lines("WARN"), 0, "no WARN")
+    restore()
+end
+
+do -- The deferred body throws: box back, COULD NOT SAVE THE CHANGE, one WARN.
+    local core, U = session()
+    W.queue = {}
+    local Status = package.loaded.status
+    local realIsOn = Status.isOn
+    Status.isOn = function() error("boom isOn") end
+    local dep = rowOf(U, "Mod Manager Dep")
+    U.toggle("r" .. dep .. ".tg")
+    drain()
+    Status.isOn = realIsOn
+    eq(U.byId["r" .. dep .. ".tg"].checked, true, "a throw: the box back")
+    ok(U.byId.msg.visible and U.byId.msg.text == "COULD NOT SAVE THE CHANGE", "a throw: COULD NOT SAVE THE CHANGE")
+    eq(#lines("^%[ModManager%] WARN the toggle failed: .*boom isOn"), 1, "one WARN 'the toggle failed'")
+    eq(#lines("WARN"), 1, "only that WARN")
+    eq(W.files[TXT], TXT0, "nothing written")
+    restore()
+end
+
+do -- No scheduler, or one that raises: the work runs inline (as 0.2.0).
+    local core, U = session()
+    ExecuteInGameThreadWithDelay = nil
+    U.toggle("r" .. rowOf(U, "Mod Manager Dep") .. ".tg")
+    eq(W.files[TXT], (TXT0:gsub("ModManagerDep : 1", "ModManagerDep : 0")), "no scheduler: written at once")
+    ExecuteInGameThreadWithDelay = function() error("boom scheduler") end
+    U.toggle("r" .. rowOf(U, "Mod Manager Dep") .. ".tg")
+    eq(W.files[TXT], TXT0, "a raising scheduler: written at once")
+    eq(#lines("TOGGLE"), 2, "both toggles logged")
+    eq(#lines("WARN"), 0, "no WARN")
+    restore()
+end
+
+do -- Settings: queued; Configure changed before the tick; a throw after the save.
+    local core, U = session()
+    W.queue = {}
+    local fx = rowOf(U, "ModManagerFixture")
+    U.click("r" .. fx .. ".cfg")
+    eq(U.open.configure, nil, "the gear: queued too")
+    drain()
+    ok(U.open.configure and U.byId["s1.cb"].visible, "Configure open after the tick")
+    U.toggle("s1.cb")
+    eq(#core.settings.sets, 0, "queued setting: no setFor on return")
+    eq(#lines("SET "), 0, "queued setting: no SET on return")
+    drain()
+    eq(#lines("^%[ModManager%] SET ModManagerFixture flag=true$"), 1, "after the tick: SET")
+    -- Configure changed (another mod's) before the tick: nothing saved
+    U.toggle("s1.cb")
+    W.queue = nil; U.byId["r1.cfg"].onClick(); W.queue = {} -- Nucleus's Configure opens first
+    drain()
+    eq(#core.settings.sets, 1, "Configure changed: no setFor")
+    -- back on the fixture; describe breaks after the save: the value stands, guard's WARN only
+    W.queue = nil; U.byId["r" .. fx .. ".cfg"].onClick(); W.queue = {}
+    eq(U.byId["s1.cb"].checked, true, "the fixture's flag still true")
+    core.settings.describe = function() return setmetatable({}, { __index = function() error("boom describe") end }) end
+    U.toggle("s1.cb")
+    drain()
+    eq(#lines("^%[ModManager%] SET ModManagerFixture flag=false$"), 1, "saved before the throw")
+    eq(#lines("^%[ModManager%] WARN the setting failed: .*boom describe"), 1, "one WARN 'the setting failed'")
+    eq(U.byId["s1.cb"].checked, false, "the value kept (not set back)")
+    ok(not (U.byId["cfg.msg"].visible and tostring(U.byId["cfg.msg"].text):find("NOT SAVED")), "no NOT SAVED")
+    eq(#lines("WARN"), 1, "only that WARN")
+    eq(#U.hookCalls, 0, "no ui call inside the hook", hookNames(U))
+    restore()
+end
+
+do -- A setting's deferred body throws before the save succeeded: the control back, NOT SAVED (error), guard's WARN.
+    local core, U = session()
+    W.queue = {}
+    U.click("r" .. rowOf(U, "ModManagerFixture") .. ".cfg"); drain()
+    U.slide("s2.sl", 5)
+    core.settings.refuse = "write-failed disk full"
+    local realSet = U.text.set
+    U.text.set = function() U.text.set = realSet error("boom text") end -- the refusal's message raises once
+    drain()
+    eq(U.byId["s2.sl"].value, 1, "a throw before the save: the slider back")
+    eq(U.byId["cfg.msg"].text, "NOT SAVED (error)", "NOT SAVED (error)")
+    eq(#lines("^%[ModManager%] WARN the setting failed: .*boom text"), 1, "one WARN 'the setting failed'")
+    restore()
+end
+
+do -- TURN OFF: queued; BACK before the tick cancels; a throw sets the box back.
+    local core, U = session()
+    W.queue = {}
+    local base = rowOf(U, "Mod Manager Base")
+    U.toggle("r" .. base .. ".tg"); drain()
+    ok(U.open.confirm, "the confirm (after the tick)")
+    U.click("confirm.ok")
+    eq(W.files[TXT], TXT0, "TURN OFF queued: nothing written on return")
+    ok(U.open.confirm, "TURN OFF queued: the confirm still open on return")
+    drain()
+    eq(W.files[TXT], (TXT0:gsub("ModManagerBase : 1", "ModManagerBase : 0")), "TURN OFF after the tick: ': 0'")
+    ok(not U.open.confirm, "the confirm closed")
+    eq(#U.hookCalls, 0, "no ui call inside the hook", hookNames(U))
+    restore()
+
+    core, U = session()
+    W.queue = {}
+    base = rowOf(U, "Mod Manager Base")
+    U.toggle("r" .. base .. ".tg"); drain()
+    U.click("confirm.ok")
+    U.back("confirm")
+    drain()
+    eq(W.files[TXT], TXT0, "BACK before the tick: nothing written")
+    eq(U.byId["r" .. base .. ".tg"].checked, true, "BACK before the tick: the box on")
+    eq(#lines("TOGGLE"), 0, "no TOGGLE")
+    restore()
+
+    core, U = session()
+    W.queue = {}
+    base = rowOf(U, "Mod Manager Base")
+    U.toggle("r" .. base .. ".tg"); drain()
+    local realClose = U.screen.close
+    U.screen.close = function() U.screen.close = realClose error("boom close") end
+    U.click("confirm.ok")
+    drain()
+    eq(U.byId["r" .. base .. ".tg"].checked, true, "TURN OFF throws: the box back on")
+    ok(U.byId.msg.visible and U.byId.msg.text == "COULD NOT SAVE THE CHANGE", "TURN OFF throws: COULD NOT SAVE THE CHANGE")
+    eq(#lines("^%[ModManager%] WARN TURN OFF failed: .*boom close"), 1, "one WARN 'TURN OFF failed'")
+    eq(W.files[TXT], TXT0, "nothing written")
+    restore()
+end
+
+do -- The guard: every toggle, pick, slide and click with the queue on makes no ui call inside the hook.
+    local core, U = session()
+    W.queue = {}
+    local function step(f) f(); drain() end
+    step(function() U.toggle("r" .. rowOf(U, "Mod Manager Dep") .. ".tg") end)   -- off: the first restart icon
+    step(function() U.toggle("r" .. rowOf(U, "Mod Manager Dep") .. ".tg") end)   -- on
+    step(function() U.toggle("r" .. rowOf(U, "Mod Manager Base") .. ".tg") end)  -- the confirm
+    step(function() U.click("confirm.ok") end)                                    -- TURN OFF
+    step(function() U.toggle("r" .. rowOf(U, "Mod Manager Base") .. ".tg") end)  -- back on
+    step(function() U.click("r1.cfg") end)                                        -- a gear
+    step(function() U.click("r" .. rowOf(U, "ModManagerFixture") .. ".cfg") end)
+    step(function() U.toggle("s1.cb") end)
+    step(function() U.pick("s3.ch", 3) end)
+    step(function() U.slide("s2.sl", 4) end)
+    step(function() U.toggle("s4.cb") end)                                        -- a restart setting
+    eq(#lines("TOGGLE"), 4, "the toggles ran")
+    eq(#lines("SET "), 4, "the settings ran")
+    eq(#U.hookCalls, 0, "no ui call inside the hook", hookNames(U))
+    eq(#lines("WARN"), 0, "no WARN")
     restore()
 end
 
