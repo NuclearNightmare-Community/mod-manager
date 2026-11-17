@@ -250,6 +250,10 @@ if ($Scenario -eq 'screen') {
         if (-not $between) { Pass 'FIXED the lock and the pak box logged no [ModManager] line' } else { Fail "FIXED the lock and the pak box logged: $($between -join ' / ')" }
     } else { Fail 'FIXED begin/end lines' }
 
+    # ---- TGFIRST before any Configure (story 11): a Configure first may warm core's restart texture and hide the freeze
+    $itf, $icf = (IndexOf "\[$D\] OK TGFIRST "), (IndexOf "\[$M\] CONFIGURE ")
+    if ($itf -ge 0 -and $icf -gt $itf) { Pass 'TGFIRST came before the first CONFIGURE' } else { Fail "TGFIRST came before the first CONFIGURE (TGFIRST at line $itf, CONFIGURE at line $icf)" }
+
     # ---- QUIT: QUIT GAME after END result=PASS, then the game closed itself (no crash: the $always patterns)
     $iend, $iquit = (IndexOf "\[$D\] END result=PASS"), (IndexOf "\[$M\] QUIT pending=")
     if ($iend -ge 0 -and $iquit -gt $iend) { Pass 'QUIT GAME clicked after END result=PASS' } else { Fail "QUIT GAME clicked after END result=PASS (END at line $iend, QUIT at line $iquit)" }

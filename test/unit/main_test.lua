@@ -571,6 +571,38 @@ do -- No scheduler, or one that raises: the work runs inline (as 0.2.0).
     restore()
 end
 
+do -- A setting with no scheduler, or one that raises: saved inline.
+    local core, U = session()
+    U.click("r" .. rowOf(U, "ModManagerFixture") .. ".cfg")
+    ok(U.open.configure, "Configure open")
+    ExecuteInGameThreadWithDelay = nil
+    U.toggle("s1.cb")
+    eq(#core.settings.sets, 1, "no scheduler: setFor at once")
+    eq(#lines("^%[ModManager%] SET ModManagerFixture flag=true$"), 1, "no scheduler: SET at once")
+    ExecuteInGameThreadWithDelay = function() error("boom scheduler") end
+    U.toggle("s1.cb")
+    eq(#core.settings.sets, 2, "a raising scheduler: setFor at once")
+    eq(#lines("^%[ModManager%] SET ModManagerFixture flag=false$"), 1, "a raising scheduler: SET at once")
+    eq(#lines("WARN"), 0, "no WARN")
+    restore()
+end
+
+do -- TURN OFF with no scheduler, or one that raises: written inline.
+    for _, sched in ipairs({ "nil", "raises" }) do
+        local core, U = session()
+        local base = rowOf(U, "Mod Manager Base")
+        U.toggle("r" .. base .. ".tg")
+        ok(U.open.confirm, sched .. ": the confirm")
+        if sched == "nil" then ExecuteInGameThreadWithDelay = nil else ExecuteInGameThreadWithDelay = function() error("boom scheduler") end end
+        U.click("confirm.ok")
+        eq(W.files[TXT], (TXT0:gsub("ModManagerBase : 1", "ModManagerBase : 0")), sched .. " scheduler: TURN OFF written at once")
+        ok(not U.open.confirm, sched .. " scheduler: the confirm closed")
+        eq(#lines("^%[ModManager%] TOGGLE ModManagerBase off$"), 1, sched .. " scheduler: TOGGLE")
+        eq(#lines("WARN"), 0, sched .. " scheduler: no WARN")
+        restore()
+    end
+end
+
 do -- Settings: queued; Configure changed before the tick; a throw after the save.
     -- (Base declares a setting too, so its Configure has a different key at index 1)
     boot{ files = { [MODS .. "\\ModManagerBase\\mod.json"] = (MJ.ModManagerBase:gsub('}$', ',"settings":{"other":{}}}')) } }

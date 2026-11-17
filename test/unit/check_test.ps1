@@ -171,9 +171,13 @@ Expect ($good | Where-Object { $_ -notmatch 'STATUS ModManagerDep dep \|' }) 'sc
 Expect ($good | Where-Object { $_ -notmatch 'TOGGLE ModManagerDep on' }) 'screen' 1 'screen: no TOGGLE Dep on fails' 'TOGGLE ModManagerDep on'
 Expect ($good + (L $M 'TOGGLE ModManagerFixture on')) 'screen' 1 'screen: an extra TOGGLE fails' '#5'
 # story 11: the first toggle's checks are required; without its two toggles the counts fail.
-foreach ($k in 'TGFIRSTFOCUS', 'TGFIRST ', 'TGFIRSTCLICK') {
+foreach ($k in 'TGFIRSTCOLD', 'TGFIRSTFOCUS', 'TGFIRST ', 'TGFIRSTCLICK') {
     Expect ($good | Where-Object { $_ -notmatch "OK $k" }) 'screen' 1 "screen: no $($k.Trim()) fails" "OK $($k.Trim())"
 }
+# story 11: a CONFIGURE above the first toggle (it may warm the restart texture) fails.
+$cfgFirst = @($good | Where-Object { $_ -notmatch '\] CONFIGURE 1 Nucleus' })
+$iCold = [array]::IndexOf($cfgFirst, ($cfgFirst | Where-Object { $_ -match 'OK TGFIRSTCOLD' } | Select-Object -First 1))
+Expect ($cfgFirst[0..($iCold - 1)] + (L $M 'CONFIGURE 1 Nucleus') + $cfgFirst[$iCold..($cfgFirst.Count - 1)]) 'screen' 1 'screen: a Configure before the first toggle fails' 'FAIL: TGFIRST came before the first CONFIGURE'
 $noFirst = @($good | Where-Object { $_ -notmatch 'TGFIRST' })
 $i1 = [array]::IndexOf($noFirst, ($noFirst | Where-Object { $_ -match '\] TOGGLE ModManagerDep off' } | Select-Object -First 1))
 Expect ($noFirst[0..($i1 - 1)] + $noFirst[($i1 + 4)..($noFirst.Count - 1)]) 'screen' 1 'screen: only one Dep off/on (no first toggle) fails' '#2'
