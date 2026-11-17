@@ -85,7 +85,7 @@ local function runningGame(fs, paths)
                 -- a widget-tree child, neither a reflected property nor reachable through GetWidgetFromName (not
                 -- reflected on this game): found by name in a bounded walk from the tree's root (CanvasPanel_17 holds it)
                 local t = findWidget(m.WidgetTree.RootWidget, FOOTER, 4, { n = 0 })
-                local s = t:GetText():ToString()
+                local s = t and t:GetText():ToString() -- no footer in this menu: try the next one
                 if type(s) == "string" and #s <= 256 then
                     for tok in s:gmatch("%S+") do if tok:match("^V%d") then version = tok end end
                 end
@@ -256,10 +256,10 @@ local function start(core)
                 if State.hasSeen(session.state, key) then return end
                 local function at(v, b) return fmt("gameAt", Screen.clean(v or "-", 64), Screen.clean(b or "-", 64)) end
                 local text = fmt("alert", Screen.clean(r.version or "-", 64), at(r.gameVersion, r.gameBuild), at(session.running.version, session.running.build))
+                view:openAlert(text) -- first: a key is recorded only for an alert that was shown
+                log.info("ALERT nucleus-build")
                 State.addSeen(session.state, key)
                 if fs then saveState(fs, paths) end
-                view:openAlert(text)
-                log.info("ALERT nucleus-build")
                 return
             end
         end
@@ -324,7 +324,10 @@ local function start(core)
             local e = paths.mods .. "\\" .. row.folder .. "\\enabled.txt"
             local okR, errR = Files.renameAside(fs, e, e .. ".disabled")
             if not okR then
-                if changed then Files.atomicWrite(fs, txt, old) end -- put mods.txt back as it was
+                if changed then -- put mods.txt back as it was
+                    local okB, errB = Files.atomicWrite(fs, txt, old)
+                    if not okB then return nil, errR .. "; mods.txt could not be put back (" .. tostring(errB) .. ")" end
+                end
                 return nil, errR
             end
         end
@@ -400,11 +403,11 @@ local function start(core)
     -- ---------------------------------------------------------------- Quit
     view.onQuit = function()
         guard("QUIT GAME", function()
-            log.info("QUIT pending=%d", session.pending)
             local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
             local pc = FindFirstOf("PlayerController") -- fresh; nothing kept
             if not (ksl and ksl:IsValid() and pc and pc:IsValid()) then error("no KismetSystemLibrary or PlayerController") end
             ksl:QuitGame(pc:GetWorld(), pc, 0, false)
+            log.info("QUIT pending=%d", session.pending) -- only once QuitGame returned
         end)
     end
 

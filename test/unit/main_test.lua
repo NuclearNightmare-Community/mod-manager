@@ -62,7 +62,10 @@ local function stubGlobals()
         W.opens[#W.opens + 1] = { path = p, mode = mode }
         if mode == "wb" then
             W.writes[#W.writes + 1] = p
-            if W.failWrite and p:find(W.failWrite) then W.failWrite = nil return nil, p .. ": Permission denied" end
+            if W.failWrite and p:find(W.failWrite) then
+                if (W.failWriteSkip or 0) > 0 then W.failWriteSkip = W.failWriteSkip - 1
+                else W.failWrite = nil return nil, p .. ": Permission denied" end
+            end
             local buf = {}
             return { write = function(self, s) buf[#buf + 1] = s return self end, flush = function(self) return self end,
                 close = function() W.files[p] = table.concat(buf) return true end }
@@ -436,6 +439,14 @@ do -- Write fails: previous file intact, box set back, COULD NOT SAVE THE CHANGE
     U.toggle("r" .. dep .. ".tg")
     ok(W.files[TXT] == TXT0 and W.files[MODS .. "\\ModManagerDep\\enabled.txt"] == "", "enabled.txt rename failed: mods.txt put back, enabled.txt stays")
     ok(U.byId["r" .. dep .. ".tg"].checked == true, "the box set back")
+    -- the rename fails and putting mods.txt back fails too: the WARN says so
+    W.failRename = "enabled%.txt$"
+    W.failWrite, W.failWriteSkip = "mods%.txt%.mm%-tmp$", 1 -- the toggle's own write passes, the rollback's fails
+    U.toggle("r" .. dep .. ".tg")
+    eq(#lines("^%[ModManager%] WARN could not turn ModManagerDep off: renaming enabled%.txt: .*; mods%.txt could not be put back %(writing mods%.txt%.mm%-tmp: .*%)$"), 1,
+        "rollback failed: the WARN names mods.txt not put back")
+    ok(U.byId["r" .. dep .. ".tg"].checked == true and U.byId.msg.text == "COULD NOT SAVE THE CHANGE", "the box set back, the message shown")
+    W.files[TXT] = TXT0 -- (the failed rollback left Dep's 0 in place; back to the start for the next step)
     -- the next success clears the message
     U.toggle("r" .. dep .. ".tg")
     ok(not U.byId.msg.visible, "a success clears the message line")
@@ -485,6 +496,20 @@ do -- Nucleus made for another game: the alert once; not again once seen holds t
     core.ui.back("alert"); core.ui.open.main = nil
     core.ui.entries[1].onClick()
     eq(#lines("ALERT"), 1, "not again this session")
+    restore()
+    -- an alert window that can't open: nothing recorded, so the next open shows it
+    boot()
+    W.files[MODS .. "\\Nucleus\\mod.json"] = MJ.Nucleus:gsub("V8%.2%.3", "V8.1.0"):gsub("26601774", "26000000")
+    core = newCore()
+    connect(core)
+    local realOpenW = core.ui.screen.open
+    core.ui.screen.open = function(o) if o.id == "alert" then error("boom alert") end return realOpenW(o) end
+    core.ui.entries[1].onClick()
+    ok(#lines("ALERT") == 0 and W.files[STATE] == nil, "the alert failed to open: no ALERT line, no key saved")
+    core.ui.screen.open = realOpenW
+    core.ui.open.main = nil
+    core.ui.entries[1].onClick()
+    ok(#lines("ALERT nucleus%-build") == 1 and core.ui.open.alert, "the next open shows it")
     restore()
     -- a new session with the same state: no alert
     boot{ files = { [STATE] = '{"version":1,"off":[],"seen":["nucleus-build 0.12.1 V8.2.3"]}' } }
@@ -590,6 +615,16 @@ do -- Pending, QUIT GAME: QUIT pending=<n>, QuitGame once with a fresh PlayerCon
     eq(#W.quits, 1, "QuitGame called once")
     ok(W.quits[1][1] == "world" and W.quits[1][3] == 0 and W.quits[1][4] == false, "QuitGame(world, pc, 0 (Quit), false)")
     ok(W.finds > finds, "the PlayerController found fresh")
+    restore()
+end
+do -- A QuitGame that raises: no QUIT line, one WARN.
+    local core, U = session()
+    U.toggle("r" .. rowOf(U, "Mod Manager Dep") .. ".tg")
+    local realSFO = StaticFindObject
+    StaticFindObject = function(p) if p:find("KismetSystemLibrary", 1, true) then return { IsValid = function() return true end, QuitGame = function() error("boom quit") end } end return realSFO(p) end
+    U.byId.quit.onClick()
+    eq(#lines("QUIT pending"), 0, "a failed quit logs no QUIT line")
+    eq(#lines("^%[ModManager%] WARN QUIT GAME failed: .*boom quit"), 1, "one WARN")
     restore()
 end
 
