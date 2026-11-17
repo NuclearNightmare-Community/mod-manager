@@ -8,8 +8,9 @@
 -- mods.txt order (deploy.ps1): <Core>, ModManagerDriver, ModManager.
 --
 -- Scenarios (Scripts/scenario.txt, written by deploy.ps1):
---   screen:   the entry; the main window's rows (ROW lines with the toggle, its box, the status icons; need and build
---             read from each row's Configure window); one DOWN right after the first open and a focus shot; MEASURE of
+--   screen:   the entry; the main window's rows (ROW lines with the toggle, its box, the status icons; the gear, need
+--             and build from each row's Configure window: gear=dim when it shows NO SETTINGS, lit when it lists
+--             settings; GEARLOOK: the gear drawn that way, judged only when it doesn't hold keyboard focus); one DOWN right after the first open and a focus shot; MEASURE of
 --             the long name; CARDFIT (the content inside the card, the list above BACK); story 6: Dep off and on with
 --             mods.txt and state.json read back, Base off through the confirm (BACK, then TURN OFF), the restart and
 --             dependency icons, the banner and QUIT GAME (CARDFIT2), Nucleus's lock and a pak's disabled box changing
@@ -174,7 +175,7 @@ local function tipOf(w) return try(function() return w.ToolTipText:ToString() en
 local function near4(c, want) return c ~= nil and math.abs(c.R - want[1]) < 0.01 and math.abs(c.G - want[2]) < 0.01 and math.abs(c.B - want[3]) < 0.01 and math.abs(c.A - want[4]) < 0.01 end
 -- One row as drawn (story 6): name, version, toggle (on | off | lock: the lock image r<n>.on when it is shown, else
 -- the checkbox r<n>.tg's texture), box (live | fixed: the checkbox's opacity, dimmed when disabled | none for the
--- lock), gear (lit | dim), status (how many of r<n>.s1..s3 show a texture, and which: warning | restart), the status
+-- lock), gear (the look: lit | dim, or focus when it holds keyboard focus; ROW's gear comes from Configure), status (how many of r<n>.s1..s3 show a texture, and which: warning | restart), the status
 -- images' tooltips, and its rectangle.
 local function readRow(n)
     local r = rowW(n)
@@ -192,7 +193,8 @@ local function readRow(n)
     end
     local icon = prop(cell(n, "cfg"), "Icon")
     local tint = try(function() return icon.ColorAndOpacity end)
-    -- Core 0.12.1 draws a focused dimmed button like its undimmed self, so a gear holding keyboard focus reads "focus".
+    -- Core 0.12.1+ draws a focused dimmed button like its undimmed self, so a gear holding keyboard focus reads "focus"
+    -- (only GEARLOOK uses the look; ROW's gear is what Configure offers).
     local btn = prop(cell(n, "cfg"), "Btn")
     local focused = btn ~= nil and try(function() return btn:HasKeyboardFocus() end) == true
     local icons, tips = {}, {}
@@ -216,7 +218,7 @@ local function readRows()
 end
 local function sig(rows)
     local t = {}
-    -- (the gear is judged by the ROW lines and CFGDIM: keyboard focus changes how it is drawn)
+    -- (no gear: ROW takes it from Configure, GEARLOOK and CFGDIM judge its look; keyboard focus changes how it is drawn)
     for i, r in ipairs(rows) do t[i] = string.format("%s|%s|%s|%s|%d|%s", r.name, r.ver, r.toggle, r.box, r.status, r.icons) end
     return table.concat(t, "\n")
 end
@@ -378,7 +380,7 @@ local function intoView(n, tries)
 end
 
 -- A row's Configure window (nOf: a function giving the row's index when the steps run): open it with the gear and
--- read it into R.cfg[n]; it stays open.
+-- read it into R.cfg[n] (gear: dim when it shows NO SETTINGS, lit when it lists settings, else ?); it stays open.
 local function configureOf(nOf, label)
     step("view " .. label, function()
         local n = nOf()
@@ -390,7 +392,10 @@ local function configureOf(nOf, label)
     settle(0.5)
     step("read Configure " .. label, function()
         local n = nOf()
-        if n then R.cfg[n] = screenOf("configure") and { title = cfgText("title"), ver = cfgText("ver"), need = cfgText("need"), build = cfgText("build") } or nil end
+        if n then
+            R.cfg[n] = screenOf("configure") and { title = cfgText("title"), ver = cfgText("ver"), need = cfgText("need"), build = cfgText("build"),
+                gear = shownW(cfgEl("none")) and "dim" or (shownW(cfgEl("list")) and "lit" or "?") } or nil
+        end
     end)
 end
 local function closeConfigure(label)
@@ -410,8 +415,8 @@ local function buildScreen()
     -- 2. The rows, each one's Configure data, the long name's measure, a screenshot.
     openMain("first")
     -- One DOWN with the keyboard right after the first open, while the window's focus is still on its first line (row
-    -- 1's gear; later the gear clicks move it), then a shot of the focus: row 2's gear. A visible highlight needs core
-    -- story 28; the shot is not judged, FOCUS only says where the keyboard focus is.
+    -- 1's gear; later the gear clicks move it), then a shot of the focus: row 2's gear, which core 0.12.2 shows as a
+    -- band across the whole row. The shot is not judged, FOCUS only says where the keyboard focus is.
     step("focus: cursor away", function() return request("move 5 5"), 30, "cursor away" end)
     step("focus: DOWN", function()
         say("KEY DOWN")
@@ -438,9 +443,10 @@ local function buildScreen()
         check(#R.rows >= 8, "ROWS %d visible rows (at least the 8 the scenario installs)", #R.rows)
         nested(function()
             for _, r in ipairs(R.rows) do
-                -- the gear read before its own click, while keyboard focus sits on another row's gear
+                -- the gear's look read just before its own click (focus has moved since readRows)
                 step("gear " .. r.n, function()
-                    if r.gear == "focus" then local again = readRow(r.n) if again then r.gear = again.gear end end
+                    local again = readRow(r.n)
+                    r.look = again and again.gear or r.gear
                 end)
                 configureOf(function() return r.n end, r.name)
                 step("ROW " .. r.n, function()
@@ -448,7 +454,11 @@ local function buildScreen()
                     local need = d and d.need and d.need:match("^NUCLEUS (.*)$") or "?"
                     local build = d and d.build and d.build:match("^GAME BUILD (.*)$") or "?"
                     check(d ~= nil and d.title == r.name and d.ver == "VERSION " .. r.ver, "CFGDATA %d heading %s, %s", r.n, tostring(d and d.title), tostring(d and d.ver))
-                    say("ROW %s | %s | toggle=%s | box=%s | gear=%s | status=%d | icons=%s | need=%s | build=%s", r.name, r.ver, r.toggle, r.box, r.gear, r.status, r.icons, need, build)
+                    local gear = d and d.gear or "?"
+                    say("ROW %s | %s | toggle=%s | box=%s | gear=%s | status=%d | icons=%s | need=%s | build=%s", r.name, r.ver, r.toggle, r.box, gear, r.status, r.icons, need, build)
+                    -- the look, judged only on a gear without keyboard focus (focus draws a dimmed gear lit)
+                    if r.look == "focus" then say("GEARLOOK %d skipped (focused)", r.n)
+                    else check(r.look == gear, "GEARLOOK %d %s looks %s (offers %s)", r.n, r.name, tostring(r.look), gear) end
                 end)
                 closeConfigure(r.name)
             end
