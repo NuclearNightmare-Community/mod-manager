@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
   Runs the Mod Manager's unit tests, no game needed: the Lua tests (the JSON reader, the id normalizer, the strings,
-  the inventory against a fake file system, the screen against a fake core.ui, main.lua's bootstrap and glue against a
+  the inventory against a fake file system, story 6's pure modules (mods.txt, atomic writes, state, status), the
+  screen against a fake core.ui, main.lua's bootstrap and glue against a
   fake core, the driver's load test) and the PowerShell tests (deploy-lib.ps1 and deploy.ps1 against a fake instance,
   run.ps1's run guard, check.ps1 against synthetic logs). check.ps1 -Scenario unit runs this too.
   Lua: the first of lua, lua5.4, lua54, lua5.3, texlua (MiKTeX's texlua.exe is Lua 5.3) found on PATH; -Lua picks one.
@@ -31,7 +32,7 @@ try {
         } else {
             $oldLuaPath = $env:LUA_PATH
             $env:LUA_PATH = ($pkg -replace '\\', '/') + '/?.lua;;'
-            foreach ($t in 'json_test', 'strings_test', 'inventory_test', 'screen_test', 'main_test', 'driver_test') {
+            foreach ($t in 'json_test', 'strings_test', 'inventory_test', 'modstxt_test', 'files_test', 'state_test', 'status_test', 'screen_test', 'main_test', 'driver_test') {
                 # texlua prints a MiKTeX update reminder on stderr; only the test's own output matters.
                 $out = & $Lua "test/unit/$t.lua" 2>$null
                 $code = $LASTEXITCODE

@@ -8,11 +8,15 @@
 -- mods.txt order (deploy.ps1): <Core>, ModManagerDriver, ModManager.
 --
 -- Scenarios (Scripts/scenario.txt, written by deploy.ps1):
---   screen:   the entry; the main window's rows (ROW lines, need and build read from each row's Configure window);
---             one DOWN right after the first open and a focus shot; MEASURE of the long name; CARDFIT (the content
---             inside the card, the list above BACK); inert toggle boxes (INERT); Configure on top of the main window, a
---             dimmed gear's Configure, the main window's Close blocked under it; closes; Tower Island and back; the
---             entry again, the same rows (DW-59); END.
+--   screen:   the entry; the main window's rows (ROW lines with the toggle, its box, the status icons; need and build
+--             read from each row's Configure window); one DOWN right after the first open and a focus shot; MEASURE of
+--             the long name; CARDFIT (the content inside the card, the list above BACK); story 6: Dep off and on with
+--             mods.txt and state.json read back, Base off through the confirm (BACK, then TURN OFF), the restart and
+--             dependency icons, the banner and QUIT GAME (CARDFIT2), Nucleus's lock and a pak's disabled box changing
+--             nothing (FIXED); the fixture's Configure: its problem lines, its settings' controls, a checkbox click, a
+--             choice arrow, a typed slider value, the restart setting, settings.json read back; Configure on top of the
+--             main window, a dimmed gear's Configure, the main window's Close blocked under it; closes; Tower Island and
+--             back; the entry again, the same rows (DW-59); END; then QUIT GAME, which closes the game.
 --   no-core:  (run.ps1 moves core aside) the menu has no MANAGE MODS entry.
 --   old-core: (run.ps1 sets core's installed mod.json to 0.1.0) publishes that version as <core>.version before the
 --             Mod Manager connects, as an old core would; the menu has no MANAGE MODS entry.
@@ -59,7 +63,8 @@ local ACTOR_CDO = "/Game/Mods/" .. CORE .. "/ModActor.Default__ModActor_C"
 local TEMPLATE = { UI_Button_Master = true, UI_Button_Master_1 = true, UI_Button_Master_6 = true, UI_Button_Master_2 = true, UI_Button_Master_3 = true }
 local DIM = { 0.36, 0.41, 0.43, 0.55 } -- core's dimmed colour (the game's disabled text colour)
 local VIS_VISIBLE, VIS_COLLAPSED, VIS_HIDDEN, VIS_HTI = 0, 1, 2, 3
-local TEX = { T_CheckboxOn = "on", T_CheckboxOff = "off", T_Lock = "lock" }
+local TEX = { T_CheckboxOn = "on", T_CheckboxOff = "off", T_Lock = "lock", checkbox_ticked = "on", checkbox_unticked = "off" }
+local STATUS_TEX = { T_Warning = "warning", T_Restart = "restart" }
 
 local S = { failures = 0, checks = 0 }
 
@@ -147,23 +152,58 @@ local function headerCell(part)
     return childTagged(prop(childTagged(prop(hl, "VBox"), "hdr"), "HBox"), "hdr." .. part)
 end
 local function cfgText(part) local _, c = screenOf("configure") return textOf(childTagged(c, "cfg." .. part)) end
+-- Story 6: the main window's own elements (quit, banner, msg), Configure's, and its settings rows (s<i>.<part>).
+local function mainEl(id) local _, c = screenOf("main") return childTagged(c, id) end
+local function cfgEl(part) local _, c = screenOf("configure") return childTagged(c, "cfg." .. part) end
+local function setRow(i) return childTagged(prop(cfgEl("list"), "VBox"), "s" .. i) end
+local function setCell(i, part) return childTagged(prop(setRow(i), "HBox"), "s" .. i .. "." .. part) end
+-- The files the Mod Manager writes, read back (relative to ue4ss/Mods; read only).
+local MODS_DIR = scriptDir:match("^(.*)[/\\][^/\\]+[/\\][Ss]cripts$") or "."
+local STATE_REL = "ModManager\\state.json"
+local function readFile(rel)
+    local f = io.open(MODS_DIR .. "\\" .. rel, "rb")
+    if not f then return nil end
+    local s = f:read("a")
+    f:close()
+    return s
+end
 
+local function texOf(img) return try(function() local o = img.Brush.ResourceObject if v(o) then return fname(o) end return "none" end) or "?" end
+local function shownW(w) local s = visOf(w) return v(w) and s ~= VIS_COLLAPSED and s ~= VIS_HIDDEN end
+local function tipOf(w) return try(function() return w.ToolTipText:ToString() end) end
 local function near4(c, want) return c ~= nil and math.abs(c.R - want[1]) < 0.01 and math.abs(c.G - want[2]) < 0.01 and math.abs(c.B - want[3]) < 0.01 and math.abs(c.A - want[4]) < 0.01 end
--- One row as drawn: name, version, toggle (on | off | lock), gear (lit | dim), status (its icon count: the slot is an
--- empty text in story 3), and its rectangle.
+-- One row as drawn (story 6): name, version, toggle (on | off | lock: the lock image r<n>.on when it is shown, else
+-- the checkbox r<n>.tg's texture), box (live | fixed: the checkbox's opacity, dimmed when disabled | none for the
+-- lock), gear (lit | dim), status (how many of r<n>.s1..s3 show a texture, and which: warning | restart), the status
+-- images' tooltips, and its rectangle.
 local function readRow(n)
     local r = rowW(n)
     if not r or visOf(r) == VIS_COLLAPSED or visOf(r) == VIS_HIDDEN then return nil end
-    local img = prop(cell(n, "on"), "Img")
-    local tex = try(function() local o = img.Brush.ResourceObject if v(o) then return fname(o) end return "none" end) or "?"
+    local toggle, box = "?", "none"
+    local lock, tg = cell(n, "on"), cell(n, "tg")
+    if shownW(lock) then
+        local tex = texOf(prop(lock, "Img"))
+        toggle = TEX[tex] or tex
+    elseif shownW(tg) then
+        local tex = texOf(prop(tg, "Icon"))
+        toggle = TEX[tex] or tex
+        local op = try(function() return tg:GetRenderOpacity() end) or 1
+        box = op < 0.9 and "fixed" or "live"
+    end
     local icon = prop(cell(n, "cfg"), "Icon")
     local tint = try(function() return icon.ColorAndOpacity end)
-    local st = cell(n, "st")
-    local status = 0
-    if cname(st) == TEXT_S then status = ((textOf(st) or "") ~= "") and 1 or 0
-    else status = try(function() return st:GetChildrenCount() end) or -1 end
-    return { n = n, name = textOf(cell(n, "name")) or "?", ver = textOf(cell(n, "ver")) or "?", toggle = TEX[tex] or tex,
-        gear = near4(tint, DIM) and "dim" or (tint and "lit" or "?"), status = status, rect = absR(r) }
+    -- Core 0.12.1 draws a focused dimmed button like its undimmed self, so a gear holding keyboard focus reads "focus".
+    local btn = prop(cell(n, "cfg"), "Btn")
+    local focused = btn ~= nil and try(function() return btn:HasKeyboardFocus() end) == true
+    local icons, tips = {}, {}
+    for k = 1, 3 do
+        local img = prop(cell(n, "s" .. k), "Img")
+        local kind = STATUS_TEX[texOf(img)]
+        if kind then icons[#icons + 1] = kind; tips[#tips + 1] = tipOf(img) or "" end
+    end
+    return { n = n, name = textOf(cell(n, "name")) or "?", ver = textOf(cell(n, "ver")) or "?", toggle = toggle, box = box,
+        gear = focused and "focus" or (near4(tint, DIM) and "dim" or (tint and "lit" or "?")), status = #icons, icons = #icons > 0 and table.concat(icons, ",") or "-",
+        tips = tips, rect = absR(r) }
 end
 local function readRows()
     local rows = {}
@@ -176,7 +216,8 @@ local function readRows()
 end
 local function sig(rows)
     local t = {}
-    for i, r in ipairs(rows) do t[i] = string.format("%s|%s|%s|%s|%d", r.name, r.ver, r.toggle, r.gear, r.status) end
+    -- (the gear is judged by the ROW lines and CFGDIM: keyboard focus changes how it is drawn)
+    for i, r in ipairs(rows) do t[i] = string.format("%s|%s|%s|%s|%d|%s", r.name, r.ver, r.toggle, r.box, r.status, r.icons) end
     return table.concat(t, "\n")
 end
 
@@ -236,6 +277,17 @@ local function clickOn(label, finder)
     end)
     settle(1.5)
 end
+-- A real click at a fraction (fx, fy) of the widget's rectangle (a slider's number box: its right part), then 1.5 s.
+local function clickAt(label, finder, fx, fy)
+    step("click " .. label, function()
+        local r = absR(finder())
+        if not check(r ~= nil, "POINT %s has a point to click", label) then return end
+        local x, y = math.floor(r.l + (r.r - r.l) * fx + 0.5), math.floor(r.t + (r.b - r.t) * fy + 0.5)
+        say("CLICK %s at (%d,%d)", label, x, y)
+        return request(string.format("click %d %d", x, y)), 40, "click " .. label
+    end)
+    settle(1.5)
+end
 local function shot(label) step("shot " .. label, function() return request("shot " .. label), 30, "screenshot " .. label end) end
 
 local function travel(phase, map, options)
@@ -277,6 +329,7 @@ end
 
 -- ---------------------------------------------------------------- the screen scenario
 local R = { cfg = {} } -- what earlier steps read, for later ones
+local finish -- the runner's (below); the last screen step calls it before QUIT GAME
 
 local function entryChecks(phase)
     step(phase .. ": entry", function()
@@ -385,13 +438,17 @@ local function buildScreen()
         check(#R.rows >= 8, "ROWS %d visible rows (at least the 8 the scenario installs)", #R.rows)
         nested(function()
             for _, r in ipairs(R.rows) do
+                -- the gear read before its own click, while keyboard focus sits on another row's gear
+                step("gear " .. r.n, function()
+                    if r.gear == "focus" then local again = readRow(r.n) if again then r.gear = again.gear end end
+                end)
                 configureOf(function() return r.n end, r.name)
                 step("ROW " .. r.n, function()
                     local d = R.cfg[r.n]
                     local need = d and d.need and d.need:match("^NUCLEUS (.*)$") or "?"
                     local build = d and d.build and d.build:match("^GAME BUILD (.*)$") or "?"
                     check(d ~= nil and d.title == r.name and d.ver == "VERSION " .. r.ver, "CFGDATA %d heading %s, %s", r.n, tostring(d and d.title), tostring(d and d.ver))
-                    say("ROW %s | %s | toggle=%s | gear=%s | status=%d | need=%s | build=%s", r.name, r.ver, r.toggle, r.gear, r.status, need, build)
+                    say("ROW %s | %s | toggle=%s | box=%s | gear=%s | status=%d | icons=%s | need=%s | build=%s", r.name, r.ver, r.toggle, r.box, r.gear, r.status, r.icons, need, build)
                 end)
                 closeConfigure(r.name)
             end
@@ -440,30 +497,130 @@ local function buildScreen()
     settle(1)
     shot("mm-main")
 
-    -- 3. The toggle boxes are inert: a click on a box and on Nucleus's lock changes nothing, writes nothing, logs nothing.
-    step("inert: begin", function()
+    -- 3. Story 6: on/off. Dep off and on (mods.txt read back after each: the value, then the session start's bytes);
+    -- Base off through the confirm (BACK first: nothing written; then TURN OFF); the restart and dependency icons, the
+    -- banner and QUIT GAME, state.json; then Nucleus's lock and a pak row's disabled box change nothing.
+    local function rowNamed(name) for _, r in ipairs(readRows()) do if r.name == name then return r end end end
+    local function nOf(name) return function() local r = rowNamed(name) return r and r.n end end
+    local function viewRow(nOfF, label)
+        step("view " .. label, function() local n = nOfF() if n then nested(function() intoView(n) end) end end)
+    end
+    local function clickBox(name, part)
+        viewRow(nOf(name), name .. "'s " .. part)
+        clickOn(name .. "'s " .. part, function() local n = nOf(name)() return n and cell(n, part) end)
+    end
+    local function fileWait(what, rel, pred, sec)
+        waitFor(what, function() local t = readFile(rel) return t ~= nil and pred(t) end, sec or 10)
+    end
+    local function pendingShown() return shownW(mainEl("banner")) and shownW(mainEl("quit")) end
+    local function pendingHidden() return not shownW(mainEl("banner")) and not shownW(mainEl("quit")) end
+    local BASE, DEP = "Mod Manager Base", "Mod Manager Dep"
+    step("toggle: begin", function()
         for _, r in ipairs(R.rows or {}) do
             if r.name == "ModManagerFixture" then R.fixture = r.n end
             if r.name == CORE then R.nucleus = r.n end
+            if r.name == "ModManagerPak" then R.pak = r.n end
         end
-        check(R.fixture ~= nil and R.nucleus ~= nil, "INERTROWS the fixture's and Nucleus's rows found")
-        R.before = sig(readRows())
-        say("INERT begin")
+        check(R.fixture ~= nil and R.nucleus ~= nil and R.pak ~= nil, "TGROWS the fixture's, Nucleus's and the pak's rows found")
+        R.txt0 = readFile("mods.txt")
+        check(R.txt0 ~= nil and R.txt0:find("ModManagerBase : 1", 1, true) ~= nil and R.txt0:find("ModManagerDep : 1", 1, true) ~= nil,
+            "TXT0 mods.txt read at the session start: Base and Dep on")
+        local b, d = rowNamed(BASE), rowNamed(DEP)
+        check(b ~= nil and d ~= nil and b.toggle == "on" and b.box == "live" and d.toggle == "on" and d.box == "live",
+            "TGLIVE Base and Dep show a live box, on (%s/%s, %s/%s)", tostring(b and b.toggle), tostring(b and b.box), tostring(d and d.toggle), tostring(d and d.box))
+        check(pendingHidden() and readFile(STATE_REL) == nil, "TGSTART nothing pending: no banner, no QUIT GAME, no state.json yet")
+        say("TOGGLE begin")
     end)
-    -- Each row into the list's view first (step 2 may have scrolled it), as the Configure steps do.
-    local function viewRow(nOf, label)
-        step("view " .. label, function() local n = nOf() if n then nested(function() intoView(n) end) end end)
-    end
-    viewRow(function() return R.fixture end, "the fixture's toggle box")
-    clickOn("the fixture's toggle box", function() return R.fixture and cell(R.fixture, "on") end)
-    viewRow(function() return R.nucleus end, "Nucleus's lock")
-    clickOn("Nucleus's lock", function() return R.nucleus and cell(R.nucleus, "on") end)
+    -- Dep off: no dependents, so no confirm.
+    clickBox(DEP, "tg")
+    fileWait("Dep off in mods.txt", "mods.txt", function(t) return t:find("ModManagerDep : 0", 1, true) ~= nil end)
     settle(1)
-    step("inert: end", function()
-        say("INERT end")
+    step("dep off", function()
+        local t = readFile("mods.txt")
+        check(t ~= nil and t == (R.txt0:gsub("ModManagerDep : 1", "ModManagerDep : 0")), "TGDEPOFF mods.txt: Dep's value is 0, every other byte as at the start")
+        check(screenOf("confirm") == nil, "TGNOCONFIRM no confirm for a mod nothing needs")
+        local d = rowNamed(DEP)
+        check(d ~= nil and d.toggle == "off" and d.icons == "restart" and d.tips[1] == "TURNS OFF AFTER A RESTART",
+            "TGDEPICON Dep: box off, the restart icon (%s, %s, %s)", tostring(d and d.toggle), tostring(d and d.icons), tostring(d and d.tips[1]))
+        check(pendingShown(), "PENDINGUI the banner and QUIT GAME are shown")
+        local st = readFile(STATE_REL)
+        check(st == '{"version":1,"off":["ModManagerDep"],"seen":[]}', "STATEOFF state.json lists Dep (%s)", tostring(st))
+    end)
+    -- CARDFIT2: with the bottom-right stack shown, the card still holds everything (core logs a WARN when clamped).
+    step("card fit pending", function()
+        local sc = scale()
+        local _, c = screenOf("main")
+        local cr = absR(c)
+        local ok2 = cr ~= nil
+        for _, id in ipairs({ "title", "hdr.list", "list", "quit", "banner" }) do
+            local r = absR(childTagged(c, id))
+            if not (r and cr and (cr.l - r.l) / sc <= 1 and (cr.t - r.t) / sc <= 1 and (r.r - cr.r) / sc <= 1 and (r.b - cr.b) / sc <= 1) then ok2 = false end
+        end
+        local qr, lr = absR(childTagged(c, "banner")), absR(childTagged(c, "list"))
+        check(ok2 and qr ~= nil and lr ~= nil and qr.t >= lr.b - 0.5, "CARDFIT2 with changes pending, the banner and QUIT GAME sit inside the card, below the list")
+    end)
+    step("cursor away", function() return request("move 5 5"), 30, "cursor away" end)
+    shot("mm-pending")
+    clickBox(DEP, "tg")
+    fileWait("mods.txt back", "mods.txt", function(t) return t == R.txt0 end)
+    settle(1)
+    step("dep on", function()
+        check(readFile("mods.txt") == R.txt0, "TGDEPON mods.txt's bytes equal the session start's")
+        local d = rowNamed(DEP)
+        check(d ~= nil and d.toggle == "on" and d.icons == "-", "TGDEPON2 Dep: box on, no icon (%s, %s)", tostring(d and d.toggle), tostring(d and d.icons))
+        check(pendingHidden(), "PENDINGOFF the banner and QUIT GAME are hidden again")
+        check(readFile(STATE_REL) == '{"version":1,"off":[],"seen":[]}', "STATEON state.json: Dep removed (%s)", tostring(readFile(STATE_REL)))
+    end)
+    -- Base: Dep needs it, so the confirm asks; BACK cancels.
+    clickBox(BASE, "tg")
+    waitFor("the confirm", function() return screenOf("confirm") ~= nil end, 10)
+    settle(1)
+    step("confirm", function()
+        local _, c = screenOf("confirm")
+        local text = textOf(childTagged(c, "confirm.text"))
+        check(text == "TURN OFF Mod Manager Base? Mod Manager Dep NEED IT.", "CONFIRMTEXT %s", tostring(text))
+        check(readFile("mods.txt") == R.txt0, "CONFIRMWAIT nothing written while it asks")
+    end)
+    shot("mm-confirm")
+    clickOn("the confirm's BACK", function() return closeOf("confirm") end)
+    waitFor("the confirm closed", function() return screenOf("confirm") == nil end, 10)
+    settle(1)
+    step("confirm back", function()
+        local b = rowNamed(BASE)
+        check(b ~= nil and b.toggle == "on" and readFile("mods.txt") == R.txt0, "CONFIRMBACK BACK: Base still on, nothing written (%s)", tostring(b and b.toggle))
+    end)
+    clickBox(BASE, "tg")
+    waitFor("the confirm again", function() return screenOf("confirm") ~= nil end, 10)
+    settle(1)
+    clickOn("TURN OFF", function() local _, c = screenOf("confirm") return childTagged(c, "confirm.ok") end)
+    fileWait("Base off in mods.txt", "mods.txt", function(t) return t:find("ModManagerBase : 0", 1, true) ~= nil end)
+    settle(1)
+    step("base off", function()
+        check(screenOf("confirm") == nil, "CONFIRMCLOSED TURN OFF closed the confirm")
+        check(readFile("mods.txt") == (R.txt0:gsub("ModManagerBase : 1", "ModManagerBase : 0")), "CONFIRMOFF mods.txt: Base's value is 0, every other byte as at the start")
+        local b, d = rowNamed(BASE), rowNamed(DEP)
+        check(b ~= nil and b.toggle == "off" and b.icons == "restart", "TGBASEICON Base: off, the restart icon (%s)", tostring(b and b.icons))
+        check(d ~= nil and d.toggle == "on" and d.icons == "warning" and d.tips[1] == "NEEDS Mod Manager Base (TURNED OFF)",
+            "DEPICON Dep: still on, the dependency icon NEEDS Mod Manager Base (TURNED OFF) (%s, %s)", tostring(d and d.icons), tostring(d and d.tips[1]))
+        check(pendingShown(), "PENDINGUI2 the banner and QUIT GAME are shown")
+        check(readFile(STATE_REL) == '{"version":1,"off":["ModManagerBase"],"seen":[]}', "STATEBASE state.json lists exactly Base (%s)", tostring(readFile(STATE_REL)))
+    end)
+    -- Fixed rows: Nucleus's lock and a pak row's disabled box change nothing, write nothing, log nothing.
+    step("fixed: begin", function()
+        R.before = sig(readRows())
+        R.txtB = readFile("mods.txt")
+        local p = rowNamed("ModManagerPak")
+        check(p ~= nil and p.toggle == "on" and p.box == "fixed", "PAKFIXED the pak row shows its state in a disabled box (%s/%s)", tostring(p and p.toggle), tostring(p and p.box))
+        say("FIXED begin")
+    end)
+    clickBox(CORE, "on")
+    clickBox("ModManagerPak", "tg")
+    settle(1)
+    step("fixed: end", function()
+        say("FIXED end")
         local now = sig(readRows())
-        check(now == R.before and screenOf("configure") == nil and screenOf("main") ~= nil and visOf(screenOf("main")) == VIS_VISIBLE,
-            "INERT the toggle boxes changed nothing on screen (rows the same: %s, no Configure, main window on top)", tostring(now == R.before))
+        check(now == R.before and readFile("mods.txt") == R.txtB and screenOf("configure") == nil and screenOf("confirm") == nil and visOf(screenOf("main")) == VIS_VISIBLE,
+            "FIXEDINERT the lock and the pak's box changed nothing (rows the same: %s, mods.txt the same, main window on top)", tostring(now == R.before))
     end)
 
     -- 4. Configure on top of the main window; Close; a dimmed gear opens Configure too.
@@ -477,8 +634,69 @@ local function buildScreen()
         check(d ~= nil and d.title == "ModManagerFixture" and d.ver == "VERSION 9.9.9" and d.need == "NUCLEUS >=0.1.0" and d.build == "GAME BUILD V0.0.0 1",
             "CFGFIXTURE heading %s | %s | %s | %s", tostring(d and d.title), tostring(d and d.ver), tostring(d and d.need), tostring(d and d.build))
     end)
+    -- Story 6: the fixture's Configure lists its status problems, then one row per declared setting with its control.
+    -- (Base is off by now, so the base line reads TURNED OFF.)
+    step("configure: problems", function()
+        local p1, p2, p3, p4 = cfgText("p1"), cfgText("p2"), cfgText("p3"), cfgText("p4")
+        check(p1 == "MADE FOR GAME V0.0.0 (BUILD 1). THIS GAME: V8.2.3 (BUILD -)." and p2 == "NEEDS nuclearnightmare-community.mod-manager-missing (NOT INSTALLED)"
+            and p3 == "NEEDS Mod Manager Base (TURNED OFF)" and not shownW(cfgEl("p4")),
+            "CFGPROBLEMS %s / %s / %s (4th shown: %s)", tostring(p1), tostring(p2), tostring(p3), tostring(shownW(cfgEl("p4"))))
+        R.set = {}
+        for i = 1, 64 do
+            if not setRow(i) then break end
+            local label = textOf(setCell(i, "lbl"))
+            if label then R.set[label] = i end
+        end
+        local function kind(label)
+            local i = R.set[label]
+            if not i then return "missing" end
+            local out = {}
+            for _, k in ipairs({ "cb", "ch", "sl", "ro" }) do if shownW(setCell(i, k)) then out[#out + 1] = k end end
+            return table.concat(out, ",")
+        end
+        local kinds = string.format("Example=%s Flag=%s Ratio=%s Mode=%s Restart flag=%s Preset value=%s Free number=%s", kind("Example"), kind("Flag"),
+            kind("Ratio"), kind("Mode"), kind("Restart flag"), kind("Preset value"), kind("Free number"))
+        say("SETTINGS %s", kinds)
+        check(kinds == "Example=sl Flag=cb Ratio=sl Mode=ch Restart flag=cb Preset value=ro Free number=ro", "SETKINDS a slider, a checkbox, a slider, a choice, a checkbox, two texts")
+        local pre, free = R.set["Preset value"], R.set["Free number"]
+        check(pre ~= nil and textOf(setCell(pre, "ro")) == "SET BY PRESETS", "SETBY the source setting reads %s", tostring(pre and textOf(setCell(pre, "ro"))))
+        check(free ~= nil and textOf(setCell(free, "ro")) == "5", "SETRO the int without bounds shows its value (%s)", tostring(free and textOf(setCell(free, "ro"))))
+        local rs = R.set["Restart flag"] and prop(setCell(R.set["Restart flag"], "rs"), "Img")
+        check(rs ~= nil and STATUS_TEX[texOf(rs)] == "restart" and tipOf(rs) == "APPLIES AFTER A RESTART", "SETMARK the restart setting's mark (%s, %s)", tostring(rs and texOf(rs)), tostring(rs and tipOf(rs)))
+    end)
     shot("mm-configure")
+    local function setOf(label) return function() return R.set and R.set[label] end end
+    local function settingsHas(pat) return function(t) return t:find(pat) ~= nil end end
+    local SETTINGS_REL = "ModManagerFixture\\settings.json"
+    clickOn("the Flag checkbox", function() local i = setOf("Flag")() return i and setCell(i, "cb") end)
+    fileWait("flag in settings.json", SETTINGS_REL, settingsHas('"flag"%s*:%s*true'))
+    clickOn("Mode's next arrow", function() local i = setOf("Mode")() return i and prop(setCell(i, "ch"), "Next") end)
+    fileWait("mode in settings.json", SETTINGS_REL, settingsHas('"mode"%s*:%s*"two"'))
+    clickAt("Example's number box", function() local i = setOf("Example")() return i and prop(setCell(i, "sl"), "Box") end, 0.85, 0.5)
+    step("type 7", function() return request("type 7"), 30, "type 7" end)
+    settle(0.8)
+    step("Enter", function() return request("key ENTER"), 30, "Enter" end)
+    fileWait("example in settings.json", SETTINGS_REL, settingsHas('"example"%s*:%s*7[^%d%.]'))
+    clickOn("the Restart flag checkbox", function() local i = setOf("Restart flag")() return i and setCell(i, "cb") end)
+    fileWait("later in settings.json", SETTINGS_REL, settingsHas('"later"%s*:%s*true'))
+    settle(1)
+    step("settings: saved", function()
+        local t = readFile(SETTINGS_REL) or ""
+        say("SETTINGSJSON %s", (t:gsub("[\r\n]", " ")))
+        check(t:find('"flag"%s*:%s*true') and t:find('"mode"%s*:%s*"two"') and t:find('"example"%s*:%s*7[^%d%.]') and t:find('"later"%s*:%s*true'),
+            "SETFILE settings.json holds flag=true, mode=two, example=7, later=true")
+        local f = R.fixture and readRow(R.fixture)
+        check(f ~= nil and f.icons == "warning,warning,restart" and f.tips[3] == "A SETTING APPLIES AFTER A RESTART",
+            "RESTARTICON the restart setting adds the restart icon to the fixture's row (%s, %s)", tostring(f and f.icons), tostring(f and f.tips[3]))
+        check(cfgText("p4") == "A SETTING APPLIES AFTER A RESTART", "CFGRESTART Configure lists it (%s)", tostring(cfgText("p4")))
+        local mark = R.set["Restart flag"] and prop(setCell(R.set["Restart flag"], "rs"), "Img")
+        check(not shownW(cfgEl("msg")), "SETNOMSG no NOT SAVED line")
+        say("SETMARK after %s", tostring(mark and texOf(mark)))
+    end)
+    step("cursor away", function() return request("move 5 5"), 30, "cursor away" end)
+    shot("mm-settings")
     closeConfigure("fixture")
+
     step("configure: closed", function()
         check(screenOf("configure") == nil and visOf(screenOf("main")) == VIS_VISIBLE, "CFGCLOSE Configure's Close closed it; the main window takes input again")
         local row = R.nucleus and readRow(R.nucleus)
@@ -517,6 +735,7 @@ local function buildScreen()
     end)
     step("configure: closed again", function()
         check(screenOf("configure") == nil and visOf(screenOf("main")) == VIS_VISIBLE, "CFGCLOSE2 Configure closed; the main window takes input again")
+        R.sig2 = sig(readRows()) -- the rows before the match (story 6: Base off, the fixture's restart setting pending)
     end)
     clickOn("the main window's Close", function() return closeOf("main") end)
     waitFor("main window closed", function() return screenOf("main") == nil end, 10)
@@ -540,14 +759,26 @@ local function buildScreen()
     openMain("after the match")
     step("same rows", function()
         local rows = readRows()
-        local same = sig(rows) == R.sig
-        check(same, "SAME the window after the match lists the same %d rows (%d now)", R.rows and #R.rows or -1, #rows)
-        if not same then say("SAME before: %s", tostring(R.sig):gsub("\n", " / ")) say("SAME now: %s", (sig(rows):gsub("\n", " / "))) end
+        local same = sig(rows) == R.sig2
+        check(same, "SAME the window after the match lists the same %d rows, with their states and icons (%d now)", R.rows and #R.rows or -1, #rows)
+        if not same then say("SAME before: %s", (tostring(R.sig2):gsub("\n", " / "))) say("SAME now: %s", (sig(rows):gsub("\n", " / "))) end
+        check(shownW(mainEl("banner")) and shownW(mainEl("quit")), "QUITUI changes pending after the match: the banner and QUIT GAME are shown")
+        check(textOf(mainEl("banner")) == "CHANGES APPLY AFTER A RESTART.", "BANNER reads %s", tostring(textOf(mainEl("banner"))))
     end)
     shot("mm-reopen")
-    clickOn("the main window's Close (end)", function() return closeOf("main") end)
-    waitFor("main window closed at the end", function() return screenOf("main") == nil end, 10)
-    step("closed at the end", function() check(screenOf("main") == nil, "CLOSEEND the main window closed") end)
+    -- 10. END, then QUIT GAME: the game closes itself (run.ps1 waits for that; check.ps1 wants [ModManager] QUIT after
+    -- END result=PASS and no crash). Nothing runs after this step.
+    step("end and quit", function()
+        local r = absR(mainEl("quit"))
+        check(r ~= nil, "QUITPOINT QUIT GAME has a point to click")
+        local pass = S.failures == 0
+        finish()
+        if pass and r then
+            local x, y = center(r)
+            say("CLICK QUIT GAME at (%d,%d)", x, y)
+            request(string.format("click %d %d", x, y))
+        end
+    end)
 end
 
 -- ---------------------------------------------------------------- no-core and old-core: no entry
@@ -568,7 +799,7 @@ end
 
 -- ---------------------------------------------------------------- runner (game thread, every 250 ms)
 local waiting, busy, finished = nil, false, false
-local function finish()
+finish = function()
     finished = true
     say("END result=%s checks=%d failures=%d", (S.failures == 0 and S.checks > 0) and "PASS" or "FAIL", S.checks, S.failures)
 end

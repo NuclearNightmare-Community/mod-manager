@@ -380,8 +380,78 @@ do
     io.open = realOpen
     IterateGameDirectories = nil
     local src = assert(realOpen(ROOT .. "/Scripts/inventory.lua", "rb")):read("a"):gsub("%-%-[^\n]*", "")
-    ok(not src:find("popen") and not src:find("os%.execute") and not src:find("os%.rename") and not src:find("os%.remove") and not src:find('"w') and not src:find('"a"'),
-        "inventory.lua: no popen, execute, rename, remove or write mode")
+    local function count(p) local n = 0 for _ in src:gmatch(p) do n = n + 1 end return n end
+    ok(not src:find("popen") and not src:find("os%.execute") and not src:find('"a"') and not src:find("load%(") and not src:find("loadfile"),
+        "inventory.lua: no popen, execute, append mode or load")
+    ok(count("os%.rename") == 1 and count("os%.remove") == 1 and count('"wb"') == 1 and count('"w"') == 0,
+        "inventory.lua: one rename, one remove, one write open: the adapter's primitives (story 6)")
+end
+
+do -- Story 6: the row's id, every dependency (bare nucleus the legacy alias), enabled.txt, the game parts, pak folders.
+    local F = newFs()
+    F.folder("Nucleus", manifest{ id = "NuclearNightmare-Community.Nucleus", version = "0.12.1", game = { version = "V8.2.3", build = "26601774" } })
+    F.folder("Dep", manifest{ id = "github.com/Owner.Dep", version = "1.0.0", game = { version = "V8.2.3" },
+        dependsOn = { { id = "nucleus", version = ">=0.12.0" }, { id = "owner.base", version = ">=1.0.0" }, { id = "www.github.com/x.y" }, { id = 3 }, { id = "owner.free" } } },
+        { ["enabled.txt"] = "" })
+    F.folder("Base", manifest{ id = "bad id!", version = "1.0.0" })
+    F.folder("Joined"); F.pak("Joined_P.pak"); F.lm("Joined.pak")
+    local res = I.scan(F, PATHS)
+    local n, d, b, j = rowOf(res, "Nucleus"), rowOf(res, "Dep"), rowOf(res, "Base"), rowOf(res, "Joined")
+    eq(n.id, "nuclearnightmare-community.nucleus", "id: normalized")
+    ok(n.gameVersion == "V8.2.3" and n.gameBuild == "26601774" and n.build == "V8.2.3 26601774", "game version and build kept apart (and joined for Configure)")
+    eq(d.id, "owner.dep", "id: github.com form normalized")
+    eq(b.id, nil, "an id that doesn't normalize: none")
+    ok(d.gameVersion == "V8.2.3" and d.gameBuild == nil, "game build missing: nil")
+    local deps = {}
+    for _, x in ipairs(d.deps) do deps[#deps + 1] = x.id .. "@" .. tostring(x.need) end
+    eq(table.concat(deps, ","), "nuclearnightmare-community.nucleus@>=0.12.0,owner.base@>=1.0.0,owner.free@nil", "deps: every entry that normalizes; bare nucleus is core; the rest skipped")
+    eq(d.need, nil, "the Configure need still follows the shared normalizer only (bare nucleus: -)")
+    ok(d.enabledTxt == true and d.state == "on" and n.enabledTxt == false, "enabledTxt recorded")
+    eq(#b.deps, 0, "no dependsOn: no deps")
+    ok(#j.paks == 2 and j.pakDirs[1] ~= nil and j.pakDirs[2] ~= nil, "a folder row with joined paks: each pak's folder")
+    local dirs = {}
+    for i, f in ipairs(j.paks) do dirs[f] = j.pakDirs[i] end
+    ok(dirs["Joined_P.pak"] == PAKS and dirs["Joined.pak"] == LM, "pak folders: Paks and LogicMods")
+    eq(I.depId("NUCLEUS"), I.CORE_ID, "depId: the legacy alias in any case")
+    eq(I.depId("other.nucleus"), "other.nucleus", "depId: other ids normalized")
+    -- caps: at most 32 dependencies kept
+    local many = {}
+    for i = 1, 40 do many[i] = { id = "owner.m" .. i } end
+    F.folder("Many", manifest{ dependsOn = many })
+    eq(#rowOf(I.scan(F, PATHS), "Many").deps, I.MAX_DEPS, "at most 32 dependencies")
+end
+
+do -- Story 6: the adapter's write primitives over io and os (writeFile: written, flushed, closed; rename; remove).
+    local realOpen, realRename, realRemove = io.open, os.rename, os.remove
+    local R = "C:\\g"
+    IterateGameDirectories = function()
+        local function dir(abs, children) return setmetatable(children or {}, { __index = function(_, k) if k == "__absolute_path" then return abs end if k == "__files" then return {} end end }) end
+        return { Game = dir(R, { Binaries = dir(R .. "\\Binaries", { Win64 = dir(R .. "\\Binaries\\Win64", { ue4ss = dir(R .. "\\Binaries\\Win64\\ue4ss", { Mods = dir(R .. "\\Binaries\\Win64\\ue4ss\\Mods") }) }) }) }) }
+    end
+    local log, files = {}, {}
+    io.open = function(p, mode)
+        log[#log + 1] = mode .. " " .. p
+        if mode == "wb" then
+            if p:find("deny") then return nil, "Permission denied" end
+            local buf = {}
+            return { write = function(self, s) if p:find("full") then return nil, "No space left" end buf[#buf + 1] = s return self end,
+                flush = function(self) return self end, close = function() files[p] = table.concat(buf) return true end }
+        end
+        return nil, "no"
+    end
+    os.rename = function(a, b) log[#log + 1] = "rename " .. a .. " " .. b if a:find("deny") then return nil, "Permission denied" end return true end
+    os.remove = function(p) log[#log + 1] = "remove " .. p if p:find("deny") then return nil, "Permission denied" end return true end
+    local fs, paths = I.gameFs(R .. "\\Binaries\\Win64\\ue4ss\\Mods")
+    eq(paths.game, R, "paths.game: the Game folder")
+    ok(fs.writeFile(R .. "\\a.txt", "hello") == true and files[R .. "\\a.txt"] == "hello", "writeFile: written and closed")
+    local okW, err = fs.writeFile(R .. "\\deny.txt", "x")
+    ok(okW == nil and err == "Permission denied", "writeFile: open refused -> nil, why")
+    okW, err = fs.writeFile(R .. "\\full.txt", "x")
+    ok(okW == nil and err == "No space left", "writeFile: a failed write -> nil, why")
+    ok(fs.rename("a", "b") == true and fs.remove("c") == true, "rename and remove: true")
+    ok(fs.rename("deny", "b") == nil and fs.remove("deny") == nil, "rename and remove refused: nil")
+    io.open, os.rename, os.remove = realOpen, realRename, realRemove
+    IterateGameDirectories = nil
 end
 
 io.stdout:write(("inventory_test: %d passed, %d failed\n"):format(passed, failed))

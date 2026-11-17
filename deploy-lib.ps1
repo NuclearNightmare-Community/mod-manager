@@ -11,7 +11,7 @@
 
 # The Scripts/ files a deploy installs and a release ships under ue4ss/Mods/<name>/Scripts/ (deploy.ps1 and
 # build.ps1 both use this list).
-$ModScripts = 'main.lua', 'json.lua', 'inventory.lua', 'strings.lua', 'screen.lua'
+$ModScripts = 'main.lua', 'json.lua', 'inventory.lua', 'strings.lua', 'screen.lua', 'status.lua', 'modstxt.lua', 'files.lua', 'state.lua'
 
 # Core's id (distribution story 13, mod-ids.md).
 $CoreId = 'nuclearnightmare-community.nucleus'

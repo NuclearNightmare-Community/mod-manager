@@ -80,7 +80,16 @@ foreach ($f in $ModScripts) { Ok (Test-Path (Join-Path $repo "Scripts\$f")) "Scr
 $long = Get-Content (Join-Path $repo 'test\ModManagerLong\mod.json') -Raw | ConvertFrom-Json
 Ok ($long.displayName.Length -eq 64 -and $long.displayName.StartsWith('ModManagerLong') -and $long.dependsOn[0].id -eq 'nuclearnightmare-community.nucleus' -and $long.dependsOn[0].version -eq '>=0.2.0') 'fixture Long: 64-character displayName, nuclearnightmare-community.nucleus >=0.2.0'
 $fx = Get-Content (Join-Path $repo 'test\ModManagerFixture\mod.json') -Raw | ConvertFrom-Json
-Ok ($fx.version -eq '9.9.9' -and $fx.game.version -eq 'V0.0.0' -and $fx.game.build -eq '1' -and @($fx.settings.PSObject.Properties).Count -eq 1 -and $fx.dependsOn[0].version -eq '>=0.1.0') 'fixture: 9.9.9, V0.0.0/1, one setting, >=0.1.0'
+Ok ($fx.version -eq '9.9.9' -and $fx.game.version -eq 'V0.0.0' -and $fx.game.build -eq '1' -and $fx.dependsOn[0].version -eq '>=0.1.0') 'fixture: 9.9.9, V0.0.0/1, >=0.1.0'
+# Story 6: the fixture's settings (one of each kind of the Settings matrix row) and its two dependency problems.
+$st = $fx.settings
+Ok ($st.flag.type -eq 'bool' -and $st.example.type -eq 'int' -and $st.example.min -eq 1 -and $st.example.max -eq 9 -and $st.ratio.type -eq 'number' -and $st.ratio.step -eq 0.1 -and
+    $st.mode.type -eq 'enum' -and $st.later.changeable -eq 'restart' -and $st.preset.source -eq 'presets' -and $st.free.type -eq 'int' -and $null -eq $st.free.min) 'fixture: bool, int 1-9, number 0-1 step 0.1, enum, restart, source presets, int without bounds'
+Ok (@($fx.dependsOn | Where-Object { $_.id -eq 'nuclearnightmare-community.mod-manager-missing' }).Count -eq 1 -and @($fx.dependsOn | Where-Object { $_.id -eq 'nuclearnightmare-community.mod-manager-base' -and $_.version -eq '>=2.0.0' }).Count -eq 1) 'fixture: needs a missing id and base >=2.0.0'
+$base = Get-Content (Join-Path $repo 'test\ModManagerBase\mod.json') -Raw | ConvertFrom-Json
+$depm = Get-Content (Join-Path $repo 'test\ModManagerDep\mod.json') -Raw | ConvertFrom-Json
+Ok ($base.id -eq 'nuclearnightmare-community.mod-manager-base' -and $base.version -eq '1.0.0' -and $base.displayName -eq 'Mod Manager Base' -and $base.game.version -eq 'V8.2.3') 'fixture Base: id, 1.0.0, Mod Manager Base, V8.2.3'
+Ok ($depm.id -eq 'nuclearnightmare-community.mod-manager-dep' -and $depm.displayName -eq 'Mod Manager Dep' -and $depm.dependsOn[0].id -eq $base.id -and $depm.dependsOn[0].version -eq '>=1.0.0') 'fixture Dep: needs Base >=1.0.0'
 
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("mod-manager-deploy-test-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory $tmp | Out-Null
@@ -157,11 +166,13 @@ try {
     Eq ($files -join ',') ((@('mod.json') + @($ModScripts | ForEach-Object { "Scripts\$_" }) | Sort-Object) -join ',') 'deploy: exactly the Mod Manager files'
     Ok (-not (Test-Path (Join-Path $mods 'ModManagerDriver')) -and -not (Test-Path (Join-Path $mods 'ModManagerFixture'))) 'deploy: no driver or fixture without -Test'
     Eq (Names $paks) 'NuclearNightmare-Windows.pak' 'deploy: no fixture pak without -Test'
+    Ok (-not (Test-Path (Join-Path $mods 'ModManager\state.json'))) 'deploy: no state.json shipped'
 
     # -Test: the driver, the fixtures, the paks, mods.txt.
     $d = Deploy @('-Test', '-Scenario', 'screen')
     Ok ($d.Code -eq 0) 'deploy -Test: installed' $d.Out
-    Eq (Txt) ("Nucleus : 1`r`nModManagerDriver : 1`r`nModManager : 1`r`nModManagerFixture : 0`r`n" + $stockTxt) 'deploy -Test: Nucleus, the driver, ModManager, the fixture off'
+    Eq (Txt) ("Nucleus : 1`r`nModManagerDriver : 1`r`nModManager : 1`r`nModManagerBase : 1`r`nModManagerDep : 1`r`nModManagerFixture : 0`r`n" + $stockTxt) 'deploy -Test: Nucleus, the driver, ModManager, Base and Dep on, the fixture off'
+    Ok ((Test-Path (Join-Path $mods 'ModManagerBase\mod.json')) -and (Test-Path (Join-Path $mods 'ModManagerDep\mod.json')) -and @(Get-ChildItem (Join-Path $mods 'ModManagerDep') -Recurse).Count -eq 1) 'deploy -Test: Base and Dep hold mod.json only'
     Eq ([IO.File]::ReadAllText((Join-Path $mods 'ModManagerDriver\Scripts\scenario.txt'))) 'screen' 'deploy -Test: scenario.txt'
     Ok ((Test-Path (Join-Path $mods 'ModManagerFixture\mod.json')) -and @(Get-ChildItem (Join-Path $mods 'ModManagerFixture') -Recurse).Count -eq 1) 'deploy -Test: ModManagerFixture holds mod.json only'
     Ok ((Test-Path (Join-Path $mods 'ModManagerBare\Scripts')) -and @(Get-ChildItem (Join-Path $mods 'ModManagerBare') -Recurse -File).Count -eq 0) 'deploy -Test: ModManagerBare has an empty Scripts/'
@@ -170,7 +181,7 @@ try {
     Eq (Names (Join-Path $paks 'LogicMods')) '' 'deploy -Test: nothing in LogicMods'
     # Redeploy without -Test: the driver and the fixtures go.
     $d = Deploy @()
-    Ok ($d.Code -eq 0 -and -not (Test-Path (Join-Path $mods 'ModManagerDriver')) -and -not (Test-Path (Join-Path $mods 'ModManagerBare'))) 'deploy without -Test removes the driver and fixtures' $d.Out
+    Ok ($d.Code -eq 0 -and -not (Test-Path (Join-Path $mods 'ModManagerDriver')) -and -not (Test-Path (Join-Path $mods 'ModManagerBare')) -and -not (Test-Path (Join-Path $mods 'ModManagerBase')) -and -not (Test-Path (Join-Path $mods 'ModManagerDep'))) 'deploy without -Test removes the driver and fixtures' $d.Out
     Eq (Names $paks) 'NuclearNightmare-Windows.pak' 'deploy without -Test removes the fixture paks'
     Eq (Txt) ("Nucleus : 1`r`nModManager : 1`r`n" + $stockTxt) 'deploy without -Test: mods.txt back to one line'
 
