@@ -9,10 +9,10 @@
 --
 -- Scenarios (Scripts/scenario.txt, written by deploy.ps1):
 --   screen:   the entry; the main window's rows (ROW lines, need and build read from each row's Configure window);
---             MEASURE of the long name; CARDFIT (the content inside the card, the list above BACK); one DOWN and a
---             focus shot; inert toggle boxes (INERT); Configure on top of the main window, a dimmed gear's Configure,
---             the main window's Close blocked under it; closes; Tower Island and back; the entry again, the same rows
---             (DW-59); END.
+--             one DOWN right after the first open and a focus shot; MEASURE of the long name; CARDFIT (the content
+--             inside the card, the list above BACK); inert toggle boxes (INERT); Configure on top of the main window, a
+--             dimmed gear's Configure, the main window's Close blocked under it; closes; Tower Island and back; the
+--             entry again, the same rows (DW-59); END.
 --   no-core:  (run.ps1 moves core aside) the menu has no MANAGE MODS entry.
 --   old-core: (run.ps1 sets core's installed mod.json to 0.1.0) publishes that version as <core>.version before the
 --             Mod Manager connects, as an old core would; the menu has no MANAGE MODS entry.
@@ -356,6 +356,29 @@ local function buildScreen()
 
     -- 2. The rows, each one's Configure data, the long name's measure, a screenshot.
     openMain("first")
+    -- One DOWN with the keyboard right after the first open, while the window's focus is still on its first line (row
+    -- 1's gear; later the gear clicks move it), then a shot of the focus: row 2's gear. A visible highlight needs core
+    -- story 28; the shot is not judged, FOCUS only says where the keyboard focus is.
+    step("focus: cursor away", function() return request("move 5 5"), 30, "cursor away" end)
+    step("focus: DOWN", function()
+        say("KEY DOWN")
+        return request("key DOWN"), 30, "key DOWN"
+    end)
+    settle(1)
+    step("focus: where", function()
+        local at = "none"
+        for n = 1, 256 do
+            if not rowW(n) then break end
+            local b = prop(cell(n, "cfg"), "Btn")
+            if b and try(function() return b:HasKeyboardFocus() end) == true then at = "r" .. n .. ".cfg" break end
+        end
+        if at == "none" then
+            local b = prop(closeOf("main"), "Btn")
+            if b and try(function() return b:HasKeyboardFocus() end) == true then at = "BACK" end
+        end
+        say("FOCUS after DOWN: %s", at)
+    end)
+    shot("mm-focus")
     step("rows", function()
         R.rows = readRows()
         R.sig = sig(R.rows)
@@ -416,26 +439,6 @@ local function buildScreen()
     end)
     settle(1)
     shot("mm-main")
-    -- One DOWN with the keyboard, then a shot of the focus (a visible highlight needs core story 28; not judged here).
-    step("focus: DOWN", function()
-        say("KEY DOWN")
-        return request("key DOWN"), 30, "key DOWN"
-    end)
-    settle(1)
-    step("focus: where", function()
-        local at = "none"
-        for n = 1, 256 do
-            if not rowW(n) then break end
-            local b = prop(cell(n, "cfg"), "Btn")
-            if b and try(function() return b:HasKeyboardFocus() end) == true then at = "r" .. n .. ".cfg" break end
-        end
-        if at == "none" then
-            local b = prop(closeOf("main"), "Btn")
-            if b and try(function() return b:HasKeyboardFocus() end) == true then at = "BACK" end
-        end
-        say("FOCUS after DOWN: %s", at)
-    end)
-    shot("mm-focus")
 
     -- 3. The toggle boxes are inert: a click on a box and on Nucleus's lock changes nothing, writes nothing, logs nothing.
     step("inert: begin", function()
@@ -490,9 +493,10 @@ local function buildScreen()
     closeConfigure("Nucleus")
     configureOf(fixture, "fixture again")
     -- 5. The main window under Configure takes no input. Its gears: a click on Nucleus's gear, under Configure's
-    -- backdrop, changes nothing. Its Close: core puts every window's Close at the same top-right spot, so Configure's
-    -- own Close covers it and a click there can only reach Configure's; had it reached the main window's Close, both
-    -- windows would close (a Close closes the windows above too). So the main window must still be open after it.
+    -- backdrop, changes nothing. Its Close (core 0.12.0: BACK in the bottom-left of the main window's card): a click
+    -- there lands on Configure's backdrop (or, were the cards alike, on Configure's own BACK); had it reached the main
+    -- window's BACK, both windows would close (a Close closes the windows above too). So the main window must still be
+    -- open after it, whether Configure is.
     clickOn("Nucleus's gear under Configure", function() return R.nucleus and cell(R.nucleus, "cfg") end)
     settle(1)
     step("blocked gear", function()
@@ -502,8 +506,10 @@ local function buildScreen()
     clickOn("the main window's Close under Configure", function() return closeOf("main") end)
     settle(1)
     step("blocked", function()
-        check(screenOf("main") ~= nil and visOf(screenOf("main")) == VIS_VISIBLE,
-            "BLOCKED the main window's Close did not act under Configure: the main window is still open (the click reached the top window's own Close: Configure open=%s)", tostring(screenOf("configure") ~= nil))
+        local cfgOpen = screenOf("configure") ~= nil
+        local mainVis = visOf(screenOf("main"))
+        check(screenOf("main") ~= nil and mainVis == (cfgOpen and VIS_HTI or VIS_VISIBLE),
+            "BLOCKED the main window's Close did not act under Configure: the main window is still open (visibility %s; Configure open=%s)", tostring(mainVis), tostring(cfgOpen))
     end)
     -- 6. Configure's Close (if the click above didn't already), then the main window's Close: the menu with the entry.
     step("configure: close if open", function()

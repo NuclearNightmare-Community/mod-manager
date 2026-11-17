@@ -176,9 +176,11 @@ local function cornerOrder(U, win)
     end
     return table.concat(out, ",")
 end
-local function isCorner(el, gap)
+local function isCorner(el, gap, nudge)
     local p = el.place
-    return p.corner == "top-left" and p.absolute == nil and p.offset == nil and p.gap == gap
+    local off = p.offset
+    local offOk = (nudge == nil and off == nil) or (nudge ~= nil and type(off) == "table" and off.x == nudge and off.y == 0)
+    return p.corner == "top-left" and p.absolute == nil and p.gap == gap and offOk
 end
 
 do -- 0.1.1 layout: the card's top-left corner stack, no fixed offsets; the list height from the Mod Manager's reserve.
@@ -188,7 +190,9 @@ do -- 0.1.1 layout: the card's top-left corner stack, no fixed offsets; the list
     local t, hl, l = U.byId.title, U.byId["hdr.list"], U.byId.list
     ok(t.place.corner == "top-left" and t.place.absolute == nil and t.place.offset == nil, "title: top-left corner of the window")
     ok(isCorner(hl, "normal"), "header list: top-left corner, a normal gap after the title")
-    ok(isCorner(l, "tight"), "list: top-left corner, a tight gap after the header list")
+    ok(isCorner(l, "tight", Screen.LIST_NUDGE), "list: top-left corner, a tight gap after the header list, nudged right")
+    -- Same left edge: a corner element sits its gap in from the side (UI-3: tight 8, normal 16) plus its offset.
+    eq(8 + l.place.offset.x, 16, "the list's left edge is the header list's (tight gap + nudge = normal gap)")
     ok(hl.place.screen == w and l.place.screen == w, "both lists on the main window")
     eq(cornerOrder(U, w), "title,hdr.list,list", "the corner stack's creation order: title, header list, list")
     eq(hl.size.h, Screen.HEADER_H, "header list height")
@@ -212,7 +216,7 @@ do -- 0.1.1 layout: the card's top-left corner stack, no fixed offsets; the list
     eq(l.size.w, 2580 - Screen.SIDE_RESERVE, "wider layout: a wider list")
     eq(hl.size.w, l.size.w, "wider layout: the header list follows")
     eq(l.size.h, 1080 - Screen.LIST_RESERVE, "wider layout: the same height")
-    ok(isCorner(hl, "normal") and isCorner(l, "tight"), "wider layout: the same corner places")
+    ok(isCorner(hl, "normal") and isCorner(l, "tight", Screen.LIST_NUDGE), "wider layout: the same corner places")
     eq(cornerOrder(U, w), "title,hdr.list,list", "wider layout: the same stack order")
     -- The same size again: nothing re-created.
     before = #U.calls
@@ -222,7 +226,8 @@ do -- 0.1.1 layout: the card's top-left corner stack, no fixed offsets; the list
     local cw = v:openConfigure(1)
     eq(cornerOrder(U, cw), "cfg.title,cfg.ver,cfg.need,cfg.build", "Configure's corner stack: heading, VERSION, NUCLEUS, GAME BUILD")
     ok(U.byId["cfg.title"].place.corner == "top-left" and U.byId["cfg.title"].place.absolute == nil, "Configure heading: top-left corner")
-    ok(isCorner(U.byId["cfg.ver"], "normal") and isCorner(U.byId["cfg.need"], "tight") and isCorner(U.byId["cfg.build"], "tight"), "Configure lines: top-left corner, normal then tight gaps")
+    ok(isCorner(U.byId["cfg.title"], "normal") and isCorner(U.byId["cfg.ver"], "normal") and isCorner(U.byId["cfg.need"], "normal") and isCorner(U.byId["cfg.build"], "normal"),
+        "Configure heading and lines: top-left corner, one gap (one left edge), no offset")
     for _, el in pairs(U.byId) do
         if el.place and el.place.screen then ok(el.place.absolute == nil, "no absolute place: " .. el.id) end
     end

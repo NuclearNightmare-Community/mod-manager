@@ -41,6 +41,10 @@ Screen.HEADER_H = 64       -- the header list's height
 --     the lists are 1200 wide; at 3440x1440, 1860), well inside the card's width.
 Screen.LIST_RESERVE = 440
 Screen.SIDE_RESERVE = 720
+-- A corner stack puts each element its own gap in from the side edge as well as below the previous one (UI-3: tight 8,
+-- normal 16, public corner gaps). The list follows the header list a tight gap below, so it is nudged right by the
+-- difference to keep the header's left edge (MEASUREALIGN in the screen scenario).
+Screen.LIST_NUDGE = 8
 Screen.FILL = { name = 4, ver = 1, st = 1 }
 
 function Screen.new(ui, strings)
@@ -65,7 +69,7 @@ function Screen.listSize(size)
 end
 
 -- The lists' places and sizes for a layout size. Both stack in the card's top-left corner after the title: the
--- header list a normal gap below it, the list a tight gap below the header. A later call (a new layout size) re-creates
+-- header list a normal gap below it, the list a tight gap below the header (nudged to the header's left edge). A later call (a new layout size) re-creates
 -- both with the same ids and places: core updates them in place and keeps their stack order.
 function Screen:lists(size)
     local ls = Screen.listSize(size)
@@ -73,7 +77,7 @@ function Screen:lists(size)
     self.hdrList = ui.list.create{ id = "hdr.list", size = { w = ls.w, h = Screen.HEADER_H },
         place = { screen = self.main, corner = "top-left", gap = "normal" } }
     self.list = ui.list.create{ id = "list", size = ls,
-        place = { screen = self.main, corner = "top-left", gap = "tight" } }
+        place = { screen = self.main, corner = "top-left", gap = "tight", offset = { x = Screen.LIST_NUDGE, y = 0 } } }
     self.size = { w = size.w, h = size.h }
 end
 
@@ -190,14 +194,14 @@ function Screen:openConfigure(n)
         return self.cfgWin
     end
     self.cfgWin = ui.screen.open{ id = "configure" }
-    -- The card's top-left corner stack, in creation order: the heading, then VERSION a normal gap below it, then
-    -- NUCLEUS and GAME BUILD a tight gap apart.
-    local function at(gap) return { screen = self.cfgWin, corner = "top-left", gap = gap } end
+    -- The card's top-left corner stack, in creation order: the heading, VERSION, NUCLEUS, GAME BUILD, each a normal
+    -- gap below the previous (one gap for all, so all share one left edge).
+    local function at() return { screen = self.cfgWin, corner = "top-left", gap = "normal" } end
     local cfg = {}
-    cfg.title = ui.text.create{ id = "cfg.title", text = l.title, place = at("normal"), style = { font = "title" } }
-    cfg.ver = ui.text.create{ id = "cfg.ver", text = l.ver, place = at("normal"), style = { font = "body" } }
-    cfg.need = ui.text.create{ id = "cfg.need", text = l.need, place = at("tight"), style = { font = "body" } }
-    cfg.build = ui.text.create{ id = "cfg.build", text = l.build, place = at("tight"), style = { font = "body" } }
+    cfg.title = ui.text.create{ id = "cfg.title", text = l.title, place = at(), style = { font = "title" } }
+    cfg.ver = ui.text.create{ id = "cfg.ver", text = l.ver, place = at(), style = { font = "body" } }
+    cfg.need = ui.text.create{ id = "cfg.need", text = l.need, place = at(), style = { font = "body" } }
+    cfg.build = ui.text.create{ id = "cfg.build", text = l.build, place = at(), style = { font = "body" } }
     self.cfg = cfg
     self.cfgMade = true
     return self.cfgWin
