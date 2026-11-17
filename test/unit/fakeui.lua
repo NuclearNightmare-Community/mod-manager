@@ -3,11 +3,26 @@
 -- Story 6: checkbox, choice and slider (a real click: U.toggle / U.pick / U.slide, which change the state and call
 -- onChange as core does; set never calls back), image.set with false, screen.watch/top/close with reasons
 -- (U.back(id) is BACK or Escape), list.setVisible, and a fake core.settings (F.settings).
+-- Story 11: core calls onChange and onClick inside a Blueprint hook. U.toggle / U.pick / U.slide / U.click raise U.inHook
+-- around the callback, and every ui.* call made while it is up is also recorded in U.hookCalls (the dependent must do
+-- no ui work there: an asset load inside a hook stalls the engine).
 local F = {}
 
 function F.new()
-    local U = { calls = {}, els = {}, byId = {}, windows = {}, open = {}, entries = {}, watchers = {}, order = {} }
-    local function rec(name, ...) U.calls[#U.calls + 1] = { name = name, args = table.pack(...) } end
+    local U = { calls = {}, els = {}, byId = {}, windows = {}, open = {}, entries = {}, watchers = {}, order = {}, hookCalls = {}, inHook = false }
+    local function rec(name, ...)
+        local c = { name = name, args = table.pack(...) }
+        U.calls[#U.calls + 1] = c
+        if U.inHook then U.hookCalls[#U.hookCalls + 1] = c end
+    end
+    -- A callback as core's hook calls it: the flag up around it (and down again if it raises).
+    local function inHook(fn, ...)
+        local was = U.inHook
+        U.inHook = true
+        local okH, err = pcall(fn, ...)
+        U.inHook = was
+        if not okH then error(err, 0) end
+    end
     local function handle(kind, id)
         return setmetatable({}, { __index = { id = id }, __newindex = function() error("read-only") end, __metatable = kind .. " handle" })
     end
@@ -135,7 +150,7 @@ function F.new()
             return handle("entry", o.id)
         end,
     }
-    -- A player's input: BACK (or Escape) on a window; a click on a checkbox; an arrow of a choice; a slider's commit.
+    -- A player's input: BACK (or Escape) on a window; a click on a checkbox or a button; an arrow of a choice; a slider's commit.
     function U.back(id) closeWith(id, "close") end
     function U.lose() for i = #U.order, 1, -1 do closeOne(U.order[i], "lost") end end
     function U.toggle(id)
@@ -143,7 +158,7 @@ function F.new()
         assert(el and el.kind == "checkbox", "no checkbox " .. id)
         if not el.enabled or not el.visible then return false end
         el.checked = not el.checked
-        el.onChange(el.handle, el.checked)
+        inHook(el.onChange, el.handle, el.checked)
         return true
     end
     function U.pick(id, index)
@@ -151,7 +166,7 @@ function F.new()
         assert(el and el.kind == "choice", "no choice " .. id)
         if not el.enabled or index == el.index then return false end
         el.index = index
-        el.onChange(el.handle, index, el.options[index])
+        inHook(el.onChange, el.handle, index, el.options[index])
         return true
     end
     function U.slide(id, value)
@@ -159,7 +174,15 @@ function F.new()
         assert(el and el.kind == "slider", "no slider " .. id)
         if not el.enabled or value == el.value then return false end
         el.value = value
-        el.onChange(el.handle, value)
+        inHook(el.onChange, el.handle, value)
+        return true
+    end
+    -- A click on a button (core's Nucleus_OnClicked post-hook): refused when hidden or disabled, as core does.
+    function U.click(id)
+        local el = U.byId[id]
+        assert(el and el.kind == "button", "no button " .. id)
+        if not el.visible or el.enabled == false then return false end
+        inHook(el.onClick)
         return true
     end
     function U.count(name) local n = 0 for _, c in ipairs(U.calls) do if c.name == name then n = n + 1 end end return n end

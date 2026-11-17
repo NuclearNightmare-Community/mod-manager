@@ -68,8 +68,17 @@ function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE n
         (L $M 'MOD 1 Nucleus | Nucleus | 0.8.0 | locked | settings=no | need=- | build=V8.2.3 26601774'))
     foreach ($s in $statusLines) { $l += L $M $s }
     $l += @((L $M 'OPEN rows=10 total=10 lang=en game=V8.2.3 build=- us=4000'),
-        (L $D 'OK OPEN first the MOD MANAGER window opened from the entry'), (L $D 'OK TITLE first the window''s title reads MOD MANAGER (MOD MANAGER)'),
-        (L $M 'CONFIGURE 1 Nucleus'))
+        (L $D 'OK OPEN first the MOD MANAGER window opened from the entry'), (L $D 'OK TITLE first the window''s title reads MOD MANAGER (MOD MANAGER)'))
+    # story 11: the first toggle, before any Configure
+    $l += L $D 'OK TGFIRSTCOLD x'
+    $l += L $D 'OK TGFIRSTFOCUS Dep''s checkbox (row 4) holds the keyboard focus (focus on row 4)'
+    $l += L $M 'TOGGLE ModManagerDep off'
+    $l += L $M 'STATUS ModManagerDep restart | TURNS OFF AFTER A RESTART'
+    $l += L $D 'OK TGFIRST ENTER on Dep''s checkbox: '': 0'', box off, icons restart, banner and QUIT GAME true, 1.2 s after the key (at most 10)'
+    $l += L $M 'TOGGLE ModManagerDep on'
+    $l += L $M 'STATUS ModManagerDep none | '
+    $l += L $D 'OK TGFIRSTCLICK a mouse click turns Dep back on: mods.txt as at the start, box on, icons -, banner hidden true, 2.0 s after the click (at most 10)'
+    $l += L $M 'CONFIGURE 1 Nucleus'
     foreach ($r in $rows) { $l += L $D $r }
     $l += L $D 'GEARLOOK 2 skipped (focused)'
     $l += L $D 'OK GEARLOOK 7 ModManagerFixture looks lit (offers lit)'
@@ -160,7 +169,14 @@ Expect ($good | Where-Object { $_ -notmatch 'STATUS ModManagerFixture build,dep'
 Expect ($good -replace 'INSTALLED: 1\.0\.0', 'INSTALLED: 2.0.0') 'screen' 1 'screen: the wrong fixture tooltip fails' 'STATUS ModManagerFixture'
 Expect ($good | Where-Object { $_ -notmatch 'STATUS ModManagerDep dep \|' }) 'screen' 1 'screen: no Dep dependency icon after Base off fails' 'STATUS ModManagerDep dep'
 Expect ($good | Where-Object { $_ -notmatch 'TOGGLE ModManagerDep on' }) 'screen' 1 'screen: no TOGGLE Dep on fails' 'TOGGLE ModManagerDep on'
-Expect ($good + (L $M 'TOGGLE ModManagerFixture on')) 'screen' 1 'screen: an extra TOGGLE fails' '#3'
+Expect ($good + (L $M 'TOGGLE ModManagerFixture on')) 'screen' 1 'screen: an extra TOGGLE fails' '#5'
+# story 11: the first toggle's checks are required; without its two toggles the counts fail.
+foreach ($k in 'TGFIRSTFOCUS', 'TGFIRST ', 'TGFIRSTCLICK') {
+    Expect ($good | Where-Object { $_ -notmatch "OK $k" }) 'screen' 1 "screen: no $($k.Trim()) fails" "OK $($k.Trim())"
+}
+$noFirst = @($good | Where-Object { $_ -notmatch 'TGFIRST' })
+$i1 = [array]::IndexOf($noFirst, ($noFirst | Where-Object { $_ -match '\] TOGGLE ModManagerDep off' } | Select-Object -First 1))
+Expect ($noFirst[0..($i1 - 1)] + $noFirst[($i1 + 4)..($noFirst.Count - 1)]) 'screen' 1 'screen: only one Dep off/on (no first toggle) fails' '#2'
 Expect ($good | Where-Object { $_ -notmatch 'cancelled \(close\)' }) 'screen' 1 'screen: no BACK cancel fails' 'cancelled'
 Expect ($good | Where-Object { $_ -notmatch 'SET ModManagerFixture later=true' }) 'screen' 1 'screen: no restart setting SET fails' 'later=true'
 foreach ($k in 'TGDEPOFF', 'TGDEPON ', 'CONFIRMBACK', 'CONFIRMOFF', 'DEPICON', 'STATEBASE', 'FIXEDINERT', 'SETKINDS', 'SETFILE', 'RESTARTICON', 'QUITPOINT') {

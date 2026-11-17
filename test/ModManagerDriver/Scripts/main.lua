@@ -11,7 +11,9 @@
 --   screen:   the entry; the main window's rows (ROW lines with the toggle, its box, the status icons; the gear, need
 --             and build from each row's Configure window: gear=dim when it shows NO SETTINGS, lit when it lists
 --             settings; GEARLOOK: the gear drawn that way, judged only when it doesn't hold keyboard focus); one DOWN
---             right after the first open and a focus shot; MEASURE of the long name; CARDFIT (the content inside the
+--             right after the first open and a focus shot; story 11: the first toggle before any Configure (cold
+--             T_Restart): DOWN to Dep's checkbox (TGFIRSTFOCUS), ENTER, Dep off with the restart icon within 10 s
+--             (TGFIRST), a mouse click back on within 10 s (TGFIRSTCLICK); MEASURE of the long name; CARDFIT (the content inside the
 --             card, the list above BACK); story 6: Dep off and on with mods.txt and state.json read back, Base off
 --             through the confirm (BACK, then TURN OFF), the restart and dependency icons, the banner and QUIT GAME
 --             (CARDFIT2), Nucleus's lock and a pak's disabled box changing nothing (FIXED); the fixture's Configure:
@@ -414,6 +416,23 @@ local function buildScreen()
     entryChecks("menu1")
     shot("mm-menu")
 
+    -- (story 6 helpers, used from the first toggle on)
+    local function rowNamed(name) for _, r in ipairs(readRows()) do if r.name == name then return r end end end
+    local function nOf(name) return function() local r = rowNamed(name) return r and r.n end end
+    local function viewRow(nOfF, label)
+        step("view " .. label, function() local n = nOfF() if n then nested(function() intoView(n) end) end end)
+    end
+    local function clickBox(name, part)
+        viewRow(nOf(name), name .. "'s " .. part)
+        clickOn(name .. "'s " .. part, function() local n = nOf(name)() return n and cell(n, part) end)
+    end
+    local function fileWait(what, rel, pred, sec)
+        waitFor(what, function() local t = readFile(rel) return t ~= nil and pred(t) end, sec or 10)
+    end
+    local function pendingShown() return shownW(mainEl("banner")) and shownW(mainEl("quit")) end
+    local function pendingHidden() return not shownW(mainEl("banner")) and not shownW(mainEl("quit")) end
+    local BASE, DEP = "Mod Manager Base", "Mod Manager Dep"
+
     -- 2. The rows, each one's Configure data, the long name's measure, a screenshot.
     openMain("first")
     -- One DOWN with the keyboard right after the first open, while the window's focus is still on its first line (row
@@ -439,6 +458,71 @@ local function buildScreen()
         say("FOCUS after DOWN: %s", at)
     end)
     shot("mm-focus")
+    -- 2b. Story 11: the first toggle of the session, before any Configure (none may draw a restart mark first), so core's
+    -- T_Restart texture is still cold when the toggle draws the first restart icon. In 0.2.0 that load ran inside the
+    -- checkbox's click hook and froze the game (hand test 2026-11-17). Keyboard: DOWN until Dep's checkbox holds the
+    -- focus, ENTER (TGFIRST within 10 s of the key); then a mouse click turns it back on (TGFIRSTCLICK within 10 s).
+    -- A freeze means no further line and no END: the run fails.
+    local function depTg() local d = rowNamed(DEP) return d and cell(d.n, "tg") end
+    local function hasFocus(w) local b = prop(w, "Btn") return b ~= nil and try(function() return b:HasKeyboardFocus() end) == true end
+    local function focusRow()
+        for n = 1, 256 do
+            if not rowW(n) then break end
+            if hasFocus(cell(n, "tg")) or hasFocus(cell(n, "cfg")) then return n end
+        end
+        return nil
+    end
+    step("first: cold", function()
+        R.txtFirst = readFile("mods.txt")
+        local cold = true
+        for _, r in ipairs(readRows()) do if r.icons:find("restart", 1, true) then cold = false end end
+        check(cold and R.txtFirst ~= nil and R.txtFirst:find("ModManagerDep : 1", 1, true) ~= nil,
+            "TGFIRSTCOLD no Configure opened yet, no restart icon shown, Dep on in mods.txt")
+    end)
+    local function toDep(tries)
+        step("first: focus " .. tries, function()
+            local d = rowNamed(DEP)
+            local at = focusRow()
+            if hasFocus(depTg()) or not d or not at or at >= d.n or tries > 10 then return end
+            say("KEY DOWN (row %d to Dep's row %d)", at, d.n)
+            local done = request("key DOWN")
+            nested(function() settle(1) toDep(tries + 1) end)
+            return done, 30, "key DOWN"
+        end)
+    end
+    toDep(1)
+    step("first: focus", function()
+        local d = rowNamed(DEP)
+        check(d ~= nil and hasFocus(depTg()), "TGFIRSTFOCUS Dep's checkbox (row %s) holds the keyboard focus (focus on row %s)", tostring(d and d.n), tostring(focusRow()))
+    end)
+    step("first: ENTER", function()
+        say("KEY ENTER on Dep's checkbox (the first toggle)")
+        R.firstAt = os.clock()
+        return request("key ENTER"), 30, "key ENTER"
+    end)
+    fileWait("first toggle: Dep off in mods.txt", "mods.txt", function(t) return t:find("ModManagerDep : 0", 1, true) ~= nil end)
+    waitFor("first toggle: the restart icon", function() local d = rowNamed(DEP) return d ~= nil and d.icons == "restart" and pendingShown() end, 5)
+    step("first: judged", function()
+        local sec = os.clock() - (R.firstAt or 0)
+        local t = readFile("mods.txt")
+        local d = rowNamed(DEP)
+        check(sec <= 10 and t ~= nil and R.txtFirst ~= nil and t == (R.txtFirst:gsub("ModManagerDep : 1", "ModManagerDep : 0")) and d ~= nil and d.toggle == "off"
+            and d.icons == "restart" and pendingShown(),
+            "TGFIRST ENTER on Dep's checkbox: ': 0', box %s, icons %s, banner and QUIT GAME %s, %.1f s after the key (at most 10)",
+            tostring(d and d.toggle), tostring(d and d.icons), tostring(pendingShown()), sec)
+    end)
+    step("first: click start", function() R.firstClickAt = os.clock() end)
+    clickOn("Dep's checkbox (back on)", depTg)
+    fileWait("first toggle: mods.txt back", "mods.txt", function(t) return t == R.txtFirst end)
+    waitFor("first toggle: no icon", function() local d = rowNamed(DEP) return d ~= nil and d.icons == "-" and d.toggle == "on" and pendingHidden() end, 5)
+    step("first: click judged", function()
+        local sec = os.clock() - (R.firstClickAt or 0)
+        local d = rowNamed(DEP)
+        check(sec <= 10 and readFile("mods.txt") == R.txtFirst and d ~= nil and d.toggle == "on" and d.icons == "-" and pendingHidden(),
+            "TGFIRSTCLICK a mouse click turns Dep back on: mods.txt as at the start, box %s, icons %s, banner hidden %s, %.1f s after the click (at most 10)",
+            tostring(d and d.toggle), tostring(d and d.icons), tostring(pendingHidden()), sec)
+    end)
+    step("cursor away again", function() return request("move 5 5"), 30, "cursor away" end)
     step("rows", function()
         R.rows = readRows()
         R.sig = sig(R.rows)
@@ -512,21 +596,6 @@ local function buildScreen()
     -- 3. Story 6: on/off. Dep off and on (mods.txt read back after each: the value, then the session start's bytes);
     -- Base off through the confirm (BACK first: nothing written; then TURN OFF); the restart and dependency icons, the
     -- banner and QUIT GAME, state.json; then Nucleus's lock and a pak row's disabled box change nothing.
-    local function rowNamed(name) for _, r in ipairs(readRows()) do if r.name == name then return r end end end
-    local function nOf(name) return function() local r = rowNamed(name) return r and r.n end end
-    local function viewRow(nOfF, label)
-        step("view " .. label, function() local n = nOfF() if n then nested(function() intoView(n) end) end end)
-    end
-    local function clickBox(name, part)
-        viewRow(nOf(name), name .. "'s " .. part)
-        clickOn(name .. "'s " .. part, function() local n = nOf(name)() return n and cell(n, part) end)
-    end
-    local function fileWait(what, rel, pred, sec)
-        waitFor(what, function() local t = readFile(rel) return t ~= nil and pred(t) end, sec or 10)
-    end
-    local function pendingShown() return shownW(mainEl("banner")) and shownW(mainEl("quit")) end
-    local function pendingHidden() return not shownW(mainEl("banner")) and not shownW(mainEl("quit")) end
-    local BASE, DEP = "Mod Manager Base", "Mod Manager Dep"
     step("toggle: begin", function()
         for _, r in ipairs(R.rows or {}) do
             if r.name == "ModManagerFixture" then R.fixture = r.n end
@@ -540,7 +609,9 @@ local function buildScreen()
         local b, d = rowNamed(BASE), rowNamed(DEP)
         check(b ~= nil and d ~= nil and b.toggle == "on" and b.box == "live" and d.toggle == "on" and d.box == "live",
             "TGLIVE Base and Dep show a live box, on (%s/%s, %s/%s)", tostring(b and b.toggle), tostring(b and b.box), tostring(d and d.toggle), tostring(d and d.box))
-        check(pendingHidden() and readFile(STATE_REL) == nil, "TGSTART nothing pending: no banner, no QUIT GAME, no state.json yet")
+        -- (the first toggle, off and back on, left state.json with nothing off)
+        local st = readFile(STATE_REL)
+        check(pendingHidden() and (st == nil or st == '{"version":1,"off":[],"seen":[]}'), "TGSTART nothing pending: no banner, no QUIT GAME, nothing off in state.json (%s)", tostring(st))
         say("TOGGLE begin")
     end)
     -- Dep off: no dependents, so no confirm.

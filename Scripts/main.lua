@@ -370,21 +370,51 @@ local function start(core)
         end
         applyToggle(n, row, checked)
     end
+    -- Work a core callback starts runs on the next game-thread tick, outside the hook that called it. The callbacks
+    -- (a checkbox's or control's onChange, a button's onClick) arrive inside core's Blueprint hook, and any ui.* work
+    -- there may load an asset for the first time: the first restart icon of a session loads T_Restart, the first
+    -- Configure a control kind's widget class. An asset load inside a hook stalls the engine ("Loading is stuck", VM
+    -- run 2026-11-17; the first toggle froze the game, hand test 2026-11-17). So a callback only records what was
+    -- clicked and calls soon; the deferred work re-checks that it still applies. With no scheduler (or one that
+    -- refuses) the work runs at once. onFail runs (guarded) when fn faulted, after guard's one WARN.
+    local function soon(what, fn, onFail)
+        local function run()
+            if not guard(what, fn) and onFail then pcall(onFail) end
+        end
+        if type(ExecuteInGameThreadWithDelay) == "function" and pcall(ExecuteInGameThreadWithDelay, 10, run) then return end
+        run()
+    end
+
     view.onToggle = function(n, checked)
-        local okT = guard("the toggle", onToggle, n, checked)
-        if not okT then
+        local r0 = view.data[n]
+        local key = r0 and r0.key
+        soon("the toggle", function()
+            local row = view.data[n]
+            if not row or row.key ~= key then -- the list changed in between: nothing written, box n shows its own row
+                if row then view:setToggle(n, row.state ~= "off") end
+                return
+            end
+            onToggle(n, checked)
+        end, function()
             pcall(view.setToggle, view, n, not checked)
             pcall(view.setMessage, view, fmt("couldNotSave"))
-        end
+        end)
     end
     view.onConfirm = function()
-        guard("TURN OFF", function()
-            local c = confirm
+        local c0 = confirm
+        local c
+        soon("TURN OFF", function()
+            if confirm ~= c0 then return end -- cancelled (BACK) or another confirm since the click: nothing written
+            c = confirm
             confirm = nil
             view:closeConfirm()
             if not c then return end
             local row = view.data[c.n]
             if row and row.key == c.key then applyToggle(c.n, row, false) end
+        end, function()
+            if not c then return end
+            pcall(view.setToggle, view, c.n, true)
+            pcall(view.setMessage, view, fmt("couldNotSave"))
         end)
     end
     -- Any other close of the confirm window (BACK, Escape, a parent closed, the menu lost): the box goes back, nothing
@@ -413,13 +443,7 @@ local function start(core)
 
     -- ---------------------------------------------------------------- Configure and settings
     local cfgFolder, cfgKey
-    -- The gear's click arrives inside the button's click hook. Configure may create a control kind for the first time
-    -- (core loads its widget class then), and an asset load inside a hook stalls the engine ("Loading is stuck",
-    -- VM run 2026-11-17): so the window is built on the next game-thread tick, outside the hook.
-    local function soon(what, fn)
-        if type(ExecuteInGameThreadWithDelay) == "function" and pcall(ExecuteInGameThreadWithDelay, 10, function() guard(what, fn) end) then return end
-        guard(what, fn)
-    end
+    -- The gear's click arrives inside the button's click hook: Configure is built through soon (above), outside it.
     view.onGearClick = function(n)
         local r0 = view.data[n]
         local key = r0 and r0.key
@@ -431,11 +455,22 @@ local function start(core)
             if view:openConfigure(n, list or {}) then log.info("CONFIGURE %d %s", n, r.folder or ("pak:" .. r.key)) end
         end)
     end
+    -- A control's change arrives inside its hook too: saved and redrawn through soon. Nothing is saved if Configure
+    -- shows another mod by then, or setting i is another key.
     view.onSetting = function(i, value)
-        guard("the setting", function()
-            local e = view.settings and view.settings[i]
-            if not (e and cfgFolder and settingsApi) then return end
+        local e0 = view.settings and view.settings[i]
+        local key0, cfg0 = e0 and e0.key, cfgKey
+        local e, saved
+        soon("the setting", function()
+            e = view.settings and view.settings[i]
+            if not e then return end
+            if cfgKey ~= cfg0 or e.key ~= key0 then -- Configure changed in between: control i shows its own entry
+                pcall(view.setControl, view, i, e.value)
+                return
+            end
+            if not (cfgFolder and settingsApi) then return end
             local okC, res, reason = pcall(settingsApi.setFor, cfgFolder, e.key, value)
+            saved = okC and res == true
             if okC and res == true then
                 log.info("SET %s %s=%s", cfgFolder, e.key, valueLog(value))
                 local list = describe(cfgFolder) or {}
@@ -453,6 +488,10 @@ local function start(core)
                 view:setCfgMessage(fmt("notSaved", code))
                 warnOnce("set:" .. cfgFolder .. ":" .. e.key .. ":" .. code, "SET %s %s not saved: %s", cfgFolder, e.key, why:match("^[^\n]*"))
             end
+        end, function()
+            if saved or not e then return end -- saved: guard's WARN only (the value stands)
+            pcall(view.setControl, view, i, e.value)
+            pcall(view.setCfgMessage, view, fmt("notSaved", "error"))
         end)
     end
 
