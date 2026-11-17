@@ -9,9 +9,10 @@
 --
 -- Scenarios (Scripts/scenario.txt, written by deploy.ps1):
 --   screen:   the entry; the main window's rows (ROW lines, need and build read from each row's Configure window);
---             MEASURE of the long name; inert toggle boxes (INERT); Configure on top of the main window, a dimmed
---             gear's Configure, the main window's Close blocked under it; closes; Tower Island and back; the entry
---             again, the same rows (DW-59); END.
+--             MEASURE of the long name; CARDFIT (the content inside the card, the list above BACK); one DOWN and a
+--             focus shot; inert toggle boxes (INERT); Configure on top of the main window, a dimmed gear's Configure,
+--             the main window's Close blocked under it; closes; Tower Island and back; the entry again, the same rows
+--             (DW-59); END.
 --   no-core:  (run.ps1 moves core aside) the menu has no MANAGE MODS entry.
 --   old-core: (run.ps1 sets core's installed mod.json to 0.1.0) publishes that version as <core>.version before the
 --             Mod Manager connects, as an old core would; the menu has no MANAGE MODS entry.
@@ -392,8 +393,49 @@ local function buildScreen()
         check(nr ~= nil and hr ~= nil and math.abs(nr.l - hr.l) / sc <= 1, "MEASUREALIGN the header's NAME starts within 1 unit of the row's name (%s vs %s)", rs(hr), rs(nr))
         return request("move 5 5"), 30, "cursor away" -- for the screenshot
     end)
+    -- CARDFIT (0.1.1): the title, the header list and the list lie inside the main window's card (its Canvas, the
+    -- card's inner area) within 1 unit, and BACK's top is at or below the list's bottom (no overlap). Core logs a WARN
+    -- when the content is larger than the card may be; check.ps1 fails on it by name.
+    step("card fit", function()
+        local sc = scale()
+        local _, c = screenOf("main")
+        local cr = absR(c)
+        local rects, okIn = {}, cr ~= nil
+        for _, id in ipairs({ "title", "hdr.list", "list" }) do
+            local r = absR(childTagged(c, id))
+            rects[id] = r
+            local inside = r ~= nil and cr ~= nil and (cr.l - r.l) / sc <= 1 and (cr.t - r.t) / sc <= 1 and (r.r - cr.r) / sc <= 1 and (r.b - cr.b) / sc <= 1
+            if not inside then okIn = false end
+        end
+        local br, lr = absR(closeOf("main")), rects.list
+        local clear = br ~= nil and lr ~= nil and br.t >= lr.b - 0.5
+        say("CARDFIT canvas=%s title=%s header=%s list=%s back=%s scale=%.3f", rs(cr), rs(rects.title), rs(rects["hdr.list"]), rs(lr), rs(br), sc)
+        local function u(a, b) return (a and b) and (a - b) / sc or -1 end
+        check(okIn and clear, "CARDFIT the title, header and list are inside the card (%s) and the list ends %.1f units above BACK's top",
+            tostring(okIn), u(br and br.t, lr and lr.b))
+    end)
     settle(1)
     shot("mm-main")
+    -- One DOWN with the keyboard, then a shot of the focus (a visible highlight needs core story 28; not judged here).
+    step("focus: DOWN", function()
+        say("KEY DOWN")
+        return request("key DOWN"), 30, "key DOWN"
+    end)
+    settle(1)
+    step("focus: where", function()
+        local at = "none"
+        for n = 1, 256 do
+            if not rowW(n) then break end
+            local b = prop(cell(n, "cfg"), "Btn")
+            if b and try(function() return b:HasKeyboardFocus() end) == true then at = "r" .. n .. ".cfg" break end
+        end
+        if at == "none" then
+            local b = prop(closeOf("main"), "Btn")
+            if b and try(function() return b:HasKeyboardFocus() end) == true then at = "BACK" end
+        end
+        say("FOCUS after DOWN: %s", at)
+    end)
+    shot("mm-focus")
 
     -- 3. The toggle boxes are inert: a click on a box and on Nucleus's lock changes nothing, writes nothing, logs nothing.
     step("inert: begin", function()

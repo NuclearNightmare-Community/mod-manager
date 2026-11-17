@@ -35,9 +35,10 @@ $LONG = 'ModManagerLong ' + ('W' * 49)
 function Start-Log { @(
     (U "Starting Lua mod 'Nucleus'"), (L 'Nucleus' 'READY version=0.8.0 native=0.8.0 ue4ss=v3.0.1-1181-g83330635 boot=1'),
     (U "Starting Lua mod '$D'"), (U "Starting Lua mod '$M'")) }
+$MV = (Get-Content (Join-Path $repo 'mod.json') -Raw | ConvertFrom-Json).version # check.ps1 expects the Mod Manager's own version
 $rowLines = @(
     "ROW Nucleus | 0.8.0 | toggle=lock | gear=dim | status=0 | need=- | build=V8.2.3 26601774"
-    "ROW Mod Manager | 0.1.0 | toggle=lock | gear=dim | status=0 | need=>=0.12.0 | build=V8.2.3 26601774"
+    "ROW Mod Manager | $MV | toggle=lock | gear=dim | status=0 | need=>=0.12.0 | build=V8.2.3 26601774"
     "ROW ModManagerBare | - | toggle=off | gear=dim | status=0 | need=- | build=-"
     "ROW ModManagerDriver | - | toggle=on | gear=dim | status=0 | need=- | build=-"
     "ROW ModManagerFixture | 9.9.9 | toggle=off | gear=lit | status=0 | need=>=0.1.0 | build=V0.0.0 1"
@@ -45,7 +46,7 @@ $rowLines = @(
     "ROW ModManagerPak | UNMANAGED | toggle=on | gear=dim | status=0 | need=- | build=-"
     "ROW ModManagerPakOff | UNMANAGED | toggle=off | gear=dim | status=0 | need=- | build=-"
 )
-function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE name width=680.0 desired=820.5 right=1225.0 verLeft=1233.0 headerLeft=405.0 rowLeft=405.0', [string[]] $inert = @(), [string] $files = '[run.ps1] FILES unchanged') {
+function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE name width=680.0 desired=820.5 right=1225.0 verLeft=1233.0 headerLeft=405.0 rowLeft=405.0', [string[]] $inert = @(), [string] $files = '[run.ps1] FILES unchanged', [string] $cardfit = 'OK CARDFIT the title, header and list are inside the card (true) and the list ends 72.0 units above BACK''s top') {
     $l = (Start-Log) + @(
         (L $D 'SCENARIO screen'), (L $D 'LOADED 7 steps'),
         (L $M 'CONNECT ok Nucleus 0.8.0 (pong 0.8.0 boot=1)'), (L $M 'READY entry=manage need=>=0.12.0'),
@@ -60,6 +61,7 @@ function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE n
     $l += L $D 'OK MEASURECUT the long name''s desired width 820.5 is over its column''s 680.0'
     $l += L $D 'OK MEASUREEDGE x'
     $l += L $D 'OK MEASUREALIGN x'
+    if ($cardfit) { $l += L $D $cardfit }
     $l += L $D 'INERT begin'
     foreach ($i in $inert) { $l += $i }
     $l += L $D 'INERT end'
@@ -77,6 +79,13 @@ function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE n
 $good = Screen-Log
 Expect $good 'screen' 0 'screen: passes' 'All checks passed'
 Expect $good 'screen' 0 'vm screen: passes' 'All checks passed' 'vm'
+# 0.1.1: core's card WARN fails by name; CARDFIT is required.
+$cardWarn = L $M "WARN window 'main': its content (2219 x 1031) is larger than the viewport allows; the card is clamped to 2267 x 1016"
+Expect ($good + $cardWarn) 'screen' 1 'screen: the card clamp WARN fails' 'FAIL: .*the card is clamped'
+Expect ($good + $cardWarn) 'screen' 1 'vm screen: the card clamp WARN fails' 'FAIL: .*the card is clamped' 'vm'
+Expect ($good + (L $M "WARN window 'configure': its content (900 x 1100) is larger than the viewport allows; the card is clamped to 948 x 1016")) 'screen' 1 'screen: the Configure card WARN fails' 'FAIL: .*the card is clamped'
+Expect (Screen-Log -cardfit '') 'screen' 1 'screen: no CARDFIT fails' 'FAIL: .*OK CARDFIT'
+Expect (Screen-Log -cardfit 'FAIL CARDFIT the title, header and list are inside the card (false) and the list ends -20.0 units above BACK''s top') 'screen' 1 'screen: a failed CARDFIT fails' 'FAIL: .*OK CARDFIT'
 # Other installed mods may sit between the expected rows.
 Expect (Screen-Log -rows (@($rowLines[0], $rowLines[1], 'ROW Clock | 0.1.0 | toggle=on | gear=lit | status=0 | need=>=0.2.0 | build=V8.2.3 26601774') + $rowLines[2..7])) 'screen' 0 'screen: another mod between them is fine' 'All checks passed'
 Expect (Screen-Log -rows $rowLines[0..6]) 'screen' 1 'screen: a missing row (PakOff) fails' 'ModManagerPakOff .*found 0'
@@ -88,7 +97,7 @@ Expect (Screen-Log -rows (@($rowLines[0..4]) + ($rowLines[5] -replace 'need=>=0\
 Expect (Screen-Log -rows (@($rowLines[0..5]) + ($rowLines[6] -replace 'status=0', 'status=1') + $rowLines[7])) 'screen' 1 'screen: a status icon fails' 'status slot'
 Expect (Screen-Log -rows ($rowLines + 'ROW Keybinds | - | toggle=on | gear=dim | status=0 | need=- | build=-')) 'screen' 1 'screen: a built-in row fails' 'must be absent: Keybinds'
 Expect (Screen-Log -rows ($rowLines + 'ROW NuclearNightmare-Windows | UNMANAGED | toggle=on | gear=dim | status=0 | need=- | build=-')) 'screen' 1 'screen: the base pak row fails' 'must be absent'
-Expect (Screen-Log -rows (@($rowLines[0]) + ($rowLines[1] -replace '0\.1\.0', '0.2.0') + $rowLines[2..7])) 'screen' 1 "screen: Mod Manager's version from its mod.json"
+Expect (Screen-Log -rows (@($rowLines[0]) + ($rowLines[1] -replace [regex]::Escape("| $MV |"), '| 9.8.7 |') + $rowLines[2..7])) 'screen' 1 "screen: Mod Manager's version from its mod.json"
 Expect (Screen-Log -measure 'MEASURE name width=900.0 desired=820.5 right=1225.0 verLeft=1233.0 headerLeft=405.0 rowLeft=405.0') 'screen' 1 'screen: a long name not cut fails' 'is cut'
 Expect (Screen-Log -measure 'MEASURE name width=680.0 desired=820.5 right=1240.0 verLeft=1233.0 headerLeft=405.0 rowLeft=405.0') 'screen' 1 'screen: an overlap fails' 'right edge'
 Expect (Screen-Log -measure 'MEASURE name width=680.0 desired=820.5 right=1225.0 verLeft=1233.0 headerLeft=407.5 rowLeft=405.0') 'screen' 1 'screen: a misaligned header fails' 'within 1 unit'
