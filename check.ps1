@@ -19,7 +19,8 @@
       is "none"; the fixture's names both games and both dependency problems.
     - MEASURE: the long name's desired width over its allotted width (cut), its right edge left of the version
       column's left edge, the header's NAME within 1 unit of the row's name.
-    - TGFIRST (story 11): the first toggle of the session, before any Configure: ENTER on Dep's focused checkbox
+    - TGFIRST (story 11): the first toggle of the session, before any Configure and with no restart icon shown
+      (TGFIRSTCOLD: core's restart texture still cold): ENTER on Dep's focused checkbox
       (TGFIRSTFOCUS) turns it off within 10 s with the restart icon (TGFIRST), a mouse click turns it back on within
       10 s (TGFIRSTCLICK); so Dep is toggled off and on twice in the run, five TOGGLE lines in all.
     - FIXED: no [ModManager] line between the driver's FIXED begin and FIXED end (the lock and a pak's box log nothing).
@@ -115,7 +116,7 @@ $expect = @{
         "\[$D\] OK CONFIRMCLOSED ", "\[$D\] OK CONFIRMOFF ", "\[$D\] OK TGBASEICON ", "\[$D\] OK DEPICON ", "\[$D\] OK PENDINGUI2 "
         "\[$D\] OK STATEBASE ", "\[$D\] OK PAKFIXED ", "\[$D\] OK FIXEDINERT "
         # story 11: the first toggle before any Configure (cold T_Restart): ENTER on Dep's focused checkbox, then a mouse click
-        "\[$D\] OK TGFIRSTFOCUS ", "\[$D\] OK TGFIRST ", "\[$D\] OK TGFIRSTCLICK "
+        "\[$D\] OK TGFIRSTCOLD ", "\[$D\] OK TGFIRSTFOCUS ", "\[$D\] OK TGFIRST ", "\[$D\] OK TGFIRSTCLICK "
         "#2|\[$M\] TOGGLE ModManagerDep off\s*$", "#2|\[$M\] TOGGLE ModManagerDep on\s*$", "#1|\[$M\] TOGGLE ModManagerBase off\s*$"
         "#5|\[$M\] TOGGLE "
         "#1|\[$M\] CONFIRM ModManagerBase cancelled \(close\)\s*$"
