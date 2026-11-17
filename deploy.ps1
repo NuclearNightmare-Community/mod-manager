@@ -14,6 +14,8 @@
     Mods/ModManagerFixture   mod.json only, "ModManagerFixture : 0" in mods.txt
     Mods/ModManagerBare      an empty Scripts/, no mods.txt line
     Mods/ModManagerLong      mod.json with a 64-character displayName, no mods.txt line
+    Mods/ModManagerBase      mod.json only (story 6: a mod others need), "ModManagerBase : 1"
+    Mods/ModManagerDep       mod.json only, needing ModManagerBase, "ModManagerDep : 1"
     Content/Paks/ModManagerPak_P.pak and ModManagerPakOff_P.pak.disabled (build/fixtures/ModManagerPak_P.pak,
                              built by build.ps1 -Fixtures, which this runs when the file is missing)
   A deploy without -Test removes the driver and the fixtures. -Remove deletes all of it and their mods.txt lines;
@@ -43,7 +45,7 @@ $here     = $PSScriptRoot
 $manifest = Get-Content (Join-Path $here 'mod.json') -Raw | ConvertFrom-Json
 $name     = $manifest.name
 $driver   = "${name}Driver"
-$fixtures = @("${name}Fixture", "${name}Bare", "${name}Long")
+$fixtures = @("${name}Fixture", "${name}Bare", "${name}Long", "${name}Base", "${name}Dep")
 $fixturePaks = @("${name}Pak_P.pak", "${name}PakOff_P.pak.disabled")
 $inst     = (Resolve-Path $Instance).Path
 $win64    = Join-Path $inst 'NuclearNightmare\Binaries\Win64'
@@ -131,10 +133,14 @@ if ($Test) {
     New-Item -ItemType Directory -Force (Join-Path $modsDir "${name}Fixture"), (Join-Path $modsDir "${name}Bare\Scripts"), (Join-Path $modsDir "${name}Long") | Out-Null
     Copy-Item (Join-Path $here "test\${name}Fixture\mod.json") (Join-Path $modsDir "${name}Fixture") -Force
     Copy-Item (Join-Path $here "test\${name}Long\mod.json") (Join-Path $modsDir "${name}Long") -Force
+    foreach ($f in "${name}Base", "${name}Dep") {
+        New-Item -ItemType Directory -Force (Join-Path $modsDir $f) | Out-Null
+        Copy-Item (Join-Path $here "test\$f\mod.json") (Join-Path $modsDir $f) -Force
+    }
     New-Item -ItemType Directory -Force $paksDir | Out-Null
     Copy-Item $fixturePak (Join-Path $paksDir $fixturePaks[0]) -Force
     Copy-Item $fixturePak (Join-Path $paksDir $fixturePaks[1]) -Force
-    $add = @($driver, $name)
+    $add = @($driver, $name, "${name}Base", "${name}Dep")
     $off = @("${name}Fixture")
 }
 $lines = Edit-ModsTxt -Lines $clean -Add $add -Disabled $off -After $CoreName

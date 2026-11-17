@@ -1,6 +1,8 @@
 -- Unit tests for Scripts/screen.lua against a fake core.ui (test/unit/fakeui.lua): the windows' elements, ids, icon
 -- keys, dimmed, tooltips, overflow, the header's mirror of a row, reuse on a second open, hiding rows past the count,
--- the 200-row list, and the Configure window. Run from the repo root:  texlua test/unit/screen_test.lua
+-- the 200-row list, the Configure window; story 6: the lock and the checkbox, the status icons, QUIT GAME, the banner
+-- and the message line, the confirm and alert windows, Configure's problem lines and settings controls.
+-- Run from the repo root:  texlua test/unit/screen_test.lua
 local ROOT = (arg and arg[0] or ""):match("^(.*)[/\\]test[/\\]unit[/\\][^/\\]+$") or "."
 package.path = ROOT .. "/Scripts/?.lua;" .. ROOT .. "/test/unit/?.lua;" .. package.path
 local Screen = require("screen")
@@ -16,15 +18,15 @@ local function eq(got, want, name) ok(got == want, name, "got " .. tostring(got)
 local SIZE = { w = 1920, h = 1080 }
 local function row(t)
     local r = { key = (t.folder or t.name):lower(), folder = t.folder, name = t.name, version = t.version, pakOnly = t.pakOnly or false,
-        state = t.state or "off", settings = t.settings or false, need = t.need, build = t.build, paks = {} }
+        state = t.state or "off", settings = t.settings or false, need = t.need, build = t.build, paks = t.paks or {}, st = t.st }
     return r
 end
 local ROWS = {
-    row{ folder = "Nucleus", name = "Nucleus", version = "0.8.0", state = "locked", build = "V8.2.3 26601774" },
+    row{ folder = "Nucleus", name = "Nucleus", version = "0.8.0", state = "locked", build = "V8.2.3 26601774", paks = { "Nucleus.pak" } },
     row{ folder = "ModManager", name = "Mod Manager", version = "0.1.0", state = "locked", need = ">=0.8.0", build = "V8.2.3 26601774" },
     row{ folder = "ModManagerFixture", name = "ModManagerFixture", version = "9.9.9", state = "off", settings = true, need = ">=0.1.0", build = "V0.0.0 1" },
     row{ folder = "ModManagerDriver", name = "ModManagerDriver", state = "on" },
-    row{ name = "ModManagerPak", pakOnly = true, state = "on" },
+    row{ name = "ModManagerPak", pakOnly = true, state = "on", paks = { "ModManagerPak_P.pak" } },
 }
 
 do -- First open: the window, the title, the header, the lists, one row per mod.
@@ -40,20 +42,23 @@ do -- First open: the window, the title, the header, the lists, one row per mod.
     local hl, l = U.byId["hdr.list"], U.byId.list
     ok(hl.size.w == l.size.w and hl.style == nil and l.style == nil, "header list and list: same width and style")
     eq(l.size.w, 1920 - Screen.SIDE_RESERVE, "list width: the layout width less the side reserve")
-    -- header: spacer | NAME (fill 4) | VERSION (fill 1) | empty status (fill 1) | spacer
-    local hon, hname, hver, hst, hcfg = U.byId["hdr.on"], U.byId["hdr.name"], U.byId["hdr.ver"], U.byId["hdr.st"], U.byId["hdr.cfg"]
+    -- header: spacer | NAME (fill 4) | VERSION (fill 1) | three status spacers | spacer
+    local hon, hname, hver, hcfg = U.byId["hdr.on"], U.byId["hdr.name"], U.byId["hdr.ver"], U.byId["hdr.cfg"]
     ok(hon.kind == "image" and hon.image == nil and hon.size == Screen.ICON and hon.place.fill == nil, "header: a spacer of the toggle box's size, no fill")
-    ok(hname.text == "NAME" and hname.place.fill == 4 and hver.text == "VERSION" and hver.place.fill == 1 and hst.text == "" and hst.place.fill == 1, "header: NAME 4, VERSION 1, empty 1")
+    ok(hname.text == "NAME" and hname.place.fill == 4 and hver.text == "VERSION" and hver.place.fill == 1, "header: NAME 4, VERSION 1")
+    for k = 1, 3 do
+        local h = U.byId["hdr.s" .. k]
+        ok(h and h.kind == "image" and h.image == nil and h.size == Screen.ICON and h.place.fill == nil, "header: status spacer " .. k)
+    end
+    eq(U.byId["hdr.st"], nil, "story 3's empty status text is gone")
     ok(hcfg.kind == "image" and hcfg.image == nil and hcfg.size == Screen.ICON, "header: a spacer of the gear's size")
     eq(U.byId.hdr.place.list, U.byId["hdr.list"].handle, "the header row is in the header list")
-    -- the order of the header's cells is the order of a row's
     local order = {}
     for _, c in ipairs(U.calls) do local o = c.args[1] if type(o) == "table" and o.place and o.place.row == U.byId.hdr.handle then order[#order + 1] = o.id end end
-    eq(table.concat(order, ","), "hdr.on,hdr.name,hdr.ver,hdr.st,hdr.cfg", "header cells in a row's order")
+    eq(table.concat(order, ","), "hdr.on,hdr.name,hdr.ver,hdr.s1,hdr.s2,hdr.s3,hdr.cfg", "header cells in a row's order")
     order = {}
     for _, c in ipairs(U.calls) do local o = c.args[1] if type(o) == "table" and o.place and o.place.row == U.byId.r1.handle and c.name:match("create") then order[#order + 1] = o.id end end
-    eq(table.concat(order, ","), "r1.on,r1.name,r1.ver,r1.st,r1.cfg", "row cells: toggle box, name, version, status, gear")
-    -- rows
+    eq(table.concat(order, ","), "r1.on,r1.tg,r1.name,r1.ver,r1.s1,r1.s2,r1.s3,r1.cfg", "row cells: lock, checkbox, name, version, three status icons, gear")
     for n, r in ipairs(ROWS) do
         local p = "r" .. n
         ok(U.byId[p] and U.byId[p].place.list == l.handle and U.byId[p].visible, p .. " in the list, shown")
@@ -62,19 +67,31 @@ do -- First open: the window, the title, the header, the lists, one row per mod.
         eq(U.byId[p .. ".name"].place.fill, 4, p .. " name fill 4")
         eq(U.byId[p .. ".ver"].style.overflow, "ellipsis", p .. " version cut with an ellipsis")
         eq(U.byId[p .. ".ver"].place.fill, 1, p .. " version fill 1")
-        ok(U.byId[p .. ".st"].text == "" and U.byId[p .. ".st"].place.fill == 1, p .. " status: empty, fill 1")
-        local on = U.byId[p .. ".on"]
-        ok(on.kind == "image" and on.size == Screen.ICON and on.place.fill == nil, p .. " toggle box: an image, fixed size, no fill (inert)")
+        for k = 1, 3 do
+            local si = U.byId[p .. ".s" .. k]
+            ok(si.kind == "image" and si.size == Screen.ICON and si.place.fill == nil and si.image == nil and si.tooltip == nil, p .. " status " .. k .. ": an empty fixed image")
+        end
+        local on, tg = U.byId[p .. ".on"], U.byId[p .. ".tg"]
+        ok(on.kind == "image" and on.size == Screen.ICON and on.place.fill == nil and on.image.icon == "lock", p .. " lock: an image, fixed size, no fill")
+        ok(tg.kind == "checkbox" and tg.size == Screen.ICON and tg.place.fill == nil and type(tg.onChange) == "function", p .. " toggle: core's checkbox, fixed size")
+        eq(on.visible ~= tg.visible, true, p .. " one of lock and checkbox shown, the other hidden")
         local gear = U.byId[p .. ".cfg"]
         ok(gear.kind == "button" and gear.icon.icon == "gear" and gear.iconSize == Screen.ICON and gear.label == nil and type(gear.onClick) == "function", p .. " gear: icon-only, the toggle box's size")
         eq(gear.tooltip, "CONFIGURE", p .. " gear tooltip")
         eq(gear.dimmed, not r.settings, p .. " gear dimmed without settings")
     end
-    local function icon(n) return U.byId["r" .. n .. ".on"].image.icon end
-    ok(icon(1) == "lock" and icon(2) == "lock" and icon(3) == "checkbox-off" and icon(4) == "checkbox-on" and icon(5) == "checkbox-on", "toggle icons: lock, lock, off, on, on")
-    ok(U.byId["r1.on"].tooltip == "ALWAYS ON" and U.byId["r3.on"].tooltip == "OFF" and U.byId["r4.on"].tooltip == "ON", "toggle tooltips")
+    local function lock(n) return U.byId["r" .. n .. ".on"].visible end
+    local function tg(n) return U.byId["r" .. n .. ".tg"] end
+    ok(lock(1) and lock(2) and not lock(3) and not lock(4) and not lock(5), "the lock on Nucleus and the Mod Manager only (Nucleus's pak too)")
+    ok(tg(3).checked == false and tg(3).enabled and tg(4).checked == true and tg(4).enabled, "live checkboxes: off, on")
+    ok(tg(5).checked == true and tg(5).enabled == false and tg(5).visible, "a pak row: its state in a disabled checkbox")
+    ok(U.byId["r1.on"].tooltip == "ALWAYS ON" and tg(3).tooltip == "OFF" and tg(4).tooltip == "ON", "toggle tooltips")
+    eq(tg(5).tooltip, "BLUEPRINT MODS CAN'T BE SWITCHED FROM THE GAME YET", "a pak row's tooltip")
     ok(U.byId["r1.ver"].text == "0.8.0" and U.byId["r4.ver"].text == "-" and U.byId["r5.ver"].text == "UNMANAGED", "versions: as read, - unknown, UNMANAGED for a pak")
-    ok(U.count("text.create") >= 1 and U.byId["r6"] == nil, "no row beyond the data")
+    ok(U.byId["r6"] == nil, "no row beyond the data")
+    -- the bottom-right stack, hidden while nothing is pending
+    ok(U.byId.quit.kind == "button" and U.byId.quit.label == "QUIT GAME" and not U.byId.quit.visible, "QUIT GAME made, hidden")
+    ok(U.byId.banner.text == "CHANGES APPLY AFTER A RESTART." and not U.byId.banner.visible and not U.byId.msg.visible, "banner and message hidden")
 
     -- Second open: same elements, nothing created again, the window opened again.
     local before = #U.calls
@@ -90,14 +107,15 @@ do -- First open: the window, the title, the header, the lists, one row per mod.
     for _ in pairs(U.byId) do n2 = n2 + 1 end
     eq(n2, made, "no new element")
     eq(#U.since(before, "screen.open"), 1, "it opens the window")
-    eq(#U.since(before, "text.set") - 3, 0, "the same data: only the three localized labels set (core makes those no-ops)")
+    eq(#U.since(before, "text.set") - 4, 0, "the same data: only the four localized labels set (core makes those no-ops)")
+    eq(#U.since(before, "checkbox.set") + #U.since(before, "image.set") + #U.since(before, "image.setTooltip"), 0, "the same data: no toggle or status call")
 
     -- Fewer mods: rows past the count are hidden, not removed; more again: shown with new data.
     before = #U.calls
     v:openMain({ ROWS[1], ROWS[3] }, "en", SIZE)
     ok(U.byId.r1.visible and U.byId.r2.visible and not U.byId.r3.visible and not U.byId.r4.visible and not U.byId.r5.visible, "two mods: rows 3-5 hidden")
     eq(U.byId["r2.name"].text, "ModManagerFixture", "row 2 now shows the fixture")
-    ok(U.byId["r2.on"].image.icon == "checkbox-off" and U.byId["r2.on"].tooltip == "OFF", "row 2's toggle follows")
+    ok(U.byId["r2.tg"].checked == false and U.byId["r2.tg"].tooltip == "OFF" and not U.byId["r2.on"].visible and U.byId["r2.tg"].visible, "row 2's toggle follows (lock hidden, checkbox shown)")
     eq(U.byId["r2.cfg"].dimmed, false, "row 2's gear lit (its button re-created with the same id)")
     eq(U.byId["r2.cfg"].updates, 1, "the gear updated once")
     v:openMain(ROWS, "en", SIZE)
@@ -105,35 +123,193 @@ do -- First open: the window, the title, the header, the lists, one row per mod.
     eq(U.count("row.setVisible"), 6, "setVisible only on a change (3 hidden, 3 shown)")
 end
 
+do -- Story 6: status icons, tooltips, refresh in place, pending, the message line.
+    local U = FakeUi.new()
+    local v = Screen.new(U, S)
+    local rows = {
+        row{ folder = "A", name = "A", state = "on", st = { kinds = { "build", "dep", "restart" }, tips = { build = "B1", dep = "D1\nD2", restart = "R1" } } },
+        row{ folder = "B", name = "B", state = "on", st = { kinds = { "dep" }, tips = { dep = "D" } } },
+        row{ folder = "C", name = "C", state = "off", st = { kinds = { "restart" }, tips = { restart = "TURNS OFF AFTER A RESTART" } } },
+        row{ name = "P", pakOnly = true, state = "off", paks = { "P_P.pak.disabled" }, st = { kinds = {}, tips = {} } },
+    }
+    v:openMain(rows, "en", SIZE)
+    local function icons(n)
+        local t = {}
+        for k = 1, 3 do local el = U.byId["r" .. n .. ".s" .. k] t[k] = (el.image and el.image.icon or "-") .. ":" .. tostring(el.tooltip) end
+        return table.concat(t, " ")
+    end
+    eq(icons(1), "warning:B1 warning:D1\nD2 restart:R1", "build, dependency, restart, left to right")
+    eq(icons(2), "warning:D -:nil -:nil", "a dependency icon first, the rest empty")
+    eq(icons(3), "restart:TURNS OFF AFTER A RESTART -:nil -:nil", "restart only")
+    eq(icons(4), "-:nil -:nil -:nil", "a pak-only row: none")
+    ok(U.byId["r4.tg"].enabled == false and U.byId["r4.tg"].checked == false, "pak row off: a disabled empty box")
+    -- refresh in place: icons change, cleared ones lose image and tooltip, no screen.open
+    local opens = U.count("screen.open")
+    rows[1].st = { kinds = { "restart" }, tips = { restart = "R2" } }
+    rows[3].state = "on"; rows[3].st = { kinds = {}, tips = {} }
+    v:refresh(rows)
+    eq(U.count("screen.open"), opens, "refresh opens nothing")
+    eq(icons(1), "restart:R2 -:nil -:nil", "row 1 after refresh: restart only")
+    eq(icons(3), "-:nil -:nil -:nil", "row 3 after refresh: none")
+    ok(U.byId["r3.tg"].checked == true and U.byId["r3.tg"].tooltip == "ON", "row 3's box follows the files")
+    -- pending: QUIT GAME and the banner; the message line
+    v:setPending(2)
+    ok(U.byId.quit.visible and U.byId.banner.visible, "pending: QUIT GAME and the banner shown")
+    v:setMessage("COULD NOT SAVE THE CHANGE")
+    ok(U.byId.msg.visible and U.byId.msg.text == "COULD NOT SAVE THE CHANGE", "the message line")
+    v:setPending(0); v:setMessage(nil)
+    ok(not U.byId.quit.visible and not U.byId.banner.visible and not U.byId.msg.visible, "nothing pending: all hidden")
+    local qc = 0
+    v.onQuit = function() qc = qc + 1 end
+    U.byId.quit.onClick()
+    eq(qc, 1, "QUIT GAME calls onQuit")
+    -- a checkbox click reaches onToggle with the new state; setToggle sets it back without a callback
+    local got
+    v.onToggle = function(n, c) got = n .. ":" .. tostring(c) end
+    U.toggle("r2.tg")
+    eq(got, "2:false", "a click on row 2's box: onToggle(2, false)")
+    got = nil
+    v:setToggle(2, true)
+    ok(got == nil and U.byId["r2.tg"].checked == true, "setToggle: back on, no callback")
+    eq(U.toggle("r4.tg"), false, "a pak row's disabled box takes no click")
+end
+
+do -- Story 6: the confirm and alert windows.
+    local U = FakeUi.new()
+    local v = Screen.new(U, S)
+    v:openMain(ROWS, "en", SIZE)
+    local cw = v:openConfirm("TURN OFF X? Y NEED IT.")
+    eq(cw.id, "confirm", "the confirm window's id")
+    ok(U.byId["confirm.text"].text == "TURN OFF X? Y NEED IT." and U.byId["confirm.ok"].label == "TURN OFF", "its text and TURN OFF")
+    ok(U.byId["confirm.text"].place.screen == cw and U.byId["confirm.ok"].place.screen == cw, "both on the confirm window")
+    local n = 0
+    v.onConfirm = function() n = n + 1 end
+    U.byId["confirm.ok"].onClick()
+    eq(n, 1, "TURN OFF calls onConfirm")
+    v:closeConfirm()
+    ok(not U.open.confirm, "closeConfirm closes it")
+    local creates = U.count("text.create")
+    v:openConfirm(string.rep("x", 300))
+    eq(U.count("text.create"), creates, "a second confirm creates nothing")
+    eq(#U.byId["confirm.text"].text, 256, "a long text is cut at 256 (core never warns)")
+    local aw = v:openAlert("NUCLEUS 1 WAS MADE FOR GAME V1. THIS GAME IS V2. MODS MAY NOT WORK UNTIL NUCLEUS IS UPDATED.")
+    ok(aw.id == "alert" and U.byId["alert.text"].text:find("^NUCLEUS 1 WAS MADE") ~= nil, "the alert window and its text")
+end
+
 do -- The Configure window: heading and three lines; created once; Close is core's.
     local U = FakeUi.new()
     local v = Screen.new(U, S)
     v:openMain(ROWS, "en", SIZE)
-    local w = v:openConfigure(3)
+    local w = v:openConfigure(3, {})
     eq(w.id, "configure", "the Configure window's id")
     ok(U.byId["cfg.title"].text == "ModManagerFixture" and U.byId["cfg.title"].place.screen == w, "heading: the shown name")
     eq(U.byId["cfg.ver"].text, "VERSION 9.9.9", "VERSION line")
     eq(U.byId["cfg.need"].text, "NUCLEUS >=0.1.0", "NUCLEUS line")
     eq(U.byId["cfg.build"].text, "GAME BUILD V0.0.0 1", "GAME BUILD line")
+    ok(U.byId["cfg.none"].visible and U.byId["cfg.none"].text == "NO SETTINGS" and not U.byId["cfg.list"].visible, "no settings: NO SETTINGS, the list hidden")
     local creates = U.count("text.create")
-    v:openConfigure(1)
+    v:openConfigure(1, {})
     eq(U.count("text.create"), creates, "a second Configure creates nothing")
     ok(U.byId["cfg.title"].text == "Nucleus" and U.byId["cfg.need"].text == "NUCLEUS -" and U.byId["cfg.build"].text == "GAME BUILD V8.2.3 26601774", "Nucleus: NUCLEUS -")
-    v:openConfigure(5)
+    v:openConfigure(5, {})
     ok(U.byId["cfg.ver"].text == "VERSION UNMANAGED" and U.byId["cfg.need"].text == "NUCLEUS -" and U.byId["cfg.build"].text == "GAME BUILD -", "a pak-only mod: UNMANAGED, -, -")
-    eq(v:openConfigure(99), nil, "no such row: nothing opens")
-    -- a dimmed gear opens Configure like a lit one
+    eq(v:openConfigure(99, {}), nil, "no such row: nothing opens")
     local opened = 0
-    v.onGearClick = function(n) opened = n end
+    v.onGearClick = function(k) opened = k end
     U.byId["r1.cfg"].onClick()
     eq(opened, 1, "the dimmed gear's onClick reaches Configure's opener")
     v.onGearClick = nil
     U.byId["r3.cfg"].onClick()
     eq(U.byId["cfg.title"].text, "ModManagerFixture", "without a hook the gear opens Configure itself")
-    -- nothing else is clickable: no onClick anywhere but the gears
+    -- clickable buttons: the gears and QUIT GAME (the toggles are checkboxes)
     for id, el in pairs(U.byId) do
-        if el.onClick then ok(id:match("^r%d+%.cfg$") ~= nil, "only gears are clickable: " .. id) end
+        if el.onClick then ok(id:match("^r%d+%.cfg$") ~= nil or id == "quit", "only gears and QUIT GAME are buttons: " .. id) end
     end
+end
+
+do -- Story 6: Configure's problem lines and settings controls.
+    local U = FakeUi.new()
+    local v = Screen.new(U, S)
+    local fx = row{ folder = "ModManagerFixture", name = "ModManagerFixture", version = "9.9.9", settings = true,
+        st = { kinds = { "build", "dep" }, lines = { "MADE FOR GAME V0.0.0 (BUILD 1). THIS GAME: V8.2.3 (BUILD -).", "NEEDS a.b (NOT INSTALLED)", "NEEDS Mod Manager Base >=2.0.0 (INSTALLED: 1.0.0)" } } }
+    v:openMain({ fx }, "en", SIZE)
+    local SET = {
+        { key = "flag", type = "bool", value = false, default = false, label = "Flag", help = "A test\nswitch.", changeable = "anytime" },
+        { key = "example", type = "int", value = 1, default = 1, min = 1, max = 9, label = "Example", changeable = "anytime" },
+        { key = "ratio", type = "number", value = 0.5, default = 0.5, min = 0, max = 1, step = 0.1, label = "Ratio", changeable = "anytime" },
+        { key = "mode", type = "enum", value = "two", default = "one", values = { "one", "two", "three" }, label = "Mode", changeable = "anytime" },
+        { key = "later", type = "bool", value = false, default = false, label = "Restart flag", changeable = "restart", restart = true, pendingRestart = false },
+        { key = "preset", type = "number", label = "Preset value", source = "presets", readOnly = true, changeable = "anytime" },
+        { key = "free", type = "int", value = 5, default = 5, label = "", changeable = "anytime" },
+        { key = "lob", type = "bool", value = true, default = true, label = "Lobby\1thing", changeable = "lobby" },
+        { key = "many", type = "int", value = 0, default = 0, min = 0, max = 20001, label = "Many", changeable = "anytime" },
+    }
+    local w = v:openConfigure(1, SET)
+    for k = 1, 3 do ok(U.byId["cfg.p" .. k].visible and U.byId["cfg.p" .. k].text == fx.st.lines[k], "problem line " .. k) end
+    ok(not U.byId["cfg.p4"].visible, "unused problem lines hidden")
+    eq(U.byId["cfg.list"].size.h, 1080 - Screen.CFG_RESERVE - 3 * Screen.PROBLEM_H, "the settings list leaves room for the problem lines")
+    eq(U.byId["cfg.list"].size.w, 1920 - Screen.SIDE_RESERVE, "the settings list as wide as the main list")
+    ok(U.byId["cfg.list"].visible and not U.byId["cfg.none"].visible, "settings: the list, no NO SETTINGS")
+    eq(U.byId["cfg.list"].place.screen, w, "the list on the Configure window")
+    local function shown(i)
+        local out = {}
+        for _, k in ipairs({ "cb", "ch", "sl", "ro" }) do if U.byId["s" .. i .. "." .. k].visible then out[#out + 1] = k end end
+        return table.concat(out, ",")
+    end
+    eq(shown(1), "cb", "bool: a checkbox"); eq(U.byId["s1.cb"].checked, false, "bool: its value")
+    eq(U.byId["s1.lbl"].text, "Flag", "label"); eq(U.byId["s1.lbl"].tooltip, "A test switch.", "help as the label's tooltip (control characters as spaces)")
+    eq(U.byId["s1.lbl"].place.fill, 3, "label fill 3"); eq(U.byId["s1.cb"].place.fill, 2, "control fill 2")
+    eq(shown(2), "sl", "int 1-9: a slider")
+    ok(U.byId["s2.sl"].min == 1 and U.byId["s2.sl"].max == 9 and U.byId["s2.sl"].step == 1 and U.byId["s2.sl"].value == 1 and U.byId["s2.sl"].defaultValue == 1, "int slider: range, step 1, value, default")
+    eq(shown(3), "sl", "number 0-1 step 0.1: a slider"); eq(U.byId["s3.sl"].step, 0.1, "its declared step")
+    eq(shown(4), "ch", "enum: a choice")
+    ok(table.concat(U.byId["s4.ch"].options, ",") == "one,two,three" and U.byId["s4.ch"].index == 2, "choice: the values, the current one selected")
+    local rs5 = U.byId["s5.rs"]
+    ok(rs5.image and rs5.image.icon == "restart" and rs5.tooltip == "APPLIES AFTER A RESTART" and rs5.dimmed == true, "restart setting: the restart mark (dimmed until pending)")
+    ok(U.byId["s1.rs"].image == nil and U.byId["s1.rs"].tooltip == nil, "other settings: an empty spacer")
+    eq(shown(6), "ro", "source: a text"); eq(U.byId["s6.ro"].text, "SET BY PRESETS", "SET BY PRESETS")
+    eq(shown(7), "ro", "int without bounds: a text"); eq(U.byId["s7.ro"].text, "5", "its value")
+    eq(U.byId["s7.lbl"].text, "free", "an empty label shows the key")
+    eq(shown(8), "cb", "lobby bool: a checkbox")
+    ok(U.byId["s8.cb"].enabled == false and U.byId["s8.cb"].tooltip == "CAN ONLY BE CHANGED IN A LOBBY", "lobby: disabled, its tooltip")
+    eq(U.byId["s8.lbl"].text, "Lobby thing", "a control character in a label is a space")
+    eq(shown(9), "ro", "over 10,000 steps: a text")
+    -- callbacks: index and value; Default on a slider is the declared default
+    local got = {}
+    v.onSetting = function(i, val) got[#got + 1] = i .. "=" .. tostring(val) end
+    U.toggle("s1.cb"); U.pick("s4.ch", 3); U.slide("s2.sl", 7); U.slide("s3.sl", nil)
+    U.slide("s2.sl", 7.0)
+    eq(table.concat(got, " "), "1=true 4=three 2=7 3=0.5", "onSetting: bool, enum (the value, not the shown text), int, Default -> the declared default")
+    ok(math.type(tonumber(got[3]:match("=(.*)"))) == "integer", "an int slider's value is an integer")
+    eq(U.toggle("s8.cb"), false, "a lobby setting takes no click")
+    -- setControl puts a control back without a callback
+    got = {}
+    v:setControl(1, false); v:setControl(4, "two"); v:setControl(2, 1)
+    ok(#got == 0 and U.byId["s1.cb"].checked == false and U.byId["s4.ch"].index == 2 and U.byId["s2.sl"].value == 1, "setControl: back, no callback")
+    -- the message line; new values with a pending restart: the mark undimmed
+    v:setCfgMessage("NOT SAVED (write-failed)")
+    ok(U.byId["cfg.msg"].visible and U.byId["cfg.msg"].text == "NOT SAVED (write-failed)", "Configure's message line")
+    SET[5].pendingRestart = true; SET[5].saved = true
+    v:fillSettings(SET)
+    ok(not U.byId["s5.rs"].dimmed, "a pending restart setting: its mark undimmed")
+    v:setConfigureProblems({ "A SETTING APPLIES AFTER A RESTART" })
+    ok(U.byId["cfg.p1"].text == "A SETTING APPLIES AFTER A RESTART" and not U.byId["cfg.p2"].visible, "problem lines refreshed")
+    eq(U.byId["cfg.list"].size.h, 1080 - Screen.CFG_RESERVE - Screen.PROBLEM_H, "the list grows back")
+    -- another mod with fewer settings: rows past the count hidden; a mod with none: NO SETTINGS
+    v:openConfigure(1, { SET[2] })
+    ok(U.byId.s1.visible and not U.byId.s2.visible and not U.byId.s9.visible, "one setting: rows 2-9 hidden")
+    ok(shown(1) == "sl" and not U.byId["cfg.msg"].visible, "row 1 now a slider; the message cleared on open")
+    v:openConfigure(1, {})
+    ok(U.byId["cfg.none"].visible and not U.byId["cfg.list"].visible, "none: NO SETTINGS")
+    -- at most 64 settings, 8 problem lines
+    local many, lines = {}, {}
+    for i = 1, 70 do many[i] = { key = "k" .. i, type = "bool", value = false, label = "K" .. i, changeable = "anytime" } end
+    for i = 1, 12 do lines[i] = "L" .. i end
+    fx.st.lines = lines
+    v:openConfigure(1, many)
+    ok(U.byId.s64 ~= nil and U.byId.s65 == nil, "at most 64 setting rows")
+    ok(U.byId["cfg.p8"].visible and U.byId["cfg.p9"] == nil, "at most 8 problem lines")
+    ok(U.byId["cfg.list"].size.h >= Screen.CFG_LIST_MIN, "the list never below its minimum")
 end
 
 do -- 200 rows: made once, ids within core's rule.
@@ -156,20 +332,21 @@ do -- Language: German strings when a de table exists; the layout size changes t
     local v = Screen.new(U, Sx)
     v:openMain(ROWS, "de", SIZE)
     ok(U.byId.title.text == "MOD-VERWALTUNG" and U.byId["hdr.name"].text == "NAME-DE" and U.byId["hdr.ver"].text == "VERSION", "de: German where it has a string, else English")
-    ok(U.byId["r1.cfg"].tooltip == "KONFIGURIEREN" and U.byId["r4.on"].tooltip == "AN", "de: tooltips in German")
+    ok(U.byId["r1.cfg"].tooltip == "KONFIGURIEREN" and U.byId["r4.tg"].tooltip == "AN", "de: tooltips in German")
     v:openMain(ROWS, "en", SIZE)
-    ok(U.byId.title.text == "MOD MANAGER" and U.byId["r1.cfg"].tooltip == "CONFIGURE" and U.byId["r4.on"].tooltip == "ON", "back to English on the next open")
+    ok(U.byId.title.text == "MOD MANAGER" and U.byId["r1.cfg"].tooltip == "CONFIGURE" and U.byId["r4.tg"].tooltip == "ON", "back to English on the next open")
     v:openMain(ROWS, "en", { w = 2580, h = 1080 })
     eq(U.byId.list.size.w, 2580 - Screen.SIDE_RESERVE, "a wider screen: a wider list")
     eq(U.byId["hdr.list"].size.w, U.byId.list.size.w, "the header follows")
 end
 
 -- The ids of the elements placed in a window's corner, in the order of their first create.
-local function cornerOrder(U, win)
+local function cornerOrder(U, win, corner)
     local out, seen = {}, {}
     for _, c in ipairs(U.calls) do
         local o = c.args[1]
-        if c.name:match("%.create$") and type(o) == "table" and type(o.place) == "table" and o.place.screen == win and not seen[o.id] then
+        if c.name:match("%.create$") and type(o) == "table" and type(o.place) == "table" and o.place.screen == win and not seen[o.id]
+            and (o.place.corner or "top-left") == (corner or "top-left") then
             seen[o.id] = true
             out[#out + 1] = o.id
         end
@@ -191,22 +368,21 @@ do -- 0.1.1 layout: the card's top-left corner stack, no fixed offsets; the list
     ok(t.place.corner == "top-left" and t.place.absolute == nil and t.place.offset == nil, "title: top-left corner of the window")
     ok(isCorner(hl, "normal"), "header list: top-left corner, a normal gap after the title")
     ok(isCorner(l, "tight", Screen.LIST_NUDGE), "list: top-left corner, a tight gap after the header list, nudged right")
-    -- Same left edge: a corner element sits its gap in from the side (UI-3: tight 8, normal 16) plus its offset.
     eq(8 + l.place.offset.x, 16, "the list's left edge is the header list's (tight gap + nudge = normal gap)")
     ok(hl.place.screen == w and l.place.screen == w, "both lists on the main window")
     eq(cornerOrder(U, w), "title,hdr.list,list", "the corner stack's creation order: title, header list, list")
+    eq(cornerOrder(U, w, "bottom-right"), "quit,banner,msg", "story 6: QUIT GAME, the banner and the message line in the bottom-right corner")
     eq(hl.size.h, Screen.HEADER_H, "header list height")
     eq(l.size.h, 1080 - Screen.LIST_RESERVE, "list height: the layout height less the reserve")
     ok(l.size.h <= 1080 - Screen.LIST_RESERVE and l.size.h >= 32, "list height: at most 1080 less the reserve, and a valid list size")
     -- The budget's headroom against core 0.12.0's clamp at layout height 1080 (968), with generous estimates of what the
-    -- Mod Manager doesn't own (title about 60, BACK about 60 with its inset, gaps 16 + 8 + 16 + 16): at least 60 under.
-    ok(16 + 60 + 16 + Screen.HEADER_H + 8 + l.size.h + 16 + 16 + 60 <= 968 - 60, "the estimated hug stays at least 60 units under the clamp")
+    -- Mod Manager doesn't own (title about 60, gaps 16 + 8 + 16 + 16) and the taller bottom stack (story 6's QUIT GAME,
+    -- banner and message line, about 50 + 16 + 40 + 16 + 40 with its inset 16): at least 40 under.
+    ok(16 + 60 + 16 + Screen.HEADER_H + 8 + l.size.h + 16 + 16 + 50 + 16 + 40 + 16 + 40 <= 968 - 40, "the estimated hug stays at least 40 units under the clamp")
     ok(Screen.SIDE_RESERVE > 0 and Screen.LIST_RESERVE > 0, "the reserves are positive")
-    -- 1280x720 and 1920x1080 share the layout size 1920x1080 (and so does the fallback): the same sizes.
     local U2 = FakeUi.new()
     Screen.new(U2, S):openMain(ROWS, "en", { w = 1920, h = 1080 })
     ok(U2.byId.list.size.w == l.size.w and U2.byId.list.size.h == l.size.h, "720p and 1080p: the same list size")
-    -- Reopen with another layout size (3440x1440 -> 2580x1080): both lists re-sized, same ids, same places, same order.
     local before = #U.calls
     U.open.main = nil
     v:openMain(ROWS, "en", { w = 2580, h = 1080 })
@@ -218,16 +394,21 @@ do -- 0.1.1 layout: the card's top-left corner stack, no fixed offsets; the list
     eq(l.size.h, 1080 - Screen.LIST_RESERVE, "wider layout: the same height")
     ok(isCorner(hl, "normal") and isCorner(l, "tight", Screen.LIST_NUDGE), "wider layout: the same corner places")
     eq(cornerOrder(U, w), "title,hdr.list,list", "wider layout: the same stack order")
-    -- The same size again: nothing re-created.
     before = #U.calls
     v:openMain(ROWS, "en", { w = 2580, h = 1080 })
     eq(#U.since(before, "list.create"), 0, "the same size: no list re-created")
-    -- Configure: heading, then VERSION, NUCLEUS, GAME BUILD in the card's top-left corner stack, no offsets.
-    local cw = v:openConfigure(1)
-    eq(cornerOrder(U, cw), "cfg.title,cfg.ver,cfg.need,cfg.build", "Configure's corner stack: heading, VERSION, NUCLEUS, GAME BUILD")
-    ok(U.byId["cfg.title"].place.corner == "top-left" and U.byId["cfg.title"].place.absolute == nil, "Configure heading: top-left corner")
-    ok(isCorner(U.byId["cfg.title"], "normal") and isCorner(U.byId["cfg.ver"], "normal") and isCorner(U.byId["cfg.need"], "normal") and isCorner(U.byId["cfg.build"], "normal"),
-        "Configure heading and lines: top-left corner, one gap (one left edge), no offset")
+    -- Configure: heading, VERSION, NUCLEUS, GAME BUILD, the problem lines, NO SETTINGS, the list, the message line.
+    local cw = v:openConfigure(1, {})
+    local probs = {}
+    for k = 1, Screen.MAX_PROBLEM_LINES do probs[k] = "cfg.p" .. k end
+    eq(cornerOrder(U, cw), "cfg.title,cfg.ver,cfg.need,cfg.build," .. table.concat(probs, ",") .. ",cfg.none,cfg.list,cfg.msg",
+        "Configure's corner stack in order")
+    ok(isCorner(U.byId["cfg.title"], "normal") and isCorner(U.byId["cfg.ver"], "normal") and isCorner(U.byId["cfg.need"], "normal") and isCorner(U.byId["cfg.build"], "normal")
+        and isCorner(U.byId["cfg.list"], "normal") and isCorner(U.byId["cfg.msg"], "normal"),
+        "Configure's elements: top-left corner, one gap (one left edge), no offset")
+    -- the Configure budget at 1080 with three problem lines: heading 60, 3 + 3 lines of 30 with gaps 16, the list, the
+    -- message 30 + 16, BACK 60 with gaps 16 + 16, the card's inset 16: under the clamp (968).
+    ok(16 + 60 + 6 * 46 + 16 + (1080 - Screen.CFG_RESERVE - 3 * Screen.PROBLEM_H) + 46 + 16 + 16 + 60 <= 968, "Configure's estimated hug under the clamp")
     for _, el in pairs(U.byId) do
         if el.place and el.place.screen then ok(el.place.absolute == nil, "no absolute place: " .. el.id) end
     end
@@ -254,6 +435,21 @@ do -- A failing core call raises out of openMain (main.lua's guard catches it).
     local v = Screen.new(U, S)
     local okO, err = pcall(v.openMain, v, ROWS, "en", SIZE)
     ok(not okO and tostring(err):find("menu is not open", 1, true), "screen.open refused: an error for the caller")
+end
+
+do -- toggleKind and controlOf (pure).
+    eq(Screen.toggleKind({ state = "locked", paks = { "x" } }), "lock", "locked: the lock")
+    eq(Screen.toggleKind({ state = "on", pakOnly = true, paks = { "x" } }), "fixed", "pak-only: fixed")
+    eq(Screen.toggleKind({ state = "on", folder = "F", paks = { "F_P.pak" } }), "fixed", "folder with a joined pak: fixed")
+    eq(Screen.toggleKind({ state = "off", folder = "F", paks = {} }), "box", "folder: a box")
+    eq((Screen.controlOf({ type = "int", min = 0, max = 10000 })), "sl", "10,000 steps: a slider")
+    eq((Screen.controlOf({ type = "int", min = 0, max = 10001 })), "ro", "10,001 steps: a text")
+    eq(select(2, Screen.controlOf({ type = "number", min = 0, max = 2 })), 0.02, "number without step: (max-min)/100")
+    eq((Screen.controlOf({ type = "number", min = 1, max = 1 })), "ro", "min = max: a text")
+    eq((Screen.controlOf({ type = "enum", values = {} })), "ro", "enum without values: a text")
+    eq((Screen.controlOf({ type = "bool", readOnly = true })), "ro", "readOnly: a text")
+    eq(Screen.clean("a\tb" .. string.rep("x", 100), 10), "a bx" .. string.rep("x", 6), "clean: controls as spaces, cut")
+    eq(Screen.cut("ab\226\130\172", 4), "ab", "cut on a UTF-8 boundary")
 end
 
 io.stdout:write(("screen_test: %d passed, %d failed\n"):format(passed, failed))

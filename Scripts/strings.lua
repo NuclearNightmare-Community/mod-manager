@@ -1,4 +1,4 @@
--- Mod Manager story 3: every string the player sees, per language, and the picker. The rule is core's
+-- Mod Manager story 3 (story 6 adds its strings): every string the player sees, per language, and the picker. The rule is core's
 -- (mods/Nucleus/lua/pkg/ui/strings.lua): the game's language tag exactly, then its prefix before "-", then English,
 -- all without regard to case. A language table may leave keys out; those come from English. English is required and
 -- upper case, like the game's own labels (the menu column's buttons have no case transform).
@@ -20,6 +20,28 @@ S.TABLES = {
         gameBuild = "GAME BUILD",
         unmanaged = "UNMANAGED",      -- the version of a pak with no mod folder
         unknown = "-",                -- a missing, wrong-typed or unreadable value
+        -- story 6: the toggle, the status slot, the confirm and alert windows, Quit, Configure's settings
+        pakFixed = "BLUEPRINT MODS CAN'T BE SWITCHED FROM THE GAME YET", -- a pak's disabled box
+        madeFor = "MADE FOR GAME %s (BUILD %s). THIS GAME: %s (BUILD %s).", -- the build icon's tooltip
+        needsMissing = "NEEDS %s (NOT INSTALLED)",   -- the dependency icon's lines
+        needsOff = "NEEDS %s (TURNED OFF)",
+        needsVersion = "NEEDS %s %s (INSTALLED: %s)",
+        turnsOn = "TURNS ON AFTER A RESTART",        -- the restart icon's lines
+        turnsOff = "TURNS OFF AFTER A RESTART",
+        settingRestart = "A SETTING APPLIES AFTER A RESTART",
+        confirm = "TURN OFF %s? %s NEED IT.",        -- the confirm window
+        andMore = "%s AND %d MORE",
+        turnOff = "TURN OFF",
+        couldNotSave = "COULD NOT SAVE THE CHANGE",  -- the main window's message line
+        banner = "CHANGES APPLY AFTER A RESTART.",   -- while a change is pending
+        quit = "QUIT GAME",
+        alert = "NUCLEUS %s WAS MADE FOR GAME %s. THIS GAME IS %s. MODS MAY NOT WORK UNTIL NUCLEUS IS UPDATED.",
+        gameAt = "%s (BUILD %s)",                    -- a game in the alert
+        appliesAfterRestart = "APPLIES AFTER A RESTART", -- a restart setting's mark
+        lobbyOnly = "CAN ONLY BE CHANGED IN A LOBBY",
+        setBy = "SET BY %s",                         -- a setting with a source
+        notSaved = "NOT SAVED (%s)",                 -- Configure's message line
+        noSettings = "NO SETTINGS",
     },
 }
 
@@ -70,6 +92,14 @@ function S.get(key, lang, tables)
     local v = t and t[key]
     if type(v) == "string" then return v end
     return tables.en[key]
+end
+
+-- A string with %s/%d filled in: S.fmt(key, lang, ...). The values must already be sanitized and capped (the callers'
+-- rule); a template that doesn't take them gives the bare template rather than raising.
+function S.fmt(key, lang, ...)
+    local t = S.get(key, lang) or key
+    local ok, s = pcall(string.format, t, ...)
+    return ok and s or t
 end
 
 -- A per-language table { en = ..., <lang> = ... } of one key, for core calls that pick the language themselves

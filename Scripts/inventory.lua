@@ -1,4 +1,5 @@
--- Mod Manager story 3: what is installed, read-only. A pure scan-and-join over a file system it is given, so it runs
+-- Mod Manager story 3 (story 6: ids, every dependency, enabled.txt, pak folders, the write primitives): what is
+-- installed. A pure scan-and-join over a file system it is given, so it runs
 -- offline in the unit tests, plus a thin adapter over io and UE4SS's IterateGameDirectories for the game.
 --
 --   I.scan(fs, paths) -> { rows = { row, ... }, total = <rows before the cap>, warns = { { key, msg }, ... } }
@@ -6,10 +7,15 @@
 --              readFile(path, maxBytes) -> text | nil, err,  exists(path) -> boolean }
 --     paths: { mods = <ue4ss/Mods>, paks = <Content/Paks>, logicMods = <Content/Paks/LogicMods> }
 --   row:     { key, folder | nil, name, version | nil, pakOnly, state = "on" | "off" | "locked", settings, need | nil,
---              build | nil, paks = { file, ... } }
---   I.gameFs(modsDir) -> fs, paths | nil, err   the adapter (game thread; one IterateGameDirectories per call)
+--              build | nil, paks = { file, ... }, pakDirs = { <folder of paks[i]>, ... },
+--              id | nil (mod.json id, normalized), deps = { { id, need | nil }, ... } (every dependsOn entry whose id
+--              normalizes; bare "nucleus" is core's legacy alias), enabledTxt (Mods/<F>/enabled.txt exists),
+--              gameVersion | nil, gameBuild | nil }
+--   I.gameFs(modsDir) -> fs, paths | nil, err   the adapter (game thread; one IterateGameDirectories per call);
+--     paths.game is the Game folder. fs also has writeFile(path, bytes), rename(from, to) and remove(path), each
+--     -> true | nil, err, for files.lua; the caller builds every path from paths.mods and validated folder names.
 --
--- Nothing here writes anything, opens a shell, or builds a path from a name that hasn't passed NAME_RX. Each warning
+-- The scan writes nothing, opens no shell, and builds no path from a name that hasn't passed NAME_RX. Each warning
 -- has a key; the caller logs each key once per session.
 local J = require("json")
 local I = {}
@@ -67,6 +73,13 @@ end
 local function coreIdOf(id)
     return (MID.normalize(id))
 end
+I.MAX_DEPS = 32
+-- A dependsOn id for the status slot (story 6): normalized, with bare "nucleus" (any case) as core's legacy alias until
+-- the id renames (distribution story 13); nil when it doesn't normalize.
+function I.depId(id)
+    if type(id) == "string" and id:lower() == "nucleus" then return I.CORE_ID end -- legacy alias (story 6)
+    return (MID.normalize(id))
+end
 
 -- mods.txt, the way UE4SS reads it (docs/mod-manager-research.md 3.1): a line with ';' anywhere is skipped, so is a
 -- line of 4 characters or fewer; spaces are removed and the line split at ':'; on when the value starts with '1'.
@@ -122,10 +135,12 @@ local function readManifest(fs, modsDir, folder, warn)
         out.version = type(m.version) == "string" and I.dataText(m.version) or nil
         if not out.version then wrong[#wrong + 1] = "version" end
     end
+    if m.id ~= nil then out.id = coreIdOf(m.id) end
     if m.game ~= nil then
         if J.isObject(objects, m.game) then
             local parts = {}
             local gv, gb = I.dataText(m.game.version), I.dataText(m.game.build)
+            out.gameVersion, out.gameBuild = gv, gb
             if m.game.version ~= nil and not gv then wrong[#wrong + 1] = "game.version" end
             if m.game.build ~= nil and not gb then wrong[#wrong + 1] = "game.build" end
             parts[#parts + 1] = gv
@@ -137,11 +152,17 @@ local function readManifest(fs, modsDir, folder, warn)
     end
     if m.dependsOn ~= nil then
         if type(m.dependsOn) == "table" and not J.isObject(objects, m.dependsOn) then
+            local core = false
+            out.deps = {}
             for _, d in ipairs(m.dependsOn) do
-                if J.isObject(objects, d) and coreIdOf(d.id) == I.CORE_ID then
+                if not core and J.isObject(objects, d) and coreIdOf(d.id) == I.CORE_ID then
+                    core = true
                     out.need = type(d.version) == "string" and I.dataText(d.version) or nil
                     if not out.need then wrong[#wrong + 1] = "dependsOn version" end
-                    break
+                end
+                local did = J.isObject(objects, d) and I.depId(d.id) or nil
+                if did and #out.deps < I.MAX_DEPS then
+                    out.deps[#out.deps + 1] = { id = did, need = type(d.version) == "string" and I.dataText(d.version) or nil }
                 end
             end
         else
@@ -218,11 +239,14 @@ function I.scan(fs, paths)
         elseif not BUILTIN[lower] and not byKey[lower] then
             local m = readManifest(fs, modsDir, folder, warn)
             local state
+            local enabledTxt = fs.exists(join(join(modsDir, folder), "enabled.txt"))
             if I.LOCKED[lower] then state = "locked"
-            elseif fs.exists(join(join(modsDir, folder), "enabled.txt")) or onLines[folder] then state = "on"
+            elseif enabledTxt or onLines[folder] then state = "on"
             else state = "off" end
             local row = { key = lower, folder = folder, name = m.name or m.fallbackName or folder, version = m.version,
-                pakOnly = false, state = state, settings = m.settings == true, need = m.need, build = m.build, paks = {} }
+                pakOnly = false, state = state, settings = m.settings == true, need = m.need, build = m.build, paks = {},
+                pakDirs = {}, id = m.id, deps = m.deps or {}, enabledTxt = enabledTxt, gameVersion = m.gameVersion,
+                gameBuild = m.gameBuild }
             rows[#rows + 1] = row
             byKey[lower] = row
         end
@@ -231,7 +255,7 @@ function I.scan(fs, paths)
     -- Paks: <F>_P.pak[.disabled] in Paks and <F>.pak[.disabled] in LogicMods (and in its subfolders, which
     -- BPModLoaderMod loads too) join the row of folder <F>; a pak with no folder is a pak-only row, named after its file
     -- (without _P), on when any of its paks is enabled. A pak named like a UE4SS built-in or shared is never a row.
-    local function addPaks(listed, what, base)
+    local function addPaks(listed, what, base, dir)
         local files = capped(listed, what, warn)
         table.sort(files)
         for _, f in ipairs(files) do
@@ -246,27 +270,28 @@ function I.scan(fs, paths)
                         local row = byKey[key]
                         if not row then
                             row = { key = key, folder = nil, name = stem, version = nil, pakOnly = true, state = "off",
-                                settings = false, paks = {} }
+                                settings = false, paks = {}, pakDirs = {}, deps = {}, enabledTxt = false }
                             rows[#rows + 1] = row
                             byKey[key] = row
                         end
                         row.paks[#row.paks + 1] = f
+                        row.pakDirs[#row.pakDirs + 1] = dir
                         if row.pakOnly and enabled then row.state = "on" end
                     end
                 end
             end
         end
     end
-    addPaks(listOf(fs, paths.paks, "Paks", warn).files, "Paks", true)
+    addPaks(listOf(fs, paths.paks, "Paks", warn).files, "Paks", true, paths.paks)
     local lm = listOf(fs, paths.logicMods, "LogicMods", warn)
-    addPaks(lm.files, "LogicMods", false)
+    addPaks(lm.files, "LogicMods", false, paths.logicMods)
     local subs = capped(lm.dirs, "LogicMods folders", warn)
     table.sort(subs)
     for _, d in ipairs(subs) do
         if not I.validName(d) then
             warn("name:" .. shown(d), string.format("LogicMods folder '%s' is not a mod name (1-64 of A-Z a-z 0-9 _ -); its paks are not listed", shown(d)))
         else
-            addPaks(listOf(fs, join(paths.logicMods, d), "LogicMods/" .. d, warn).files, "LogicMods/" .. d, false)
+            addPaks(listOf(fs, join(paths.logicMods, d), "LogicMods/" .. d, warn).files, "LogicMods/" .. d, false, join(paths.logicMods, d))
         end
     end
 
@@ -296,7 +321,8 @@ end
 
 local function norm(p) return (p:gsub("/", "\\"):gsub("\\+$", ""):lower()) end
 
--- A file system over io (read-only) and one IterateGameDirectories() tree. modsDir is ue4ss/Mods from the script's
+-- A file system over io and one IterateGameDirectories() tree (reads for the scan; writeFile, rename and remove for
+-- files.lua, story 6). modsDir is ue4ss/Mods from the script's
 -- own path. Returns fs, paths, or nil and why.
 function I.gameFs(modsDir)
     local okD, dirs = pcall(IterateGameDirectories)
@@ -387,7 +413,34 @@ function I.gameFs(modsDir)
         if f then f:close() return true end
         return false
     end
-    return fs, { mods = modsDir, paks = paks, logicMods = logicMods }
+    -- Story 6: written, flushed and closed; true | nil, err.
+    function fs.writeFile(path, bytes)
+        local f, err = io.open(path, "wb")
+        if not f then return nil, err end
+        local ok, res, why = pcall(function()
+            local w, e = f:write(bytes)
+            if not w then return nil, e end
+            local fl, e2 = f:flush()
+            if not fl then return nil, e2 end
+            return true
+        end)
+        local okC = pcall(f.close, f)
+        if not ok then return nil, tostring(res) end
+        if not res then return nil, tostring(why) end
+        if not okC then return nil, "close failed" end
+        return true
+    end
+    function fs.rename(from, to)
+        local ok, err = os.rename(from, to)
+        if not ok then return nil, err end
+        return true
+    end
+    function fs.remove(path)
+        local ok, err = os.remove(path)
+        if not ok then return nil, err end
+        return true
+    end
+    return fs, { mods = modsDir, paks = paks, logicMods = logicMods, game = gameAbs }
 end
 
 return I

@@ -7,6 +7,9 @@
 --   J.null                               the value of a JSON null (so nil always means an error)
 --   J.isObject(objects, t) -> boolean    t was a JSON object (an array is a plain sequence)
 --
+--   J.encodeString(s) -> a JSON string literal (story 6: the state file's writer)
+--   J.encodeState(off, seen) -> '{"version":1,"off":[...],"seen":[...]}'   exactly the shape of Mods/ModManager/state.json
+--
 -- Errors: duplicate keys, trailing commas, comments, NaN/Infinity, leading zeros, control characters in strings, lone
 -- surrogates, invalid UTF-8, anything after the value. A UTF-8 byte order mark at the start is skipped.
 local J = {}
@@ -245,6 +248,24 @@ function J.decode(text)
     if ok then return v, p.objects end
     if type(v) == "table" and v.json then return nil, v.json end
     return nil, "1:1 internal error: " .. tostring(v) -- never expected; still returned, not raised
+end
+
+-- ---------------------------------------------------------------- the state file's encoder (story 6)
+
+local ENC = { ['"'] = '\\"', ["\\"] = "\\\\" }
+function J.encodeString(v)
+    local s = tostring(v):gsub('[%c"\\]', function(c) return ENC[c] or string.format("\\u%04x", c:byte()) end)
+    return '"' .. s .. '"'
+end
+
+local function stringArray(list)
+    local out = {}
+    for i, v in ipairs(list or {}) do out[i] = J.encodeString(v) end
+    return "[" .. table.concat(out, ",") .. "]"
+end
+
+function J.encodeState(off, seen)
+    return '{"version":1,"off":' .. stringArray(off) .. ',"seen":' .. stringArray(seen) .. "}"
 end
 
 return J

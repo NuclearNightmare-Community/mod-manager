@@ -14,10 +14,13 @@
   "click|move <x> <y>" and "wheel <x> <y> <n>" as real mouse input on the game window only (it is brought to the front
   first, so it takes the mouse for a moment), "shot <label>" skipped (VM only).
   Either way it stops when the driver logs its END line, the game exits (crash), or -TimeoutSec runs out (hang); then
-  closes the game.
+  closes the game. The screen scenario (story 6) ends differently: after "END result=PASS" the driver clicks QUIT GAME,
+  so the run waits for the game to close itself (only "END result=FAIL" stops it early); check.ps1 accepts that exit
+  only with "[ModManager] QUIT pending=" after "END result=PASS" and no crash line. run.ps1 appends
+  "[run.ps1] RUN <how the run ended>" to the kept log.
   Files: it records the SHA-256 of mods.txt and the file names under Content/Paks and Content/Paks/LogicMods after the
   deploy and again after the game closed, and appends "[run.ps1] FILES unchanged" or "[run.ps1] FILES changed: <what>"
-  to the kept log, which check.ps1 judges (the Mod Manager writes nothing in story 3).
+  to the kept log, which check.ps1 judges (the Mod Manager writes mods.txt in story 6, never a pak).
   Scenarios that break core on purpose (no-core: Mods/Nucleus moved aside; old-core: its mod.json version set to
   0.1.0, which the driver publishes as core's runtime version) first check that deploy.ps1 refuses without -Force,
   then deploy with -Force, and put core back afterwards (in the VM they act on the stage only).
@@ -32,18 +35,20 @@ param(
     [Parameter(Mandatory)] [string] $Instance,
     [ValidateSet('screen', 'no-core', 'old-core')]
     [string] $Scenario = 'screen',
-    [int] $TimeoutSec = 0, # 0: screen 900 s (about 40 requests and two map loads), others 420 s; x1.5 in the VM
+    [int] $TimeoutSec = 0, # 0: screen 1200 s (about 90 requests and two map loads), others 420 s; x1.5 in the VM
     [ValidateSet('host', 'vm')] [string] $Target = 'vm',
     [switch] $AllowOtherDrivers # run even when another runner's test mod is enabled in the copy (tools/run-guard)
 )
 $ErrorActionPreference = 'Stop'
-$hostTimeout = switch ($Scenario) { 'screen' { 900 } default { 420 } }
+$hostTimeout = switch ($Scenario) { 'screen' { 1200 } default { 420 } }
 if ($TimeoutSec -le 0 -and $Target -eq 'host') { $TimeoutSec = $hostTimeout }
 $CoreName = 'Nucleus'
 $here     = $PSScriptRoot
 $name     = (Get-Content (Join-Path $here 'mod.json') -Raw | ConvertFrom-Json).name
 $driver   = "${name}Driver"
-$fixtures = @("${name}Fixture", "${name}Bare", "${name}Long")
+# The line that ends a run early: screen ends with QUIT GAME after END result=PASS, so only a FAIL stops it here.
+$endRx = if ($Scenario -eq 'screen') { "\[$driver\] END result=FAIL" } else { "\[$driver\] END result=" }
+$fixtures = @("${name}Fixture", "${name}Bare", "${name}Long", "${name}Base", "${name}Dep")
 $fixturePaks = @("${name}Pak_P.pak", "${name}PakOff_P.pak.disabled")
 $inst     = (Resolve-Path $Instance).Path
 $root     = Split-Path (Split-Path $inst)
@@ -144,7 +149,7 @@ if ($Target -eq 'vm') {
     Remove-Item $kept -ErrorAction SilentlyContinue
     try {
         $run = Invoke-NNBSpRun -Instance $inst -TestMod $driver -Mods (@($CoreName, $driver, $name) + $fixtures) -Paks "$CoreName.pak" -BasePaks $fixturePaks -FileState `
-            -EndPattern "\[$driver\] END result=" -TimeoutSec (Get-NNBSpTimeout $hostTimeout $TimeoutSec) -LogOut $kept -Prepare {
+            -EndPattern $endRx -TimeoutSec (Get-NNBSpTimeout $hostTimeout $TimeoutSec) -LogOut $kept -Prepare {
                 param($stage)
                 $refusal = Get-RunGuardRefusal -Workspace $root -Instance $stage -Owner 'mod-manager' -Bypass:$AllowOtherDrivers -Vm
                 if ($refusal) { throw $refusal }
@@ -156,6 +161,7 @@ if ($Target -eq 'vm') {
     } catch { if ("$($_.Exception.Message)".StartsWith('refused: ')) { Write-Host $_.Exception.Message; exit 1 }; throw }
     $code = 0
     if ($run.Log) {
+        Add-FilesLine $kept "[run.ps1] RUN $($run.Result)"
         Add-FilesLine $kept (Get-FilesLine $run.FilesBefore $run.FilesAfter)
         & pwsh -NoProfile -NonInteractive -File (Join-Path $here 'check.ps1') -Log $kept -Scenario $Scenario -Target vm `
             -CoreManifest (Join-Path $root "mods\$CoreName\build\package\Mods\$CoreName\mod.json")
@@ -295,7 +301,7 @@ try {
                 Set-Content $done $lastSeq -NoNewline
             }
         }
-        if ((Test-Path $log) -and (Select-String -Path $log -Pattern "\[$driver\] END result=" -Quiet)) { $result = 'finished'; break }
+        if ((Test-Path $log) -and (Select-String -Path $log -Pattern $endRx -Quiet)) { $result = 'finished'; break }
         Start-Sleep -Milliseconds 250
     }
 } finally {
@@ -308,6 +314,7 @@ try {
 
 $kept = Join-Path $outDir "$Scenario.log"
 if (Test-Path $log) { Copy-Item $log $kept -Force } else { Write-Host "No UE4SS.log at $log" }
+Add-FilesLine $kept "[run.ps1] RUN $result"
 Add-FilesLine $kept (Get-FilesLine $before $after)
 & pwsh -NoProfile -NonInteractive -File (Join-Path $here 'check.ps1') -Log $kept -Scenario $Scenario -CoreManifest (Join-Path $modsDir "$CoreName\mod.json")
 $code = $LASTEXITCODE

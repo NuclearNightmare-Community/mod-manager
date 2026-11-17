@@ -12,12 +12,31 @@ local function eq(got, want, name) ok(got == want, name, "got " .. tostring(got)
 
 -- English: every string the spec names, upper case.
 local want = { manage = "MANAGE MODS", title = "MOD MANAGER", name = "NAME", version = "VERSION", on = "ON", off = "OFF",
-    alwaysOn = "ALWAYS ON", configure = "CONFIGURE", nucleus = "NUCLEUS", gameBuild = "GAME BUILD", unmanaged = "UNMANAGED", unknown = "-" }
+    alwaysOn = "ALWAYS ON", configure = "CONFIGURE", nucleus = "NUCLEUS", gameBuild = "GAME BUILD", unmanaged = "UNMANAGED", unknown = "-",
+    -- story 6
+    pakFixed = "BLUEPRINT MODS CAN'T BE SWITCHED FROM THE GAME YET",
+    madeFor = "MADE FOR GAME %s (BUILD %s). THIS GAME: %s (BUILD %s).",
+    needsMissing = "NEEDS %s (NOT INSTALLED)", needsOff = "NEEDS %s (TURNED OFF)", needsVersion = "NEEDS %s %s (INSTALLED: %s)",
+    turnsOn = "TURNS ON AFTER A RESTART", turnsOff = "TURNS OFF AFTER A RESTART", settingRestart = "A SETTING APPLIES AFTER A RESTART",
+    confirm = "TURN OFF %s? %s NEED IT.", andMore = "%s AND %d MORE", turnOff = "TURN OFF",
+    couldNotSave = "COULD NOT SAVE THE CHANGE", banner = "CHANGES APPLY AFTER A RESTART.", quit = "QUIT GAME",
+    alert = "NUCLEUS %s WAS MADE FOR GAME %s. THIS GAME IS %s. MODS MAY NOT WORK UNTIL NUCLEUS IS UPDATED.",
+    gameAt = "%s (BUILD %s)", appliesAfterRestart = "APPLIES AFTER A RESTART", lobbyOnly = "CAN ONLY BE CHANGED IN A LOBBY",
+    setBy = "SET BY %s", notSaved = "NOT SAVED (%s)", noSettings = "NO SETTINGS" }
 for k, v in pairs(want) do eq(S.TABLES.en[k], v, "en." .. k) end
 for k, v in pairs(S.TABLES.en) do
     ok(want[k] ~= nil, "en." .. k .. " is a string the spec names")
-    eq(v:upper(), v, "en." .. k .. " is upper case")
+    local words = v:gsub("%%[sd]", "")
+    eq(words:upper(), words, "en." .. k .. " is upper case (apart from its %s/%d)")
+    local _, n = v:gsub("%%", "")
+    local _, m = v:gsub("%%[sd]", "")
+    eq(n, m, "en." .. k .. ": only %s and %d")
 end
+-- fmt: filled in; a template without the values gives the bare template rather than raising
+eq(S.fmt("needsOff", "en", "Mod Manager Base"), "NEEDS Mod Manager Base (TURNED OFF)", "fmt: filled")
+eq(S.fmt("andMore", "en", "A, B", 2), "A, B AND 2 MORE", "fmt: %d")
+eq(S.fmt("needsOff", "en"), "NEEDS %s (TURNED OFF)", "fmt: a missing value gives the template")
+eq(S.fmt("confirm", "en", "100%", "x"), "TURN OFF 100%? x NEED IT.", "fmt: a % in a value is text")
 
 -- The picker, with a test table set (a de table present, no zh).
 local T = { en = { name = "NAME", title = "MOD MANAGER" }, de = { name = "NAME-DE" }, ["zh-Hant"] = { name = "NAME-ZHT" } }

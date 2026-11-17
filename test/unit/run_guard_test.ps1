@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path (Split-Path $PSScriptRoot)
 # This repo's group in tools/run-guard/test-mods.json, its own driver, and another runner's driver.
 $Owner = 'mod-manager'
-$Own = @('ModManagerDriver', 'ModManagerFixture', 'ModManagerBare', 'ModManagerLong')
+$Own = @('ModManagerDriver', 'ModManagerFixture', 'ModManagerBare', 'ModManagerLong', 'ModManagerBase', 'ModManagerDep')
 $Foreign = 'WaypointsDriver'; $ForeignRepo = 'waypoints'
 $AlsoForeign = @()
 # The host path: the default -Target vm would start the real VM (the guard's VM side is checked statically below).

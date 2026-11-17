@@ -6,15 +6,21 @@
   A pattern must match somewhere; "!pattern" must match nowhere; "#N|pattern" must match exactly N lines;
   "?pattern" is a soft check (reported as "warn:", never failing); "?!pattern" is a soft check that it matches nowhere.
   Then the scenario's computed checks (screen):
-    - the ROW lines: Nucleus, Mod Manager, ModManagerBare, ModManagerDriver, ModManagerFixture, ModManagerLong...,
-      ModManagerPak and ModManagerPakOff each exactly once, in that relative order (other installed mods may sit
-      between them), with the values of the story's I/O matrix; Nucleus's and the Mod Manager's expected values come
-      from their deployed mod.json (-CoreManifest; this repo's mod.json). Every status slot empty (status=0). No row
-      for a UE4SS built-in, shared or NuclearNightmare-Windows.
+    - the ROW lines: Nucleus, Mod Manager, Mod Manager Base, Mod Manager Dep, ModManagerBare, ModManagerDriver,
+      ModManagerFixture, ModManagerLong..., ModManagerPak and ModManagerPakOff each exactly once, in that relative order
+      (other installed mods may sit between them), with the values of the stories' I/O matrices; Nucleus's and the Mod
+      Manager's expected values come from their deployed mod.json (-CoreManifest; this repo's mod.json). Per row: the
+      toggle (lock | on | off), its box (none | live | fixed), the status icons (the fixture: build and dependency;
+      every other row none). No row for a UE4SS built-in, shared or NuclearNightmare-Windows.
+    - STATUS (story 6): the Mod Manager's first STATUS line for Nucleus, ModManagerBase, ModManagerDep and ModManagerBare
+      is "none"; the fixture's names both games and both dependency problems.
     - MEASURE: the long name's desired width over its allotted width (cut), its right edge left of the version
       column's left edge, the header's NAME within 1 unit of the row's name.
-    - INERT: no [ModManager] line between the driver's INERT begin and INERT end (the toggle boxes log nothing).
-    - "[run.ps1] FILES unchanged" (run.ps1 appends it: mods.txt and the pak folders as they were after the deploy).
+    - FIXED: no [ModManager] line between the driver's FIXED begin and FIXED end (the lock and a pak's box log nothing).
+    - QUIT: the game closed itself ("[run.ps1] RUN game exited") with "[ModManager] QUIT pending=" after the driver's
+      "END result=PASS".
+    - FILES (run.ps1 appends it): screen: the pak folders as they were after the deploy (mods.txt may change: the
+      scenario turns Base off); no-core and old-core: unchanged.
   Exit code 1 when any check fails; otherwise prints "All checks passed."
   Scenarios: screen, no-core, old-core (run.ps1 drives them); unit needs no log: it runs test.ps1.
   -Target vm: a log from run.ps1 -Target vm. The VM's game shares the CPU with the host, so core's "hud slow tick"
@@ -69,7 +75,8 @@ $always = @(
     '!A function requiring userdata as param #1 was called without userdata'
     "!\[$D\] FAIL "
     "!\[$D\] .*STEP '.*' threw"
-    '^\[run\.ps1\] FILES unchanged$'
+    # Story 6: the Mod Manager never renames, adds or removes a pak.
+    '!^\[run\.ps1\] FILES changed: .*(Paks|LogicMods)'
 )
 $running = @(
     "\[$M\] CONNECT ok $K \d+\.\d+\.\d+ "
@@ -81,6 +88,8 @@ $running = @(
     "?!\[$M\] WARN hud slow tick "
     # Core's card (0.12.0): a window whose content is larger than the viewport allows. Named so a failure says so.
     "!\[$M\] WARN window '.*': its content .* the card is clamped"
+    # Story 6: Nucleus was made for this game: no alert.
+    "!\[$M\] ALERT"
 )
 $expect = @{
     'screen' = $running + @(
@@ -91,19 +100,41 @@ $expect = @{
         "\[$D\] OK OPEN first ", "\[$D\] OK TITLE first "
         "\[$D\] OK MEASURECUT ", "\[$D\] OK MEASUREEDGE ", "\[$D\] OK MEASUREALIGN "
         "\[$D\] OK CARDFIT "
-        "\[$D\] OK INERT the toggle boxes changed nothing"
+        # story 6: on/off, the confirm, the icons, the banner and QUIT GAME, state.json, the fixed rows
+        "\[$D\] OK TGROWS ", "\[$D\] OK TXT0 ", "\[$D\] OK TGLIVE ", "\[$D\] OK TGSTART ", "\[$D\] OK TGDEPOFF ", "\[$D\] OK TGNOCONFIRM "
+        "\[$D\] OK TGDEPICON ", "\[$D\] OK PENDINGUI ", "\[$D\] OK STATEOFF ", "\[$D\] OK CARDFIT2 ", "\[$D\] OK TGDEPON ", "\[$D\] OK TGDEPON2 "
+        "\[$D\] OK PENDINGOFF ", "\[$D\] OK STATEON ", "\[$D\] OK CONFIRMTEXT ", "\[$D\] OK CONFIRMWAIT ", "\[$D\] OK CONFIRMBACK "
+        "\[$D\] OK CONFIRMCLOSED ", "\[$D\] OK CONFIRMOFF ", "\[$D\] OK TGBASEICON ", "\[$D\] OK DEPICON ", "\[$D\] OK PENDINGUI2 "
+        "\[$D\] OK STATEBASE ", "\[$D\] OK PAKFIXED ", "\[$D\] OK FIXEDINERT "
+        "#1|\[$M\] TOGGLE ModManagerDep off\s*$", "#1|\[$M\] TOGGLE ModManagerDep on\s*$", "#1|\[$M\] TOGGLE ModManagerBase off\s*$"
+        "#3|\[$M\] TOGGLE "
+        "#1|\[$M\] CONFIRM ModManagerBase cancelled \(close\)\s*$"
+        # story 6: Configure's problem lines and settings
+        "\[$D\] OK CFGPROBLEMS ", "\[$D\] OK SETKINDS ", "\[$D\] OK SETBY ", "\[$D\] OK SETRO ", "\[$D\] OK SETMARK ", "\[$D\] OK SETFILE "
+        "\[$D\] OK RESTARTICON ", "\[$D\] OK CFGRESTART ", "\[$D\] OK SETNOMSG "
+        "#1|\[$M\] SET ModManagerFixture flag=true\s*$", "#1|\[$M\] SET ModManagerFixture mode=two\s*$"
+        "#1|\[$M\] SET ModManagerFixture example=7\s*$", "#1|\[$M\] SET ModManagerFixture later=true\s*$"
+        "\[$M\] STATUS ModManagerFixture build,dep \| MADE FOR GAME V0\.0\.0 \(BUILD 1\)\. THIS GAME: V\d[^ ]* \(BUILD [-\d]+\)\. / NEEDS nuclearnightmare-community\.mod-manager-missing \(NOT INSTALLED\) / NEEDS Mod Manager Base >=2\.0\.0 \(INSTALLED: 1\.0\.0\)\s*$"
+        "\[$M\] STATUS ModManagerDep dep \| NEEDS Mod Manager Base \(TURNED OFF\)\s*$"
+        # story 6: the end: QUIT GAME after END
+        "\[$D\] OK QUITUI ", "\[$D\] OK BANNER ", "\[$D\] OK QUITPOINT "
+        "#1|\[$M\] QUIT pending=[1-9]\d*\s*$"
+        '^\[run\.ps1\] RUN game exited'
+        '^\[run\.ps1\] FILES (unchanged|changed: mods\.txt sha256 [0-9A-F]{64} -> [0-9A-F]{64})$'
         "\[$D\] OK CFGTOP ", "\[$D\] OK CFGFIXTURE ", "\[$D\] OK CFGCLOSE ", "\[$D\] OK CFGDIM ", "\[$D\] OK CFGDIMOPEN "
         "\[$D\] OK BLOCKEDGEAR ", "\[$D\] OK BLOCKED ", "\[$D\] OK CFGCLOSE2 ", "\[$D\] OK CLOSEMAIN ", "\[$D\] OK MENUBACK "
-        "\[$D\] OK ENTRYUP2 ", "\[$D\] OK OPEN after the match ", "\[$D\] OK SAME ", "\[$D\] OK CLOSEEND "
+        "\[$D\] OK ENTRYUP2 ", "\[$D\] OK OPEN after the match ", "\[$D\] OK SAME "
         "\[$M\] CONFIGURE \d+ "
     )
     'no-core' = @(
+        '^\[run\.ps1\] FILES unchanged$'
         "#1|\[$M\] "
         "\[$M\] $K is not installed\. $M will not run\.\s*$"
         "\[$D\] OK NOENTRY "
         "\[$D\] END result=PASS"
     )
     'old-core' = @(
+        '^\[run\.ps1\] FILES unchanged$'
         "#1|\[$M\] "
         "\[$D\] OLDCORE published $($K.ToLowerInvariant())\.version=0\.1\.0 "
         "\[$M\] ERROR $K 0\.1\.0 is older than $M needs \($NeedRx\)\. Update $K\. $M will not run\.\s*$"
@@ -143,8 +174,8 @@ if ($Scenario -eq 'screen') {
 
     # ---- ROW lines against the matrix
     $rows = @($lines | Where-Object { $_ -match "\[$D\] ROW " } | ForEach-Object {
-        if ($_ -match "\[$D\] ROW (.*) \| (.*) \| toggle=(\S+) \| gear=(\S+) \| status=(-?\d+) \| need=(.*) \| build=(.*?)\s*$") {
-            [pscustomobject]@{ Name = $Matches[1]; Ver = $Matches[2]; Toggle = $Matches[3]; Gear = $Matches[4]; Status = [int]$Matches[5]; Need = $Matches[6]; Build = $Matches[7] }
+        if ($_ -match "\[$D\] ROW (.*) \| (.*) \| toggle=(\S+) \| box=(\S+) \| gear=(\S+) \| status=(-?\d+) \| icons=(\S+) \| need=(.*) \| build=(.*?)\s*$") {
+            [pscustomobject]@{ Name = $Matches[1]; Ver = $Matches[2]; Toggle = $Matches[3]; Box = $Matches[4]; Gear = $Matches[5]; Status = [int]$Matches[6]; Icons = $Matches[7]; Need = $Matches[8]; Build = $Matches[9] }
         } else { [pscustomobject]@{ Name = "(unparsed) $_"; Status = -1 } }
     })
     function BuildOf($mj) { $parts = @($mj.game.version, $mj.game.build | Where-Object { $_ }); if ($parts) { $parts -join ' ' } else { '-' } }
@@ -154,30 +185,40 @@ if ($Scenario -eq 'screen') {
     try { $core = Get-Content $CoreManifest -Raw | ConvertFrom-Json } catch { Fail "Nucleus's deployed mod.json can't be read ($CoreManifest)" }
     $long = (Get-Content (Join-Path $PSScriptRoot "test\${name}Long\mod.json") -Raw | ConvertFrom-Json)
     $fixture = (Get-Content (Join-Path $PSScriptRoot "test\${name}Fixture\mod.json") -Raw | ConvertFrom-Json)
+    $baseMj = (Get-Content (Join-Path $PSScriptRoot "test\${name}Base\mod.json") -Raw | ConvertFrom-Json)
+    $depMj = (Get-Content (Join-Path $PSScriptRoot "test\${name}Dep\mod.json") -Raw | ConvertFrom-Json)
+    function W($n, $ver, $tog, $box, $gear, $need, $build, $status = 0, $icons = '-') {
+        [pscustomobject]@{ Name = $n; Ver = $ver; Toggle = $tog; Box = $box; Gear = $gear; Need = $need; Build = $build; Status = $status; Icons = $icons }
+    }
     $want = @(
-        [pscustomobject]@{ Name = $CoreName; Ver = "$($core.version)"; Toggle = 'lock'; Gear = $(if ($core) { GearOf $core } else { 'dim' }); Need = $(if ($core) { NeedOf $core } else { '-' }); Build = $(if ($core) { BuildOf $core } else { '-' }) }
-        [pscustomobject]@{ Name = $manifest.displayName; Ver = $manifest.version; Toggle = 'lock'; Gear = (GearOf $manifest); Need = (NeedOf $manifest); Build = (BuildOf $manifest) }
-        [pscustomobject]@{ Name = "${name}Bare"; Ver = '-'; Toggle = 'off'; Gear = 'dim'; Need = '-'; Build = '-' }
-        [pscustomobject]@{ Name = "${name}Driver"; Ver = '-'; Toggle = 'on'; Gear = 'dim'; Need = '-'; Build = '-' }
-        [pscustomobject]@{ Name = "${name}Fixture"; Ver = $fixture.version; Toggle = 'off'; Gear = 'lit'; Need = '>=0.1.0'; Build = 'V0.0.0 1' }
-        [pscustomobject]@{ Name = $long.displayName; Ver = $long.version; Toggle = 'off'; Gear = 'dim'; Need = '>=0.2.0'; Build = (BuildOf $long) }
-        [pscustomobject]@{ Name = "${name}Pak"; Ver = 'UNMANAGED'; Toggle = 'on'; Gear = 'dim'; Need = '-'; Build = '-' }
-        [pscustomobject]@{ Name = "${name}PakOff"; Ver = 'UNMANAGED'; Toggle = 'off'; Gear = 'dim'; Need = '-'; Build = '-' }
+        (W $CoreName "$($core.version)" 'lock' 'none' $(if ($core) { GearOf $core } else { 'dim' }) $(if ($core) { NeedOf $core } else { '-' }) $(if ($core) { BuildOf $core } else { '-' }))
+        (W $manifest.displayName $manifest.version 'lock' 'none' (GearOf $manifest) (NeedOf $manifest) (BuildOf $manifest))
+        (W $baseMj.displayName $baseMj.version 'on' 'live' 'dim' (NeedOf $baseMj) (BuildOf $baseMj))
+        (W $depMj.displayName $depMj.version 'on' 'live' 'dim' '-' (BuildOf $depMj))
+        (W "${name}Bare" '-' 'off' 'live' 'dim' '-' '-')
+        (W "${name}Driver" '-' 'on' 'live' 'dim' '-' '-')
+        (W "${name}Fixture" $fixture.version 'off' 'live' 'lit' '>=0.1.0' 'V0.0.0 1' 2 'warning,warning')
+        (W $long.displayName $long.version 'off' 'live' 'dim' '>=0.2.0' (BuildOf $long))
+        (W "${name}Pak" 'UNMANAGED' 'on' 'fixed' 'dim' '-' '-')
+        (W "${name}PakOff" 'UNMANAGED' 'off' 'fixed' 'dim' '-' '-')
     )
     $last = -1
     foreach ($w in $want) {
         $hits = @(for ($i = 0; $i -lt $rows.Count; $i++) { if ($rows[$i].Name -ceq $w.Name) { $i } })
-        $label = "ROW $($w.Name) | $($w.Ver) | toggle=$($w.Toggle) | gear=$($w.Gear) | status=0 | need=$($w.Need) | build=$($w.Build)"
+        $label = "ROW $($w.Name) | $($w.Ver) | toggle=$($w.Toggle) | box=$($w.Box) | gear=$($w.Gear) | status=$($w.Status) | icons=$($w.Icons) | need=$($w.Need) | build=$($w.Build)"
         if ($hits.Count -ne 1) { Fail "$label (found $($hits.Count) rows named so)"; continue }
         $r = $rows[$hits[0]]
-        $same = $r.Ver -ceq $w.Ver -and $r.Toggle -ceq $w.Toggle -and $r.Gear -ceq $w.Gear -and $r.Status -eq 0 -and $r.Need -ceq $w.Need -and $r.Build -ceq $w.Build
-        if (-not $same) { Fail "$label (got $($r.Ver) | toggle=$($r.Toggle) | gear=$($r.Gear) | status=$($r.Status) | need=$($r.Need) | build=$($r.Build))" }
+        $same = $r.Ver -ceq $w.Ver -and $r.Toggle -ceq $w.Toggle -and $r.Box -ceq $w.Box -and $r.Gear -ceq $w.Gear -and $r.Status -eq $w.Status -and $r.Icons -ceq $w.Icons -and $r.Need -ceq $w.Need -and $r.Build -ceq $w.Build
+        if (-not $same) { Fail "$label (got $($r.Ver) | toggle=$($r.Toggle) | box=$($r.Box) | gear=$($r.Gear) | status=$($r.Status) | icons=$($r.Icons) | need=$($r.Need) | build=$($r.Build))" }
         elseif ($hits[0] -le $last) { Fail "$label (out of order: row $($hits[0] + 1))" }
         else { Pass $label }
         $last = [math]::Max($last, $hits[0])
     }
-    $noisy = @($rows | Where-Object { $_.Status -ne 0 })
-    if ($rows.Count -and -not $noisy) { Pass "every status slot is empty ($($rows.Count) rows)" } else { Fail "every status slot is empty ($($rows.Count) rows; not: $(($noisy | ForEach-Object Name) -join ', '))" }
+    # ---- STATUS (story 6): the first STATUS line of these rows says none
+    foreach ($f in $CoreName, "${name}Base", "${name}Dep", "${name}Bare") {
+        $first = @($lines | Where-Object { $_ -match "\[$M\] STATUS $([regex]::Escape($f)) " })[0]
+        if ($first -and $first -match "\[$M\] STATUS $([regex]::Escape($f)) none \| \s*$") { Pass "STATUS $f none (first)" } else { Fail "STATUS $f none (first): $first" }
+    }
     $absent = @('BPML_GenericFunctions', 'BPModLoaderMod', 'CheatManagerEnablerMod', 'ConsoleCommandsMod', 'ConsoleEnablerMod', 'Keybinds', 'LineTraceMod', 'SplitScreenMod', 'shared', 'NuclearNightmare-Windows')
     $present = @($rows | Where-Object { $_.Name -in $absent })
     if (-not $present) { Pass 'no row for a UE4SS built-in, shared or NuclearNightmare-Windows' } else { Fail "rows that must be absent: $(($present | ForEach-Object Name) -join ', ')" }
@@ -191,12 +232,16 @@ if ($Scenario -eq 'screen') {
         if ($hdrLeft -gt 0 -and [math]::Abs($hdrLeft - $rowLeft) -le 1) { Pass "MEASURE the header's NAME starts within 1 unit of the row's name ($hdrLeft vs $rowLeft)" } else { Fail "MEASURE the header's NAME starts within 1 unit of the row's name ($hdrLeft vs $rowLeft)" }
     } else { Fail 'MEASURE line' }
 
-    # ---- INERT: nothing from the Mod Manager while the toggle boxes are clicked
-    $ib, $ie = (IndexOf "\[$D\] INERT begin"), (IndexOf "\[$D\] INERT end")
+    # ---- FIXED: nothing from the Mod Manager while the lock and a pak's disabled box are clicked
+    $ib, $ie = (IndexOf "\[$D\] FIXED begin"), (IndexOf "\[$D\] FIXED end")
     if ($ib -ge 0 -and $ie -gt $ib) {
         $between = @($lines[($ib + 1)..($ie - 1)] | Where-Object { $_ -match "\[$M\] " -and $_ -notmatch "\[$M\] WARN hud slow tick " })
-        if (-not $between) { Pass 'INERT the toggle-box clicks logged no [ModManager] line' } else { Fail "INERT the toggle-box clicks logged: $($between -join ' / ')" }
-    } else { Fail 'INERT begin/end lines' }
+        if (-not $between) { Pass 'FIXED the lock and the pak box logged no [ModManager] line' } else { Fail "FIXED the lock and the pak box logged: $($between -join ' / ')" }
+    } else { Fail 'FIXED begin/end lines' }
+
+    # ---- QUIT: QUIT GAME after END result=PASS, then the game closed itself (no crash: the $always patterns)
+    $iend, $iquit = (IndexOf "\[$D\] END result=PASS"), (IndexOf "\[$M\] QUIT pending=")
+    if ($iend -ge 0 -and $iquit -gt $iend) { Pass 'QUIT GAME clicked after END result=PASS' } else { Fail "QUIT GAME clicked after END result=PASS (END at line $iend, QUIT at line $iquit)" }
 }
 
 if ($failed) { Write-Host "$failed check(s) failed."; exit 1 }
