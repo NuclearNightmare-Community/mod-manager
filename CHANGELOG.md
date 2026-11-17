@@ -6,7 +6,7 @@ All notable changes to the Mod Manager are recorded here. The format follows [Ke
 
 ### Fixed
 
-- 0.2.1 (story 11): the game no longer freezes on the first mod turned on or off in a session. A row's checkbox, a Configure control and TURN OFF used to save and redraw the window inside Nucleus's click hook, where the first restart icon of a session loads its texture and stalls the engine. That work now runs on the next game tick, outside the hook, and checks first that the same row or setting is still under the click (if the list changed in between, nothing is written and the box shows its row's real state). BACK on the confirm between the click and that tick still cancels. Still needs Nucleus 0.12.0 or newer (`>=0.12.0`).
+- 0.2.1 (story 11): the game no longer freezes on the first mod turned on or off in a session. A row's checkbox, a Configure control and TURN OFF used to save and redraw the window inside Nucleus's click hook, where the first restart icon of a session loads its texture and stalls the engine. That work now runs on the game thread about 10 ms later, after the hook has returned, and checks first that the same row or setting is still under the click (if the list changed in between, nothing is written and the box shows its row's real state). BACK on the confirm between the click and that work still cancels. A TURN OFF that fails sets the box back on with `COULD NOT SAVE THE CHANGE`, and a setting that fails before it is saved goes back with `NOT SAVED (error)`. Still needs Nucleus 0.12.0 or newer (`>=0.12.0`).
 
 ## [0.2.0] - 2026-11-17
 

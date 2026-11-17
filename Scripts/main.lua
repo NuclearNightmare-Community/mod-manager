@@ -370,7 +370,7 @@ local function start(core)
         end
         applyToggle(n, row, checked)
     end
-    -- Work a core callback starts runs on the next game-thread tick, outside the hook that called it. The callbacks
+    -- Work a core callback starts runs on the game thread about 10 ms later, after the hook that called it returned. The callbacks
     -- (a checkbox's or control's onChange, a button's onClick) arrive inside core's Blueprint hook, and any ui.* work
     -- there may load an asset for the first time: the first restart icon of a session loads T_Restart, the first
     -- Configure a control kind's widget class. An asset load inside a hook stalls the engine ("Loading is stuck", VM
@@ -391,7 +391,7 @@ local function start(core)
         soon("the toggle", function()
             local row = view.data[n]
             if not row or row.key ~= key then -- the list changed in between: nothing written, box n shows its own row
-                if row then view:setToggle(n, row.state ~= "off") end
+                if row then pcall(view.setToggle, view, n, row.state ~= "off") end
                 return
             end
             onToggle(n, checked)
@@ -443,7 +443,7 @@ local function start(core)
 
     -- ---------------------------------------------------------------- Configure and settings
     local cfgFolder, cfgKey
-    -- The gear's click arrives inside the button's click hook: Configure is built through soon (above), outside it.
+    -- The gear's click arrives inside the button's click hook: Configure is built through soon (above), after it returned.
     view.onGearClick = function(n)
         local r0 = view.data[n]
         local key = r0 and r0.key

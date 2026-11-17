@@ -572,7 +572,13 @@ do -- No scheduler, or one that raises: the work runs inline (as 0.2.0).
 end
 
 do -- Settings: queued; Configure changed before the tick; a throw after the save.
-    local core, U = session()
+    -- (Base declares a setting too, so its Configure has a different key at index 1)
+    boot{ files = { [MODS .. "\\ModManagerBase\\mod.json"] = (MJ.ModManagerBase:gsub('}$', ',"settings":{"other":{}}}')) } }
+    local core = newCore()
+    core.settings.decls.ModManagerBase = { settings = { { key = "other", type = "bool", value = true, default = true, label = "Other", changeable = "anytime" } } }
+    connect(core)
+    core.ui.entries[1].onClick()
+    local U = core.ui
     W.queue = {}
     local fx = rowOf(U, "ModManagerFixture")
     U.click("r" .. fx .. ".cfg")
@@ -584,11 +590,16 @@ do -- Settings: queued; Configure changed before the tick; a throw after the sav
     eq(#lines("SET "), 0, "queued setting: no SET on return")
     drain()
     eq(#lines("^%[ModManager%] SET ModManagerFixture flag=true$"), 1, "after the tick: SET")
-    -- Configure changed (another mod's) before the tick: nothing saved
+    -- Configure changed (another mod's) before the tick: nothing saved, control 1 shows its own entry's value
     U.toggle("s1.cb")
-    W.queue = nil; U.byId["r1.cfg"].onClick(); W.queue = {} -- Nucleus's Configure opens first
+    local q = W.queue -- (the setting's work stays queued while Base's Configure opens at once)
+    W.queue = nil; U.byId["r" .. rowOf(U, "Mod Manager Base") .. ".cfg"].onClick(); W.queue = q
+    eq(U.byId["s1.cb"].checked, true, "Base's Configure: control 1 is Base's 'other' (true)")
+    U.byId["s1.cb"].checked = false -- as if the click had left it so
     drain()
     eq(#core.settings.sets, 1, "Configure changed: no setFor")
+    eq(#lines("SET "), 1, "Configure changed: no new SET line")
+    eq(U.byId["s1.cb"].checked, true, "Configure changed: control 1 shows its own entry's value")
     -- back on the fixture; describe breaks after the save: the value stands, guard's WARN only
     W.queue = nil; U.byId["r" .. fx .. ".cfg"].onClick(); W.queue = {}
     eq(U.byId["s1.cb"].checked, true, "the fixture's flag still true")
