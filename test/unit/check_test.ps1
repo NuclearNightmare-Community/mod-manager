@@ -137,6 +137,7 @@ Expect (Screen-Log -rows (@($rowLines[1], $rowLines[0]) + $rowLines[2..9])) 'scr
 function Swap([int] $i, [string] $from, [string] $to) { $r = @($rowLines); $r[$i] = $r[$i] -replace $from, $to; return , $r }
 Expect (Screen-Log -rows (Swap 6 'toggle=off' 'toggle=on')) 'screen' 1 'screen: the fixture on fails' 'got 9.9.9 \| toggle=on'
 Expect (Screen-Log -rows (Swap 6 'gear=lit' 'gear=dim')) 'screen' 1 'screen: the fixture gear dimmed fails'
+Expect (Screen-Log -rows (Swap 1 'gear=dim' 'gear=\?')) 'screen' 1 'screen: an unknown gear (Configure showed neither line) fails' 'FAIL: ROW Mod Manager \| '
 Expect (Screen-Log -rows (Swap 7 'need=>=0\.2\.0' 'need=-')) 'screen' 1 'screen: the Long need missing fails'
 Expect (Screen-Log -rows (Swap 8 'status=0 \| icons=-' 'status=1 | icons=warning')) 'screen' 1 'screen: a status icon on the pak fails' 'ModManagerPak \|'
 Expect (Screen-Log -rows (Swap 6 'status=2 \| icons=warning,warning' 'status=0 | icons=-')) 'screen' 1 'screen: the fixture without its icons fails' 'ModManagerFixture'
