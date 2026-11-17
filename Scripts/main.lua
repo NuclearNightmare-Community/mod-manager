@@ -53,6 +53,27 @@ end
 
 local function parentOf(p) return type(p) == "string" and p:match("^(.*)[/\\][^/\\]+$") or nil end
 
+-- A widget named name under w (panels and switchers by GetChildAt), depth and count bounded; nil when not found.
+local FOOTER = "NN_MainFooter"
+local MAX_WALK = 400
+local function findWidget(w, name, depth, seen)
+    local okV, valid = pcall(function() return w ~= nil and w:IsValid() end)
+    if not (okV and valid) then return nil end
+    seen.n = seen.n + 1
+    if seen.n > MAX_WALK then return nil end
+    local okN, nm = pcall(function() return w:GetFName():ToString() end)
+    if okN and nm == name then return w end
+    if depth <= 0 then return nil end
+    local okC, n = pcall(function() return w:GetChildrenCount() end)
+    if not okC or type(n) ~= "number" then return nil end
+    for i = 0, math.min(n, 64) - 1 do
+        local okA, c = pcall(function() return w:GetChildAt(i) end)
+        local found = okA and findWidget(c, name, depth - 1, seen) or nil
+        if found then return found end
+    end
+    return nil
+end
+
 -- The running game: version from the live title-screen menu's footer ("NUCLEAR NIGHTMARE EA V8.2.3": its last token
 -- that starts with V and a digit), build from Steam's appmanifest two folders above the game's install folder (read
 -- only; missing on a dev copy: unknown). Either is nil when unknown. Found fresh on every call; no UObject is kept.
@@ -61,8 +82,9 @@ local function runningGame(fs, paths)
     pcall(function()
         for _, m in ipairs(FindAllOf("MainMenu_C") or {}) do
             if m:IsValid() and m:IsInViewport() then
-                -- a widget-tree child, not a reflected property: found by name
-                local t = m:GetWidgetFromName(FName("NN_MainFooter"))
+                -- a widget-tree child, neither a reflected property nor reachable through GetWidgetFromName (not
+                -- reflected on this game): found by name in a bounded walk from the tree's root (CanvasPanel_17 holds it)
+                local t = findWidget(m.WidgetTree.RootWidget, FOOTER, 4, { n = 0 })
                 local s = t:GetText():ToString()
                 if type(s) == "string" and #s <= 256 then
                     for tok in s:gmatch("%S+") do if tok:match("^V%d") then version = tok end end

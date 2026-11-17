@@ -90,10 +90,16 @@ local function stubGlobals()
     end
     os.execute = function() W.shell = W.shell + 1 end
     io.popen = function() W.shell = W.shell + 1 end
-    local footer = { GetText = function() return { ToString = function() return W.footer end } end }
-    local menu = { IsValid = function() return true end, IsInViewport = function() return W.menuUp end,
-        GetWidgetFromName = function(_, n) if n == "NN_MainFooter" then return footer end return nil end }
-    FName = function(s) return s end
+    -- the menu's tree: WidgetSwitcher_1 -> CanvasPanel_17 -> { a logo, NN_MainFooter }
+    local function widget(name, children, text)
+        return { IsValid = function() return true end, GetFName = function() return { ToString = function() return name end } end,
+            GetChildrenCount = function() if not children then error("not a panel") end return #children end,
+            GetChildAt = function(_, i) return children[i + 1] end,
+            GetText = function() return { ToString = function() return text() end } end }
+    end
+    local footer = widget("NN_MainFooter", nil, function() return W.footer end)
+    local root = widget("WidgetSwitcher_1", { widget("CanvasPanel_17", { widget("Image_0"), footer }) })
+    local menu = { IsValid = function() return true end, IsInViewport = function() return W.menuUp end, WidgetTree = { RootWidget = root } }
     FindAllOf = function(c) if c == "MainMenu_C" then return { menu } end return nil end
     local pc = { IsValid = function() return true end, GetWorld = function() return "world" end }
     StaticFindObject = function(p)
