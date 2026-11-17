@@ -11,14 +11,14 @@
 --   screen:   the entry; the main window's rows (ROW lines with the toggle, its box, the status icons; the gear, need
 --             and build from each row's Configure window: gear=dim when it shows NO SETTINGS, lit when it lists
 --             settings; GEARLOOK: the gear drawn that way, judged only when it doesn't hold keyboard focus); one DOWN
---             right after the first open and a focus shot; MEASURE of the long name; CARDFIT (the content inside
---             the card, the list above BACK); story 6: Dep off and on with
---             mods.txt and state.json read back, Base off through the confirm (BACK, then TURN OFF), the restart and
---             dependency icons, the banner and QUIT GAME (CARDFIT2), Nucleus's lock and a pak's disabled box changing
---             nothing (FIXED); the fixture's Configure: its problem lines, its settings' controls, a checkbox click, a
---             choice arrow, a typed slider value, the restart setting, settings.json read back; Configure on top of the
---             main window, a dimmed gear's Configure, the main window's Close blocked under it; closes; Tower Island and
---             back; the entry again, the same rows (DW-59); END; then QUIT GAME, which closes the game.
+--             right after the first open and a focus shot; MEASURE of the long name; CARDFIT (the content inside the
+--             card, the list above BACK); story 6: Dep off and on with mods.txt and state.json read back, Base off
+--             through the confirm (BACK, then TURN OFF), the restart and dependency icons, the banner and QUIT GAME
+--             (CARDFIT2), Nucleus's lock and a pak's disabled box changing nothing (FIXED); the fixture's Configure:
+--             its problem lines, its settings' controls, a checkbox click, a choice arrow, a typed slider value, the
+--             restart setting, settings.json read back; Configure on top of the main window, a dimmed gear's Configure,
+--             the main window's Close blocked under it; closes; Tower Island and back; the entry again, the same rows
+--             (DW-59); END; then QUIT GAME, which closes the game.
 --   no-core:  (run.ps1 moves core aside) the menu has no MANAGE MODS entry.
 --   old-core: (run.ps1 sets core's installed mod.json to 0.1.0) publishes that version as <core>.version before the
 --             Mod Manager connects, as an old core would; the menu has no MANAGE MODS entry.

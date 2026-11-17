@@ -14,7 +14,7 @@
       SETTINGS, lit for a settings list; not its look), the status icons (the fixture: build and dependency;
       every other row none). No row for a UE4SS built-in, shared or NuclearNightmare-Windows.
     - GEARLOOK: at least one "OK GEARLOOK ... looks dim (offers dim)" (a dimmed gear drawn as its Configure offers;
-      a gear holding keyboard focus is skipped, a FAIL fails like any driver FAIL).
+      a gear holding keyboard focus is skipped; a FAIL GEARLOOK fails the run like any driver FAIL).
     - STATUS (story 6): the Mod Manager's first STATUS line for Nucleus, ModManagerBase, ModManagerDep and ModManagerBare
       is "none"; the fixture's names both games and both dependency problems.
     - MEASURE: the long name's desired width over its allotted width (cut), its right edge left of the version
