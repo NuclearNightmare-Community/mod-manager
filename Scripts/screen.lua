@@ -19,20 +19,33 @@
 --         clickable either way: it opens the Configure window (read-only details, core's Close its only control).
 -- The header mirrors a row (spacer, NAME, VERSION, empty status, spacer) in a one-row list of the same width and
 -- style, so its labels line up with the columns.
+--
+-- Layout (0.1.1): core (0.12.0) puts a window's content in a card that hugs it, clamped to the viewport less core's
+-- margins. The title, the header list and the list stack in the card's top-left corner (core's corner stack, in that
+-- order), so core's own hug sums them with its BACK in the bottom-left corner and keeps the list clear of BACK. The
+-- list's height is the layout height less the Mod Manager's own reserve (LIST_RESERVE), so the hug stays under core's
+-- clamp; the Configure window's title and lines stack in its card's top-left corner too. No fixed x/y offsets.
 local Screen = {}
 Screen.__index = Screen
 
 Screen.ICON = 28           -- the toggle box and the gear, square, canvas units
--- Left and right of the title and the lists, in canvas units: fixed, so a wider screen only widens the columns (at
--- 1280x720 and 1920x1080 the lists are 1200 wide; at 3440x1440, 1860).
-Screen.MARGIN = 360
-Screen.TITLE_Y = 28
-Screen.HEADER_Y = 100
-Screen.HEADER_H = 64
-Screen.LIST_GAP = 8        -- between the header and the list
-Screen.BOTTOM = 48
+Screen.HEADER_H = 64       -- the header list's height
+-- The Mod Manager's own budget for the main window, in layout units (not core's numbers: core's card chrome, its
+-- BACK's size and its stack gap are core's to change; the screen scenario's CARDFIT check and check.ps1's card-WARN
+-- pattern verify that this budget still fits):
+--   LIST_RESERVE: taken from the layout height for everything in the card but the list: the card's chrome (core's
+--     margins and padding), the title, the header list, the corner gaps and BACK below the stack, with headroom. At
+--     layout height 1080 (every 16:9 and wider resolution) the list is 640 high (about 12 rows; more scroll), so the
+--     content stays about 100 units under core 0.12.0's clamp (968).
+--   SIDE_RESERVE: taken from the layout width, so a wider screen only widens the columns (at 1280x720 and 1920x1080
+--     the lists are 1200 wide; at 3440x1440, 1860), well inside the card's width.
+Screen.LIST_RESERVE = 440
+Screen.SIDE_RESERVE = 720
+-- A corner stack puts each element its own gap in from the side edge as well as below the previous one (UI-3: tight 8,
+-- normal 16, public corner gaps). The list follows the header list a tight gap below, so it is nudged right by the
+-- difference to keep the header's left edge (MEASUREALIGN in the screen scenario).
+Screen.LIST_NUDGE = 8
 Screen.FILL = { name = 4, ver = 1, st = 1 }
-Screen.CFG_X, Screen.CFG_Y, Screen.CFG_STEP = Screen.MARGIN, 120, 50
 
 function Screen.new(ui, strings)
     return setmetatable({ ui = ui, S = strings, lang = "en", data = {}, made = 0, cells = {}, size = nil,
@@ -51,28 +64,28 @@ function Screen:versionText(row)
     return row.version or self:str("unknown")
 end
 
-local function listSize(size)
-    local w = size.w - 2 * Screen.MARGIN
-    local h = size.h - Screen.HEADER_Y - Screen.HEADER_H - Screen.LIST_GAP - Screen.BOTTOM
-    return { w = w, h = h }
+function Screen.listSize(size)
+    return { w = size.w - Screen.SIDE_RESERVE, h = size.h - Screen.LIST_RESERVE }
 end
 
--- The lists' places and sizes for a layout size.
+-- The lists' places and sizes for a layout size. Both stack in the card's top-left corner after the title: the
+-- header list a normal gap below it, the list a tight gap below the header (nudged to the header's left edge). A later call (a new layout size) re-creates
+-- both with the same ids and places: core updates them in place and keeps their stack order.
 function Screen:lists(size)
-    local ls = listSize(size)
+    local ls = Screen.listSize(size)
     local ui = self.ui
     self.hdrList = ui.list.create{ id = "hdr.list", size = { w = ls.w, h = Screen.HEADER_H },
-        place = { screen = self.main, absolute = { anchor = "top-left", x = Screen.MARGIN, y = Screen.HEADER_Y } } }
+        place = { screen = self.main, corner = "top-left", gap = "normal" } }
     self.list = ui.list.create{ id = "list", size = ls,
-        place = { screen = self.main, absolute = { anchor = "top-left", x = Screen.MARGIN, y = Screen.HEADER_Y + Screen.HEADER_H + Screen.LIST_GAP } } }
+        place = { screen = self.main, corner = "top-left", gap = "tight", offset = { x = Screen.LIST_NUDGE, y = 0 } } }
     self.size = { w = size.w, h = size.h }
 end
 
--- The title, the header and the two lists: once, on the first open.
+-- The title, the header and the two lists: once, on the first open (the title first: the corner stack's order).
 function Screen:build(size)
     local ui = self.ui
     self.title = ui.text.create{ id = "title", text = self:str("title"),
-        place = { screen = self.main, absolute = { anchor = "top-left", x = Screen.MARGIN, y = Screen.TITLE_Y } }, style = { font = "title" } }
+        place = { screen = self.main, corner = "top-left" }, style = { font = "title" } }
     self:lists(size)
     local hdr = ui.row.create{ id = "hdr", place = { list = self.hdrList } }
     ui.image.create{ id = "hdr.on", place = { row = hdr }, size = Screen.ICON }
@@ -181,13 +194,15 @@ function Screen:openConfigure(n)
         return self.cfgWin
     end
     self.cfgWin = ui.screen.open{ id = "configure" }
-    local function at(i) return { screen = self.cfgWin, absolute = { anchor = "top-left", x = Screen.CFG_X, y = Screen.CFG_Y + (i - 1) * Screen.CFG_STEP } } end
-    self.cfg = {
-        title = ui.text.create{ id = "cfg.title", text = l.title, place = { screen = self.cfgWin, absolute = { anchor = "top-left", x = Screen.CFG_X, y = Screen.TITLE_Y } }, style = { font = "title" } },
-        ver = ui.text.create{ id = "cfg.ver", text = l.ver, place = at(1), style = { font = "body" } },
-        need = ui.text.create{ id = "cfg.need", text = l.need, place = at(2), style = { font = "body" } },
-        build = ui.text.create{ id = "cfg.build", text = l.build, place = at(3), style = { font = "body" } },
-    }
+    -- The card's top-left corner stack, in creation order: the heading, VERSION, NUCLEUS, GAME BUILD, each a normal
+    -- gap below the previous (one gap for all, so all share one left edge).
+    local function at() return { screen = self.cfgWin, corner = "top-left", gap = "normal" } end
+    local cfg = {}
+    cfg.title = ui.text.create{ id = "cfg.title", text = l.title, place = at(), style = { font = "title" } }
+    cfg.ver = ui.text.create{ id = "cfg.ver", text = l.ver, place = at(), style = { font = "body" } }
+    cfg.need = ui.text.create{ id = "cfg.need", text = l.need, place = at(), style = { font = "body" } }
+    cfg.build = ui.text.create{ id = "cfg.build", text = l.build, place = at(), style = { font = "body" } }
+    self.cfg = cfg
     self.cfgMade = true
     return self.cfgWin
 end

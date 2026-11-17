@@ -79,6 +79,8 @@ $running = @(
     # slow tick is soft: the VM's game shares the CPU with the host.
     $(if ($Target -eq 'vm') { "!\[$M\] WARN (?!hud slow tick )" } else { "!\[$M\] WARN (?!hud slow tick .*(HUD event|steady state, a Lua GC step ran inside it))" })
     "?!\[$M\] WARN hud slow tick "
+    # Core's card (0.12.0): a window whose content is larger than the viewport allows. Named so a failure says so.
+    "!\[$M\] WARN window '.*': its content .* the card is clamped"
 )
 $expect = @{
     'screen' = $running + @(
@@ -88,6 +90,7 @@ $expect = @{
         "\[$D\] OK ENTRYPOS menu1 ", "\[$D\] OK ENTRYLOOK menu1 ", "\[$D\] OK ENTRYPOS menu2 ", "\[$D\] OK ENTRYLOOK menu2 "
         "\[$D\] OK OPEN first ", "\[$D\] OK TITLE first "
         "\[$D\] OK MEASURECUT ", "\[$D\] OK MEASUREEDGE ", "\[$D\] OK MEASUREALIGN "
+        "\[$D\] OK CARDFIT "
         "\[$D\] OK INERT the toggle boxes changed nothing"
         "\[$D\] OK CFGTOP ", "\[$D\] OK CFGFIXTURE ", "\[$D\] OK CFGCLOSE ", "\[$D\] OK CFGDIM ", "\[$D\] OK CFGDIMOPEN "
         "\[$D\] OK BLOCKEDGEAR ", "\[$D\] OK BLOCKED ", "\[$D\] OK CFGCLOSE2 ", "\[$D\] OK CLOSEMAIN ", "\[$D\] OK MENUBACK "

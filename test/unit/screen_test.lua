@@ -38,9 +38,8 @@ do -- First open: the window, the title, the header, the lists, one row per mod.
     local t = U.byId.title
     ok(t and t.text == "MOD MANAGER" and t.style.font == "title" and t.place.screen == w, "title MOD MANAGER on the window")
     local hl, l = U.byId["hdr.list"], U.byId.list
-    ok(hl.size.w == l.size.w and hl.place.absolute.x == l.place.absolute.x and hl.style == nil and l.style == nil, "header list and list: same width, x and style")
-    eq(l.size.w, 1920 - 2 * Screen.MARGIN, "list width: the screen less the margins")
-    ok(l.place.absolute.y > hl.place.absolute.y + hl.size.h - 1 and l.place.absolute.y + l.size.h <= 1080, "the list sits under the header, inside 1080 units")
+    ok(hl.size.w == l.size.w and hl.style == nil and l.style == nil, "header list and list: same width and style")
+    eq(l.size.w, 1920 - Screen.SIDE_RESERVE, "list width: the layout width less the side reserve")
     -- header: spacer | NAME (fill 4) | VERSION (fill 1) | empty status (fill 1) | spacer
     local hon, hname, hver, hst, hcfg = U.byId["hdr.on"], U.byId["hdr.name"], U.byId["hdr.ver"], U.byId["hdr.st"], U.byId["hdr.cfg"]
     ok(hon.kind == "image" and hon.image == nil and hon.size == Screen.ICON and hon.place.fill == nil, "header: a spacer of the toggle box's size, no fill")
@@ -161,8 +160,77 @@ do -- Language: German strings when a de table exists; the layout size changes t
     v:openMain(ROWS, "en", SIZE)
     ok(U.byId.title.text == "MOD MANAGER" and U.byId["r1.cfg"].tooltip == "CONFIGURE" and U.byId["r4.on"].tooltip == "ON", "back to English on the next open")
     v:openMain(ROWS, "en", { w = 2580, h = 1080 })
-    eq(U.byId.list.size.w, 2580 - 2 * Screen.MARGIN, "a wider screen: a wider list")
+    eq(U.byId.list.size.w, 2580 - Screen.SIDE_RESERVE, "a wider screen: a wider list")
     eq(U.byId["hdr.list"].size.w, U.byId.list.size.w, "the header follows")
+end
+
+-- The ids of the elements placed in a window's corner, in the order of their first create.
+local function cornerOrder(U, win)
+    local out, seen = {}, {}
+    for _, c in ipairs(U.calls) do
+        local o = c.args[1]
+        if c.name:match("%.create$") and type(o) == "table" and type(o.place) == "table" and o.place.screen == win and not seen[o.id] then
+            seen[o.id] = true
+            out[#out + 1] = o.id
+        end
+    end
+    return table.concat(out, ",")
+end
+local function isCorner(el, gap, nudge)
+    local p = el.place
+    local off = p.offset
+    local offOk = (nudge == nil and off == nil) or (nudge ~= nil and type(off) == "table" and off.x == nudge and off.y == 0)
+    return p.corner == "top-left" and p.absolute == nil and p.gap == gap and offOk
+end
+
+do -- 0.1.1 layout: the card's top-left corner stack, no fixed offsets; the list height from the Mod Manager's reserve.
+    local U = FakeUi.new()
+    local v = Screen.new(U, S)
+    local w = v:openMain(ROWS, "en", SIZE)
+    local t, hl, l = U.byId.title, U.byId["hdr.list"], U.byId.list
+    ok(t.place.corner == "top-left" and t.place.absolute == nil and t.place.offset == nil, "title: top-left corner of the window")
+    ok(isCorner(hl, "normal"), "header list: top-left corner, a normal gap after the title")
+    ok(isCorner(l, "tight", Screen.LIST_NUDGE), "list: top-left corner, a tight gap after the header list, nudged right")
+    -- Same left edge: a corner element sits its gap in from the side (UI-3: tight 8, normal 16) plus its offset.
+    eq(8 + l.place.offset.x, 16, "the list's left edge is the header list's (tight gap + nudge = normal gap)")
+    ok(hl.place.screen == w and l.place.screen == w, "both lists on the main window")
+    eq(cornerOrder(U, w), "title,hdr.list,list", "the corner stack's creation order: title, header list, list")
+    eq(hl.size.h, Screen.HEADER_H, "header list height")
+    eq(l.size.h, 1080 - Screen.LIST_RESERVE, "list height: the layout height less the reserve")
+    ok(l.size.h <= 1080 - Screen.LIST_RESERVE and l.size.h >= 32, "list height: at most 1080 less the reserve, and a valid list size")
+    -- The budget's headroom against core 0.12.0's clamp at layout height 1080 (968), with generous estimates of what the
+    -- Mod Manager doesn't own (title about 60, BACK about 60 with its inset, gaps 16 + 8 + 16 + 16): at least 60 under.
+    ok(16 + 60 + 16 + Screen.HEADER_H + 8 + l.size.h + 16 + 16 + 60 <= 968 - 60, "the estimated hug stays at least 60 units under the clamp")
+    ok(Screen.SIDE_RESERVE > 0 and Screen.LIST_RESERVE > 0, "the reserves are positive")
+    -- 1280x720 and 1920x1080 share the layout size 1920x1080 (and so does the fallback): the same sizes.
+    local U2 = FakeUi.new()
+    Screen.new(U2, S):openMain(ROWS, "en", { w = 1920, h = 1080 })
+    ok(U2.byId.list.size.w == l.size.w and U2.byId.list.size.h == l.size.h, "720p and 1080p: the same list size")
+    -- Reopen with another layout size (3440x1440 -> 2580x1080): both lists re-sized, same ids, same places, same order.
+    local before = #U.calls
+    U.open.main = nil
+    v:openMain(ROWS, "en", { w = 2580, h = 1080 })
+    local creates = {}
+    for _, c in ipairs(U.since(before)) do if c.name:match("%.create$") then creates[#creates + 1] = c.args[1].id end end
+    eq(table.concat(creates, ","), "hdr.list,list", "a new size re-creates only the two lists, with the same ids")
+    eq(l.size.w, 2580 - Screen.SIDE_RESERVE, "wider layout: a wider list")
+    eq(hl.size.w, l.size.w, "wider layout: the header list follows")
+    eq(l.size.h, 1080 - Screen.LIST_RESERVE, "wider layout: the same height")
+    ok(isCorner(hl, "normal") and isCorner(l, "tight", Screen.LIST_NUDGE), "wider layout: the same corner places")
+    eq(cornerOrder(U, w), "title,hdr.list,list", "wider layout: the same stack order")
+    -- The same size again: nothing re-created.
+    before = #U.calls
+    v:openMain(ROWS, "en", { w = 2580, h = 1080 })
+    eq(#U.since(before, "list.create"), 0, "the same size: no list re-created")
+    -- Configure: heading, then VERSION, NUCLEUS, GAME BUILD in the card's top-left corner stack, no offsets.
+    local cw = v:openConfigure(1)
+    eq(cornerOrder(U, cw), "cfg.title,cfg.ver,cfg.need,cfg.build", "Configure's corner stack: heading, VERSION, NUCLEUS, GAME BUILD")
+    ok(U.byId["cfg.title"].place.corner == "top-left" and U.byId["cfg.title"].place.absolute == nil, "Configure heading: top-left corner")
+    ok(isCorner(U.byId["cfg.title"], "normal") and isCorner(U.byId["cfg.ver"], "normal") and isCorner(U.byId["cfg.need"], "normal") and isCorner(U.byId["cfg.build"], "normal"),
+        "Configure heading and lines: top-left corner, one gap (one left edge), no offset")
+    for _, el in pairs(U.byId) do
+        if el.place and el.place.screen then ok(el.place.absolute == nil, "no absolute place: " .. el.id) end
+    end
 end
 
 do -- A create inside build raises once: the next open builds again and works.
