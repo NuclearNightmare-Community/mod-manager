@@ -13,8 +13,8 @@
       toggle (lock | on | off), its box (none | live | fixed), the gear (what the row's Configure offers: dim for NO
       SETTINGS, lit for a settings list; not its look), the status icons (the fixture: build and dependency;
       every other row none). No row for a UE4SS built-in, shared or NuclearNightmare-Windows.
-    - GEARLOOK: at least one "OK GEARLOOK" (a gear drawn as its Configure offers; a gear holding keyboard focus is
-      skipped, a FAIL fails like any driver FAIL).
+    - GEARLOOK: at least one "OK GEARLOOK ... looks dim (offers dim)" (a dimmed gear drawn as its Configure offers;
+      a gear holding keyboard focus is skipped, a FAIL fails like any driver FAIL).
     - STATUS (story 6): the Mod Manager's first STATUS line for Nucleus, ModManagerBase, ModManagerDep and ModManagerBare
       is "none"; the fixture's names both games and both dependency problems.
     - MEASURE: the long name's desired width over its allotted width (cut), its right edge left of the version
@@ -104,7 +104,7 @@ $expect = @{
         "\[$D\] OK MEASURECUT ", "\[$D\] OK MEASUREEDGE ", "\[$D\] OK MEASUREALIGN "
         "\[$D\] OK CARDFIT "
         # story 10: ROW's gear is what Configure offers; the look is judged on gears without keyboard focus
-        "\[$D\] OK GEARLOOK "
+        "\[$D\] OK GEARLOOK .* looks dim \(offers dim\)"
         # story 6: on/off, the confirm, the icons, the banner and QUIT GAME, state.json, the fixed rows
         "\[$D\] OK TGROWS ", "\[$D\] OK TXT0 ", "\[$D\] OK TGLIVE ", "\[$D\] OK TGSTART ", "\[$D\] OK TGDEPOFF ", "\[$D\] OK TGNOCONFIRM "
         "\[$D\] OK TGDEPICON ", "\[$D\] OK PENDINGUI ", "\[$D\] OK STATEOFF ", "\[$D\] OK CARDFIT2 ", "\[$D\] OK TGDEPON ", "\[$D\] OK TGDEPON2 "

@@ -10,8 +10,9 @@
 -- Scenarios (Scripts/scenario.txt, written by deploy.ps1):
 --   screen:   the entry; the main window's rows (ROW lines with the toggle, its box, the status icons; the gear, need
 --             and build from each row's Configure window: gear=dim when it shows NO SETTINGS, lit when it lists
---             settings; GEARLOOK: the gear drawn that way, judged only when it doesn't hold keyboard focus); one DOWN right after the first open and a focus shot; MEASURE of
---             the long name; CARDFIT (the content inside the card, the list above BACK); story 6: Dep off and on with
+--             settings; GEARLOOK: the gear drawn that way, judged only when it doesn't hold keyboard focus); one DOWN
+--             right after the first open and a focus shot; MEASURE of the long name; CARDFIT (the content inside
+--             the card, the list above BACK); story 6: Dep off and on with
 --             mods.txt and state.json read back, Base off through the confirm (BACK, then TURN OFF), the restart and
 --             dependency icons, the banner and QUIT GAME (CARDFIT2), Nucleus's lock and a pak's disabled box changing
 --             nothing (FIXED); the fixture's Configure: its problem lines, its settings' controls, a checkbox click, a
@@ -175,8 +176,9 @@ local function tipOf(w) return try(function() return w.ToolTipText:ToString() en
 local function near4(c, want) return c ~= nil and math.abs(c.R - want[1]) < 0.01 and math.abs(c.G - want[2]) < 0.01 and math.abs(c.B - want[3]) < 0.01 and math.abs(c.A - want[4]) < 0.01 end
 -- One row as drawn (story 6): name, version, toggle (on | off | lock: the lock image r<n>.on when it is shown, else
 -- the checkbox r<n>.tg's texture), box (live | fixed: the checkbox's opacity, dimmed when disabled | none for the
--- lock), gear (the look: lit | dim, or focus when it holds keyboard focus; ROW's gear comes from Configure), status (how many of r<n>.s1..s3 show a texture, and which: warning | restart), the status
--- images' tooltips, and its rectangle.
+-- lock), gear (the look: lit | dim, or focus when it holds keyboard focus; ROW's gear comes from Configure), status
+-- (how many of r<n>.s1..s3 show a texture, and which: warning | restart), the status images' tooltips, and its
+-- rectangle.
 local function readRow(n)
     local r = rowW(n)
     if not r or visOf(r) == VIS_COLLAPSED or visOf(r) == VIS_HIDDEN then return nil end
@@ -446,7 +448,7 @@ local function buildScreen()
                 -- the gear's look read just before its own click (focus has moved since readRows)
                 step("gear " .. r.n, function()
                     local again = readRow(r.n)
-                    r.look = again and again.gear or r.gear
+                    r.look = again and again.gear or "?"
                 end)
                 configureOf(function() return r.n end, r.name)
                 step("ROW " .. r.n, function()
@@ -458,7 +460,7 @@ local function buildScreen()
                     say("ROW %s | %s | toggle=%s | box=%s | gear=%s | status=%d | icons=%s | need=%s | build=%s", r.name, r.ver, r.toggle, r.box, gear, r.status, r.icons, need, build)
                     -- the look, judged only on a gear without keyboard focus (focus draws a dimmed gear lit)
                     if r.look == "focus" then say("GEARLOOK %d skipped (focused)", r.n)
-                    else check(r.look == gear, "GEARLOOK %d %s looks %s (offers %s)", r.n, r.name, tostring(r.look), gear) end
+                    else check(gear ~= "?" and r.look == gear, "GEARLOOK %d %s looks %s (offers %s)", r.n, r.name, tostring(r.look), gear) end
                 end)
                 closeConfigure(r.name)
             end

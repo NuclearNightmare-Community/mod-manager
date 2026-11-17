@@ -59,7 +59,7 @@ $settingOks = @('CFGPROBLEMS x', 'SETKINDS x', 'SETBY x', 'SETRO x', 'SETMARK x'
 function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE name width=680.0 desired=820.5 right=1225.0 verLeft=1233.0 headerLeft=405.0 rowLeft=405.0',
     [string[]] $fixed = @(), [string] $files = '[run.ps1] FILES changed: mods.txt sha256 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA -> BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB', [string] $cardfit = 'OK CARDFIT the title, header and list are inside the card (true) and the list ends 72.0 units above BACK''s top',
     [string] $run = '[run.ps1] RUN game exited (crash?)', [switch] $quitBeforeEnd,
-    [string] $gearlook = 'OK GEARLOOK 7 ModManagerFixture looks lit (offers lit)') {
+    [string] $gearlook = 'OK GEARLOOK 1 Nucleus looks dim (offers dim)') {
     $l = (Start-Log) + @(
         (L $D 'SCENARIO screen'), (L $D 'LOADED 7 steps'),
         (L $M 'CONNECT ok Nucleus 0.8.0 (pong 0.8.0 boot=1)'), (L $M 'READY entry=manage need=>=0.12.0'),
@@ -72,6 +72,7 @@ function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE n
         (L $M 'CONFIGURE 1 Nucleus'))
     foreach ($r in $rows) { $l += L $D $r }
     $l += L $D 'GEARLOOK 2 skipped (focused)'
+    $l += L $D 'OK GEARLOOK 7 ModManagerFixture looks lit (offers lit)'
     if ($gearlook) { $l += L $D $gearlook }
     $l += L $D $measure
     $l += L $D 'OK MEASURECUT the long name''s desired width 820.5 is over its column''s 680.0'
@@ -125,6 +126,7 @@ Expect ($good + (L $M "WARN window 'configure': its content (900 x 1100) is larg
 Expect (Screen-Log -cardfit '') 'screen' 1 'screen: no CARDFIT fails' 'FAIL: .*OK CARDFIT'
 # story 10: at least one gear's look judged; a failed look fails.
 Expect (Screen-Log -gearlook '') 'screen' 1 'screen: no OK GEARLOOK fails' 'FAIL: .*OK GEARLOOK'
+Expect (Screen-Log -gearlook 'OK GEARLOOK 9 ModManagerPak looks lit (offers lit)') 'screen' 1 'screen: only lit OK GEARLOOKs fail' 'FAIL: .*OK GEARLOOK'
 Expect (Screen-Log -gearlook 'FAIL GEARLOOK 1 Nucleus looks lit (offers dim)') 'screen' 1 'screen: a failed GEARLOOK fails' 'FAIL GEARLOOK'
 Expect (Screen-Log -cardfit 'FAIL CARDFIT the title, header and list are inside the card (false) and the list ends -20.0 units above BACK''s top') 'screen' 1 'screen: a failed CARDFIT fails' 'FAIL: .*OK CARDFIT'
 # Other installed mods may sit between the expected rows.
