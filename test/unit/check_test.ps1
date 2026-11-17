@@ -126,8 +126,8 @@ Expect ($good + (L $M "WARN window 'configure': its content (900 x 1100) is larg
 Expect (Screen-Log -cardfit '') 'screen' 1 'screen: no CARDFIT fails' 'FAIL: .*OK CARDFIT'
 # story 10: at least one gear's look judged; a failed look fails.
 Expect (Screen-Log -gearlook '') 'screen' 1 'screen: no OK GEARLOOK fails' 'FAIL: .*OK GEARLOOK'
-Expect (Screen-Log -gearlook 'OK GEARLOOK 9 ModManagerPak looks lit (offers lit)') 'screen' 1 'screen: only lit OK GEARLOOKs fail' 'FAIL: .*OK GEARLOOK'
-Expect (Screen-Log -gearlook 'FAIL GEARLOOK 1 Nucleus looks lit (offers dim)') 'screen' 1 'screen: a failed GEARLOOK fails' 'FAIL GEARLOOK'
+Expect (Screen-Log -gearlook 'OK GEARLOOK 7 ModManagerFixture looks lit (offers lit)') 'screen' 1 'screen: only lit OK GEARLOOKs fail' 'FAIL: .*OK GEARLOOK'
+Expect ($good + (L $D 'FAIL GEARLOOK 1 Nucleus looks lit (offers dim)')) 'screen' 1 'screen: a failed GEARLOOK fails' 'FAIL: !.*FAIL '
 Expect (Screen-Log -cardfit 'FAIL CARDFIT the title, header and list are inside the card (false) and the list ends -20.0 units above BACK''s top') 'screen' 1 'screen: a failed CARDFIT fails' 'FAIL: .*OK CARDFIT'
 # Other installed mods may sit between the expected rows.
 Expect (Screen-Log -rows (@($rowLines[0], $rowLines[1], 'ROW Clock | 0.1.0 | toggle=on | box=live | gear=lit | status=0 | icons=- | need=>=0.2.0 | build=V8.2.3 26601774') + $rowLines[2..9])) 'screen' 0 'screen: another mod between them is fine' 'All checks passed'
@@ -137,7 +137,7 @@ Expect (Screen-Log -rows (@($rowLines[1], $rowLines[0]) + $rowLines[2..9])) 'scr
 function Swap([int] $i, [string] $from, [string] $to) { $r = @($rowLines); $r[$i] = $r[$i] -replace $from, $to; return , $r }
 Expect (Screen-Log -rows (Swap 6 'toggle=off' 'toggle=on')) 'screen' 1 'screen: the fixture on fails' 'got 9.9.9 \| toggle=on'
 Expect (Screen-Log -rows (Swap 6 'gear=lit' 'gear=dim')) 'screen' 1 'screen: the fixture gear dimmed fails'
-Expect (Screen-Log -rows (Swap 1 'gear=dim' 'gear=\?')) 'screen' 1 'screen: an unknown gear (Configure showed neither line) fails' 'FAIL: ROW Mod Manager \| '
+Expect (Screen-Log -rows (Swap 1 'gear=dim' 'gear=?')) 'screen' 1 'screen: an unknown gear (Configure showed neither line) fails' 'FAIL: ROW Mod Manager \| .*got .*gear=\?'
 Expect (Screen-Log -rows (Swap 7 'need=>=0\.2\.0' 'need=-')) 'screen' 1 'screen: the Long need missing fails'
 Expect (Screen-Log -rows (Swap 8 'status=0 \| icons=-' 'status=1 | icons=warning')) 'screen' 1 'screen: a status icon on the pak fails' 'ModManagerPak \|'
 Expect (Screen-Log -rows (Swap 6 'status=2 \| icons=warning,warning' 'status=0 | icons=-')) 'screen' 1 'screen: the fixture without its icons fails' 'ModManagerFixture'
