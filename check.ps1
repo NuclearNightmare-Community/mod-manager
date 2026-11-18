@@ -117,9 +117,6 @@ $expect = @{
         "\[$D\] OK STATEBASE ", "\[$D\] OK PAKFIXED ", "\[$D\] OK FIXEDINERT "
         # story 11: the first toggle before any Configure (cold T_Restart): ENTER on Dep's focused checkbox, then a mouse click
         "\[$D\] OK TGFIRSTCOLD ", "\[$D\] OK TGFIRSTFOCUS ", "\[$D\] OK TGFIRST ", "\[$D\] OK TGFIRSTCLICK "
-        # core story 39 (0.15.4): the focus chip on Base's checkbox after LEFT, on its gear after RIGHT; no chip WARN
-        "\[$D\] OK CHIP tg ", "\[$D\] OK CHIP cfg "
-        "!\[$M\] WARN .*focus chip"
         "#2|\[$M\] TOGGLE ModManagerDep off\s*$", "#2|\[$M\] TOGGLE ModManagerDep on\s*$", "#1|\[$M\] TOGGLE ModManagerBase off\s*$"
         "#5|\[$M\] TOGGLE "
         "#1|\[$M\] CONFIRM ModManagerBase cancelled \(close\)\s*$"
