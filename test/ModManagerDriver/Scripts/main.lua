@@ -157,7 +157,7 @@ local function cell(n, part) return childTagged(prop(rowW(n), "HBox"), "r" .. n 
 -- state) and Btn's render scale is above 1 (the chip reaches past the icon; Content is scaled back, < 1).
 local CHIP = {}
 function CHIP.base()
-    local b = { r = 0.42, g = 0.06, b = 0.03 } -- core 0.15.4's theme.game.focusChipColors.CinematicBaseColor
+    local b = { r = 1.0, g = 0.32, b = 0.16 } -- core 0.15.4's theme.game.focusChipColors.CinematicBaseColor
     local okT, th = pcall(require, CORE:lower() .. ".ui.theme")
     if okT and type(th) == "table" and th.game and th.game.focusChipColors then b = th.game.focusChipColors.CinematicBaseColor end
     return b
@@ -580,9 +580,10 @@ local function buildScreen()
         say("FOCUS after DOWN: %s", at)
     end)
     shot("mm-focus")
-    -- 2a. Core story 39 (0.15.4): the focus chip. Keys on Base's row (its checkbox and its gear both take focus): DOWN
-    -- (Base's checkbox), RIGHT (its gear), LEFT: the checkbox shows the chip (its Btn's Normal brush is an instance of
-    -- the selection material in the chip's base colour), the gear doesn't; RIGHT: the reverse. A shot after each.
+    -- 2a. Core story 39 (0.15.4): the focus chip. Focus is on row 2's gear (after the DOWN above): DOWN moves it to Base's
+    -- gear (row 3, same column), RIGHT does nothing (the gear is the row's last control; a key at a line end), LEFT moves
+    -- it to Base's checkbox: the checkbox shows the chip (its Btn's Normal brush is an instance of the selection material
+    -- in the chip's base colour, its render scale above 1), the gear doesn't; RIGHT: the reverse. A shot after each.
     -- Then LEFT back to the first column, so the first toggle's DOWN keys below land on Dep's checkbox.
     do
         local chipOf, hasFocusOf = CHIP.of, CHIP.hasFocus
@@ -604,9 +605,9 @@ local function buildScreen()
                     "CHIP %s Base's row %s: the focused %s shows the focus chip (%s), the %s doesn't (%s)", name, tostring(n), on, whatA, off, whatB)
             end)
         end
-        chipKey("DOWN", "to Base's checkbox")
-        chipKey("RIGHT", "to Base's gear")
-        chipKey("LEFT", "back to Base's checkbox")
+        chipKey("DOWN", "to Base's gear")
+        chipKey("RIGHT", "at the line's end: stays on Base's gear")
+        chipKey("LEFT", "to Base's checkbox")
         chipCheck("tg", "tg", "cfg")
         shot("mm-chip-tg")
         chipKey("RIGHT", "to Base's gear")
