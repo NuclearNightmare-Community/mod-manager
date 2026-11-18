@@ -59,7 +59,7 @@ $settingOks = @('CFGPROBLEMS x', 'SETKINDS x', 'SETBY x', 'SETRO x', 'SETMARK x'
 function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE name width=680.0 desired=820.5 right=1225.0 verLeft=1233.0 headerLeft=405.0 rowLeft=405.0',
     [string[]] $fixed = @(), [string] $files = '[run.ps1] FILES changed: mods.txt sha256 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA -> BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB', [string] $cardfit = 'OK CARDFIT the title, header and list are inside the card (true) and the list ends 72.0 units above BACK''s top',
     [string] $run = '[run.ps1] RUN game exited (crash?)', [switch] $quitBeforeEnd,
-    [string] $gearlook = 'OK GEARLOOK 1 Nucleus looks dim (offers dim)') {
+    [string] $gearlook = 'OK GEARLOOK 1 Nucleus looks dim (offers dim)', [int[]] $popin = @(1, 2, 3, 4)) {
     $l = (Start-Log) + @(
         (L $D 'SCENARIO screen'), (L $D 'LOADED 7 steps'),
         (L $M 'CONNECT ok Nucleus 0.8.0 (pong 0.8.0 boot=1)'), (L $M 'READY entry=manage need=>=0.12.0'),
@@ -108,6 +108,9 @@ function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE n
     foreach ($ok in 'CFGTOP x', 'CFGFIXTURE x') { $l += L $D "OK $ok" }
     foreach ($s in 'flag=true', 'mode=two', 'example=7', 'later=true') { $l += L $M "SET ModManagerFixture $s" }
     foreach ($ok in $settingOks) { $l += L $D "OK $ok" }
+    # core story 35: the pop-in sampler's checks and the two extra round trips
+    foreach ($k in $popin) { $l += L $D "OK NOPOPIN menu$k no frame drew the column without the MANAGE MODS entry (0 of 40 visible frames did)" }
+    foreach ($ok in 'ENTRYUP3 x', 'ENTRYPOS menu3 x', 'ENTRYLOOK menu3 x', 'ENTRYUP4 x', 'ENTRYPOS menu4 x', 'ENTRYLOOK menu4 x') { $l += L $D "OK $ok" }
     foreach ($ok in 'CFGCLOSE x', 'CFGDIM x', 'CFGDIMOPEN x', 'BLOCKEDGEAR x', 'BLOCKED x', 'CFGCLOSE2 x', 'CLOSEMAIN x', 'MENUBACK x', 'ENTRYUP2 x', 'ENTRYPOS menu2 x',
             'ENTRYLOOK menu2 x', 'OPEN after the match x', 'SAME x', 'QUITUI x', 'BANNER x', 'QUITPOINT x') {
         $l += L $D "OK $ok"
@@ -133,6 +136,12 @@ Expect ($good + $cardWarn) 'screen' 1 'screen: the card clamp WARN fails' 'FAIL:
 Expect ($good + $cardWarn) 'screen' 1 'vm screen: the card clamp WARN fails' 'FAIL: .*the card is clamped' 'vm'
 Expect ($good + (L $M "WARN window 'configure': its content (900 x 1100) is larger than the viewport allows; the card is clamped to 948 x 1016")) 'screen' 1 'screen: the Configure card WARN fails' 'FAIL: .*the card is clamped'
 Expect (Screen-Log -cardfit '') 'screen' 1 'screen: no CARDFIT fails' 'FAIL: .*OK CARDFIT'
+# core story 35: every menu judged for pop-in; a pop-in or core's column cap WARN fails.
+Expect (Screen-Log -popin 1, 2, 4) 'screen' 1 'screen: no NOPOPIN menu3 fails' 'FAIL: .*OK NOPOPIN menu3'
+Expect ($good + (L $D 'FAIL NOPOPIN menu2 no frame drew the column without the MANAGE MODS entry (12 of 40 visible frames did)')) 'screen' 1 'screen: a pop-in fails' 'FAIL: !.*FAIL '
+$capWarn = L $M 'WARN ui menu entry: the menu column of MainMenu_C_2147466039 was still hidden 2.0 s after the menu appeared, waiting for Other; shown anyway'
+Expect ($good + $capWarn) 'screen' 1 'screen: the column cap WARN fails by name' 'FAIL: .*column.*still hidden'
+Expect ($good + $capWarn) 'screen' 1 'vm screen: the column cap WARN fails by name' 'FAIL: .*column.*still hidden' 'vm'
 # story 10: at least one gear's look judged; a failed look fails.
 Expect (Screen-Log -gearlook '') 'screen' 1 'screen: no OK GEARLOOK fails' 'FAIL: .*OK GEARLOOK'
 Expect (Screen-Log -gearlook 'OK GEARLOOK 7 ModManagerFixture looks lit (offers lit)') 'screen' 1 'screen: only lit OK GEARLOOKs fail' 'FAIL: .*OK GEARLOOK'

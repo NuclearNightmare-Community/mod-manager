@@ -135,6 +135,10 @@ $expect = @{
         "\[$D\] OK CFGTOP ", "\[$D\] OK CFGFIXTURE ", "\[$D\] OK CFGCLOSE ", "\[$D\] OK CFGDIM ", "\[$D\] OK CFGDIMOPEN "
         "\[$D\] OK BLOCKEDGEAR ", "\[$D\] OK BLOCKED ", "\[$D\] OK CFGCLOSE2 ", "\[$D\] OK CLOSEMAIN ", "\[$D\] OK MENUBACK "
         "\[$D\] OK ENTRYUP2 ", "\[$D\] OK OPEN after the match ", "\[$D\] OK SAME "
+        # core story 35: no menu-entry pop-in on the first menu and three returns from a match (a per-frame sampler)
+        "\[$D\] OK NOPOPIN menu1 ", "\[$D\] OK NOPOPIN menu2 ", "\[$D\] OK NOPOPIN menu3 ", "\[$D\] OK NOPOPIN menu4 "
+        "\[$D\] OK ENTRYUP3 ", "\[$D\] OK ENTRYUP4 ", "\[$D\] OK ENTRYPOS menu3 ", "\[$D\] OK ENTRYPOS menu4 "
+        "!\[$M\] WARN .*column.*still hidden"
         "\[$M\] CONFIGURE \d+ "
     )
     'no-core' = @(

@@ -19,8 +19,9 @@
 --             (CARDFIT2), Nucleus's lock and a pak's disabled box changing nothing (FIXED); the fixture's Configure:
 --             its problem lines, its settings' controls, a checkbox click, a choice arrow, a typed slider value, the
 --             restart setting, settings.json read back; Configure on top of the main window, a dimmed gear's Configure,
---             the main window's Close blocked under it; closes; Tower Island and back; the entry again, the same rows
---             (DW-59); END; then QUIT GAME, which closes the game.
+--             the main window's Close blocked under it; closes; Tower Island and back three times (core story 35:
+--             every menu sampled each frame for pop-in, NOPOPIN menu1..menu4; a menu<k>-return shot after each return);
+--             the entry again, the same rows (DW-59); END; then QUIT GAME, which closes the game.
 --   no-core:  (run.ps1 moves core aside) the menu has no MANAGE MODS entry.
 --   old-core: (run.ps1 sets core's installed mod.json to 0.1.0) publishes that version as <core>.version before the
 --             Mod Manager connects, as an old core would; the menu has no MANAGE MODS entry.
@@ -240,6 +241,63 @@ local function entryOf(mm)
     return nil
 end
 
+-- ---------------------------------------------------------------- core story 35: the per-frame pop-in sampler
+-- On each new MainMenu_C (its own NotifyOnNewObject; only the path is kept, nothing is called in the callback) a chain
+-- of ExecuteInGameThreadAfterFrames(1) samples the menu every frame for at most 20 s, re-found with StaticFindObject
+-- each time. A pop-in frame: the menu in the viewport, its opacity > 0.01, switcher page 0, Overlay_0 drawn and the
+-- column's opacity > 0.01 while the column has no MANAGE MODS entry (what was painted the frame before). Once the
+-- entry is in and drawn (or at the time-out): POPIN menu<k> ... and the NOPOPIN menu<k> check. k counts menus that
+-- reached the viewport (menu1 the first, menu2.. the returns from a match).
+local MENU_PKG = "/Game/Graphics/MainMenu/MainMenu"
+local MENU_CLASS = MENU_PKG .. ".MainMenu_C"
+local POP = { n = 0, judged = {} }
+local function opacityOf(w) local o = v(w) and try(function() return w:GetRenderOpacity() end) return type(o) == "number" and o or -1 end
+local function drawnVis(x) return x ~= VIS_COLLAPSED and x ~= VIS_HIDDEN and x ~= -1 end
+local function sampleStart(path)
+    local s = { path = path, k = nil, frames = 0, pop = 0, seen = 0, t0 = os.clock(), firstPop = nil }
+    local function judge(why)
+        if not s.k then say("POPIN skipped %s: never in the viewport (%s)", s.path:match("[^.]+$") or "?", why) return end
+        say("POPIN menu%d frames=%d visible=%d pop=%d first=%s entry=%s (%s)", s.k, s.frames, s.seen, s.pop, tostring(s.firstPop), why == "entry in" and "in" or "no", why)
+        check(s.pop == 0, "NOPOPIN menu%d no frame drew the column without the %s entry (%d of %d visible frames did)", s.k, ENTRY_LABEL, s.pop, s.seen)
+        POP.judged[s.k] = true
+    end
+    local sample
+    sample = function()
+        local okS, err = pcall(function()
+            s.frames = s.frames + 1
+            local mm = StaticFindObject(s.path)
+            if not v(mm) then judge("menu gone") return end
+            local inVp = try(function() return mm:IsInViewport() end) == true
+            local page = try(function() return mm.WidgetTree.RootWidget:GetActiveWidgetIndex() end) or 0
+            local vb = column(mm)
+            local shown = inVp and opacityOf(mm) > 0.01 and page == 0 and drawnVis(visOf(prop(mm, "Overlay_0"))) and opacityOf(vb) > 0.01
+            if inVp and not s.k then POP.n = POP.n + 1; s.k = POP.n end
+            local has = entryOf(mm) ~= nil
+            if shown then
+                s.seen = s.seen + 1
+                if not has then s.pop = s.pop + 1; s.firstPop = s.firstPop or s.frames
+                else judge("entry in") return end
+            end
+            if os.clock() - s.t0 > 20 then judge("time-out") return end
+            ExecuteInGameThreadAfterFrames(1, sample)
+        end)
+        if not okS then check(false, "POPIN sampler for %s: %s", s.path:match("[^.]+$") or "?", firstLine(err)) end
+    end
+    local okA, errA = pcall(ExecuteInGameThreadAfterFrames, 1, sample)
+    if not okA then check(false, "POPIN can't sample per frame: %s", firstLine(errA)) end
+end
+if SCENARIO == "screen" then
+    local okN, errN = pcall(NotifyOnNewObject, MENU_CLASS, function(obj)
+        local okP, path = pcall(function() return (obj:GetFullName():gsub("^%S+ ", "")) end)
+        if okP and type(path) == "string" and not path:find("Default__", 1, true) and path:sub(1, #MENU_PKG + 1) ~= MENU_PKG .. "." then
+            sampleStart(path)
+        end
+        return false
+    end)
+    if not okN then say("FAIL POPIN NotifyOnNewObject(%s): %s", MENU_CLASS, firstLine(errN)) end
+end
+local function popJudged(k) return function() return POP.judged[k] == true end end
+
 -- ---------------------------------------------------------------- requests and steps
 local seq = 0
 local function request(cmd)
@@ -412,6 +470,7 @@ local function buildScreen()
     waitWorld("menu1", "NewMainMenu", 120)
     pastStartup()
     waitFor("the entry", function() return menu() ~= nil and entryOf(menu()) ~= nil end, 60)
+    waitFor("menu1 pop-in judged", popJudged(1), 30)
     settle(3)
     entryChecks("menu1")
     shot("mm-menu")
@@ -835,10 +894,27 @@ local function buildScreen()
     settle(6)
     travel("menu2", MENU_MAP, "")
     waitWorld("menu2", "NewMainMenu", 150)
+    shot("menu2-return")
     waitFor("menu2 with the entry", function() return menu() ~= nil and entryOf(menu()) ~= nil end, 60)
+    waitFor("menu2 pop-in judged", popJudged(2), 30)
     settle(3)
     step("menu2: entry back", function() check(entryOf(menu()) ~= nil, "ENTRYUP2 the entry is back after the match") end)
     entryChecks("menu2")
+    -- Core story 35: two more round trips, each return sampled for pop-in (NOPOPIN menu3, menu4).
+    for k = 3, 4 do
+        local match, back = "match" .. (k - 1), "menu" .. k
+        travel(match, MATCH_MAP, "listen")
+        waitWorld(match, "SmallMap", 150)
+        settle(6)
+        travel(back, MENU_MAP, "")
+        waitWorld(back, "NewMainMenu", 150)
+        shot(back .. "-return")
+        waitFor(back .. " with the entry", function() return menu() ~= nil and entryOf(menu()) ~= nil end, 60)
+        waitFor(back .. " pop-in judged", popJudged(k), 30)
+        settle(3)
+        step(back .. ": entry back", function() check(entryOf(menu()) ~= nil, "ENTRYUP%d the entry is back after the match", k) end)
+        entryChecks(back)
+    end
     openMain("after the match")
     step("same rows", function()
         local rows = readRows()
