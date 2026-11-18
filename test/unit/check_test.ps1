@@ -69,6 +69,10 @@ function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE n
     foreach ($s in $statusLines) { $l += L $M $s }
     $l += @((L $M 'OPEN rows=10 total=10 lang=en game=V8.2.3 build=- us=4000'),
         (L $D 'OK OPEN first the MOD MANAGER window opened from the entry'), (L $D 'OK TITLE first the window''s title reads MOD MANAGER (MOD MANAGER)'))
+    # core story 39: no focus chip after the mouse open, then the chip on Base's checkbox, then its gear
+    $l += L $D 'OK CHIP open after a mouse click on the entry: focus on r1.cfg, no focus chip (nil)'
+    $l += L $D 'OK CHIP tg Base''s row 3: the focused tg shows the focus chip (MaterialInstanceDynamic parent M_NN_CinematicSelection base 0.42,0.06,0.03), the cfg doesn''t (? parent ? base nil,nil,nil)'
+    $l += L $D 'OK CHIP cfg Base''s row 3: the focused cfg shows the focus chip (MaterialInstanceDynamic parent M_NN_CinematicSelection base 0.42,0.06,0.03), the tg doesn''t (? parent ? base nil,nil,nil)'
     # story 11: the first toggle, before any Configure
     $l += L $D 'OK TGFIRSTCOLD x'
     $l += L $D 'OK TGFIRSTFOCUS Dep''s checkbox (row 4) holds the keyboard focus (focus on row 4)'
@@ -185,6 +189,12 @@ Expect ($good + (L $M 'TOGGLE ModManagerFixture on')) 'screen' 1 'screen: an ext
 foreach ($k in 'TGFIRSTCOLD', 'TGFIRSTFOCUS', 'TGFIRST ', 'TGFIRSTCLICK') {
     Expect ($good | Where-Object { $_ -notmatch "OK $k" }) 'screen' 1 "screen: no $($k.Trim()) fails" "OK $($k.Trim())"
 }
+# core story 39: the three chip checks are required, and a focus chip or list row WARN fails.
+foreach ($k in 'CHIP open', 'CHIP tg', 'CHIP cfg') {
+    Expect ($good | Where-Object { $_ -notmatch "OK $k " }) 'screen' 1 "screen: no $k fails" "OK $k"
+}
+Expect ($good + (L $M 'WARN ''r3.tg'': the focus chip failed (is Nucleus''s pak current?): boom')) 'screen' 1 'screen: a focus chip WARN fails' 'focus chip'
+Expect ($good + (L $M 'WARN row ''r3'': the list row''s padding was not applied (is Nucleus''s pak current?): boom')) 'screen' 1 'screen: a list row WARN fails' 'list row'
 # story 11: a CONFIGURE above the first toggle (it may warm the restart texture) fails.
 $cfgFirst = @($good | Where-Object { $_ -notmatch '\] CONFIGURE 1 Nucleus' })
 $iCold = [array]::IndexOf($cfgFirst, ($cfgFirst | Where-Object { $_ -match 'OK TGFIRSTCOLD' } | Select-Object -First 1))

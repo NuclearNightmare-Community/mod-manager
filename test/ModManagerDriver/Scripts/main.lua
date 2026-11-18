@@ -152,6 +152,32 @@ end
 local function mainList() local _, c = screenOf("main") return childTagged(c, "list") end
 local function rowW(n) return childTagged(prop(mainList(), "VBox"), "r" .. n) end
 local function cell(n, part) return childTagged(prop(rowW(n), "HBox"), "r" .. n .. "." .. part) end
+-- Core story 39 (0.15.4): the focus chip on a row control (a core button widget: its Btn). of(w) -> on, what: on when
+-- Btn's Normal brush is an instance of M_NN_CinematicSelection in the chip's base colour (core's theme, read in this
+-- state) and Btn's render scale is above 1 (the chip reaches past the icon; Content is scaled back, < 1).
+local CHIP = {}
+function CHIP.base()
+    local b = { r = 0.42, g = 0.06, b = 0.03 } -- core 0.15.4's theme.game.focusChipColors.CinematicBaseColor
+    local okT, th = pcall(require, CORE:lower() .. ".ui.theme")
+    if okT and type(th) == "table" and th.game and th.game.focusChipColors then b = th.game.focusChipColors.CinematicBaseColor end
+    return b
+end
+function CHIP.of(w)
+    local base = CHIP.base()
+    local b = prop(w, "Btn")
+    local mi = try(function() return b.WidgetStyle.Normal.ResourceObject end)
+    local cls, par = cname(mi), (v(mi) and try(function() return mi.Parent:GetFName():ToString() end)) or "?"
+    local c = v(mi) and try(function() return mi:K2_GetVectorParameterValue(FName("CinematicBaseColor")) end)
+    local cr, cg, cb = try(function() return c.R end), try(function() return c.G end), try(function() return c.B end)
+    local sb = try(function() return b.RenderTransform.Scale.X end)
+    local sc = try(function() return prop(w, "Content").RenderTransform.Scale.X end)
+    local near = function(x, y) return type(x) == "number" and math.abs(x - y) < 0.002 end
+    local on = cls == "MaterialInstanceDynamic" and par == "M_NN_CinematicSelection"
+        and near(cr, base.r) and near(cg, base.g) and near(cb, base.b)
+        and type(sb) == "number" and sb > 1.01 and type(sc) == "number" and sc < 0.99
+    return on, string.format("%s parent %s base %s,%s,%s scale %s content %s", cls, par, tostring(cr), tostring(cg), tostring(cb), tostring(sb), tostring(sc))
+end
+function CHIP.hasFocus(w) local b = prop(w, "Btn") return b ~= nil and try(function() return b:HasKeyboardFocus() end) == true end
 local function headerCell(part)
     local _, c = screenOf("main")
     local hl = childTagged(c, "hdr.list")
@@ -514,6 +540,23 @@ local function buildScreen()
 
     -- 2. The rows, each one's Configure data, the long name's measure, a screenshot.
     openMain("first")
+    -- Core story 39 (0.15.4): the window was opened by a mouse click on the entry, so the input mode is the mouse's: no
+    -- control shows the focus chip (CHIP open), shot mm-chip-open. CHIP.of(w): whether a row control's Btn shows the
+    -- chip (its Normal brush an instance of the selection material in the chip's base colour, its render scale above
+    -- 1: the chip reaches past the icon) and what it shows.
+    step("chip: open", function()
+        local onAny, focused = nil, "none"
+        for n = 1, 256 do
+            if not rowW(n) then break end
+            for _, part in ipairs({ "tg", "cfg" }) do
+                local w = cell(n, part)
+                if w and CHIP.of(w) then onAny = "r" .. n .. "." .. part end
+                if w and CHIP.hasFocus(w) then focused = "r" .. n .. "." .. part end
+            end
+        end
+        check(focused ~= "none" and onAny == nil, "CHIP open after a mouse click on the entry: focus on %s, no focus chip (%s)", focused, tostring(onAny))
+    end)
+    shot("mm-chip-open")
     -- One DOWN with the keyboard right after the first open, while the window's focus is still on its first line (row
     -- 1's gear; later the gear clicks move it), then a shot of the focus: row 2's gear, which core 0.12.2 shows as a
     -- band across the whole row. The shot is not judged, FOCUS only says where the keyboard focus is.
@@ -537,6 +580,40 @@ local function buildScreen()
         say("FOCUS after DOWN: %s", at)
     end)
     shot("mm-focus")
+    -- 2a. Core story 39 (0.15.4): the focus chip. Keys on Base's row (its checkbox and its gear both take focus): DOWN
+    -- (Base's checkbox), RIGHT (its gear), LEFT: the checkbox shows the chip (its Btn's Normal brush is an instance of
+    -- the selection material in the chip's base colour), the gear doesn't; RIGHT: the reverse. A shot after each.
+    -- Then LEFT back to the first column, so the first toggle's DOWN keys below land on Dep's checkbox.
+    do
+        local chipOf, hasFocusOf = CHIP.of, CHIP.hasFocus
+        local function chipKey(key, label)
+            step("chip: " .. key .. " " .. label, function()
+                say("KEY %s (%s)", key, label)
+                return request("key " .. key), 30, "key " .. key
+            end)
+            settle(1)
+        end
+        local function chipCheck(name, on, off)
+            step("chip: " .. name, function()
+                local r = rowNamed(BASE)
+                local n = r and r.n
+                local wOn, wOff = n and cell(n, on), n and cell(n, off)
+                local chipA, whatA = chipOf(wOn)
+                local chipB, whatB = chipOf(wOff)
+                check(n ~= nil and hasFocusOf(wOn) and chipA and not chipB,
+                    "CHIP %s Base's row %s: the focused %s shows the focus chip (%s), the %s doesn't (%s)", name, tostring(n), on, whatA, off, whatB)
+            end)
+        end
+        chipKey("DOWN", "to Base's checkbox")
+        chipKey("RIGHT", "to Base's gear")
+        chipKey("LEFT", "back to Base's checkbox")
+        chipCheck("tg", "tg", "cfg")
+        shot("mm-chip-tg")
+        chipKey("RIGHT", "to Base's gear")
+        chipCheck("cfg", "cfg", "tg")
+        shot("mm-chip-cfg")
+        chipKey("LEFT", "back to the first column")
+    end
     -- 2b. Story 11: the first toggle of the session, before any Configure (none may draw a restart mark first), so core's
     -- T_Restart texture is still cold when the toggle draws the first restart icon. In 0.2.0 that load ran inside the
     -- checkbox's click hook and froze the game (hand test 2026-11-17). Keyboard: DOWN until Dep's checkbox holds the
