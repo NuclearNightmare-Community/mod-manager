@@ -113,7 +113,8 @@ if notify then
     m1.VerticalBox_104.op = 1
     frame()
     ok(#frames == 0 and lines("OK NOPOPIN menu1 ") == 1 and lines("POPIN menu1 frames=6 visible=1 pop=0 ") == 1, "pop-in: menu1 judged with no pop-in", printed[#printed])
-    -- menu2: the column drawn without the entry for two frames: FAIL NOPOPIN menu2
+    ok(lines("HIDDENFIRST menu1") == 0 and lines("POPIN menu1 .* hidden=3 overlay=3 entry=5 ") == 1, "pop-in: menu1 logs hidden/overlay/entry frames, no HIDDENFIRST check", printed[#printed - 1])
+    -- menu2: the column drawn without the entry for two frames, never hidden: FAIL NOPOPIN and FAIL HIDDENFIRST menu2
     local p2 = "/Engine/Transient.GI.MainMenu_C_2"
     local m2 = newMenuFake(p2); objects[p2] = m2
     m2.Overlay_0.vis = 0
@@ -121,8 +122,10 @@ if notify then
     frame(); frame()
     addEntry(m2)
     frame()
-    ok(lines("FAIL NOPOPIN menu2 .*%(2 of 3 visible frames did%)") == 1 and lines("POPIN menu2 frames=3 visible=3 pop=2 first=1 entry=in") == 1, "pop-in: menu2 pop-in counted and failed", printed[#printed])
-    -- menu3: hidden (another page) until the time-out is not a pop-in; the sampler stops
+    ok(lines("FAIL NOPOPIN menu2 .*%(2 of 3 visible frames did, 0 unreadable; entry in a drawn column: true%)") == 1
+        and lines("POPIN menu2 frames=3 visible=3 pop=2 firstPop=1 unreadable=0 hidden=nil overlay=1 entry=3 %(entry in%)") == 1, "pop-in: menu2 pop-in counted and failed", printed[#printed - 2])
+    ok(lines("FAIL HIDDENFIRST menu2 the column was hidden %(frame nil%) on or before Overlay_0 was first drawn %(frame 1%)") == 1, "pop-in: menu2 never hidden -> HIDDENFIRST fails")
+    -- menu3: hidden (another page) until the time-out: the entry never seen in a drawn column -> FAIL; the sampler stops
     local p3 = "/Engine/Transient.GI.MainMenu_C_3"
     local m3 = newMenuFake(p3); objects[p3] = m3
     m3.Overlay_0.vis = 0; m3.page = 2
@@ -132,7 +135,31 @@ if notify then
     os.clock = function() return clock0() + 25 end
     frame()
     os.clock = clock0
-    ok(#frames == 0 and lines("OK NOPOPIN menu3 ") == 1 and lines("POPIN menu3 .*entry=no %(time%-out%)") == 1, "pop-in: time-out judged, chain stopped", printed[#printed])
+    ok(#frames == 0 and lines("FAIL NOPOPIN menu3 .*entry in a drawn column: false%)") == 1 and lines("POPIN menu3 .*%(time%-out%)") == 1, "pop-in: time-out without the entry drawn fails, chain stopped", printed[#printed])
+    -- menu4: core's hide before Overlay_0 is drawn, then the entry: OK NOPOPIN and OK HIDDENFIRST menu4
+    local p4 = "/Engine/Transient.GI.MainMenu_C_4"
+    local m4 = newMenuFake(p4); objects[p4] = m4
+    notify(m4)
+    frame()
+    m4.VerticalBox_104.op = 0
+    frame()
+    m4.Overlay_0.vis = 0
+    frame()
+    addEntry(m4); m4.VerticalBox_104.op = 1
+    frame()
+    ok(lines("OK NOPOPIN menu4 ") == 1 and lines("OK HIDDENFIRST menu4 the column was hidden %(frame 2%) on or before Overlay_0 was first drawn %(frame 3%)") == 1, "pop-in: menu4 hidden first passes", printed[#printed])
+    -- menu5: frames in the viewport with an unreadable column opacity count against it
+    local p5 = "/Engine/Transient.GI.MainMenu_C_5"
+    local m5 = newMenuFake(p5); objects[p5] = m5
+    m5.Overlay_0.vis = 0
+    local cop = m5.VerticalBox_104.GetRenderOpacity
+    m5.VerticalBox_104.GetRenderOpacity = function() error("unreadable") end
+    notify(m5)
+    frame(); frame()
+    m5.VerticalBox_104.GetRenderOpacity = cop
+    addEntry(m5)
+    frame()
+    ok(lines("FAIL NOPOPIN menu5 .*0 of 1 visible frames did, 2 unreadable") == 1 and lines("POPIN menu5 .*unreadable=2 ") == 1, "pop-in: unreadable frames fail", printed[#printed - 2])
 end
 StaticFindObject = function() return INVALID end
 -- old-core reads the claimed version from the installed core's mod.json, two folders up (Mods/Nucleus/mod.json);
