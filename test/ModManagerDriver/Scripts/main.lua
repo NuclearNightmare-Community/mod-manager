@@ -154,10 +154,10 @@ local function rowW(n) return childTagged(prop(mainList(), "VBox"), "r" .. n) en
 local function cell(n, part) return childTagged(prop(rowW(n), "HBox"), "r" .. n .. "." .. part) end
 -- Core story 39 (0.15.4): the focus chip on a row control (a core button widget: its Btn). of(w) -> on, what: on when
 -- Btn's Normal brush is an instance of M_NN_CinematicSelection in the chip's base colour (core's theme, read in this
--- state) and Btn's render scale is above 1 (the chip reaches past the icon; Content is scaled back, < 1).
+-- state; core 0.15.5, story 41: light blue #6dd5ed, its linear value theme.game.focusChipColor) and Btn's render scale is above 1 (the chip reaches past the icon; Content is scaled back, < 1).
 local CHIP = {}
 function CHIP.base()
-    local b = { r = 1.0, g = 0.32, b = 0.16 } -- core 0.15.4's theme.game.focusChipColors.CinematicBaseColor
+    local b = { r = 0.1529, g = 0.6654, b = 0.8469 } -- core 0.15.5's theme.game.focusChipColors.CinematicBaseColor (#6dd5ed, linear)
     local okT, th = pcall(require, CORE:lower() .. ".ui.theme")
     if okT and type(th) == "table" and th.game and th.game.focusChipColors then b = th.game.focusChipColors.CinematicBaseColor end
     return b
