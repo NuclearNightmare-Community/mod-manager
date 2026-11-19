@@ -71,8 +71,8 @@ function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE n
         (L $D 'OK OPEN first the MOD MANAGER window opened from the entry'), (L $D 'OK TITLE first the window''s title reads MOD MANAGER (MOD MANAGER)'))
     # core story 39: no focus chip after the mouse open, then the chip on Base's checkbox, then its gear
     $l += L $D 'OK CHIP open after a mouse click on the entry: focus on r1.cfg, no focus chip (nil)'
-    $l += L $D 'OK CHIP tg Base''s row 3: the focused tg shows the focus chip (MaterialInstanceDynamic parent M_NN_CinematicSelection base 1.0,0.32,0.16 scale 1.29 content 0.78), the cfg doesn''t (? parent ? base nil,nil,nil scale 1.0 content 1.0)'
-    $l += L $D 'OK CHIP cfg Base''s row 3: the focused cfg shows the focus chip (MaterialInstanceDynamic parent M_NN_CinematicSelection base 1.0,0.32,0.16 scale 1.29 content 0.78), the tg doesn''t (? parent ? base nil,nil,nil scale 1.0 content 1.0)'
+    $l += L $D 'OK CHIP tg Base''s row 3: the focused tg shows the focus chip (MaterialInstanceDynamic parent M_NN_CinematicSelection base 0.1529,0.6654,0.8469 scale 1.29 content 0.78), the cfg doesn''t (? parent ? base nil,nil,nil scale 1.0 content 1.0)'
+    $l += L $D 'OK CHIP cfg Base''s row 3: the focused cfg shows the focus chip (MaterialInstanceDynamic parent M_NN_CinematicSelection base 0.1529,0.6654,0.8469 scale 1.29 content 0.78), the tg doesn''t (? parent ? base nil,nil,nil scale 1.0 content 1.0)'
     # story 11: the first toggle, before any Configure
     $l += L $D 'OK TGFIRSTCOLD x'
     $l += L $D 'OK TGFIRSTFOCUS Dep''s checkbox (row 4) holds the keyboard focus (focus on row 4)'
