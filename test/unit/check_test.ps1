@@ -80,6 +80,7 @@ function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE n
     $l += L $M 'STATUS ModManagerDep restart | TURNS OFF AFTER A RESTART'
     $l += L $D 'OK TGFIRST ENTER on Dep''s checkbox: '': 0'', box off, icons restart, banner and QUIT GAME true, 1.2 s after the key (at most 10)'
     # core story 42: the chip stays on Dep's checkbox after ENTER (box off), a second ENTER (box on), a third (off again)
+    $l += L $D 'OK CIPROBE class true subsystem true type 0 (number) simulated false'
     $l += L $D 'OK CHIP enter1 Dep''s checkbox (row 4): focus true, the focus chip (MaterialInstanceDynamic parent M_NN_CinematicSelection base 0.1529,0.6654,0.8469 scale 1.29 content 0.78), box off (want off)'
     $l += L $M 'TOGGLE ModManagerDep on'
     $l += L $M 'STATUS ModManagerDep none | '
@@ -197,7 +198,7 @@ foreach ($k in 'TGFIRSTCOLD', 'TGFIRSTFOCUS', 'TGFIRST ', 'TGFIRSTCLICK') {
     Expect ($good | Where-Object { $_ -notmatch "OK $k" }) 'screen' 1 "screen: no $($k.Trim()) fails" "OK $($k.Trim())"
 }
 # core story 39: the three chip checks are required, and a focus chip or list row WARN fails.
-foreach ($k in 'CHIP open', 'CHIP tg', 'CHIP cfg', 'CHIP enter1', 'CHIP enter2') {
+foreach ($k in 'CHIP open', 'CHIP tg', 'CHIP cfg', 'CHIP enter1', 'CHIP enter2', 'CIPROBE') {
     Expect ($good | Where-Object { $_ -notmatch "OK $k " }) 'screen' 1 "screen: no $k fails" "OK $k"
 }
 Expect ($good + (L $M 'WARN ''r3.tg'': the focus chip failed (is Nucleus''s pak current?): boom')) 'screen' 1 'screen: a focus chip WARN fails' 'focus chip'

@@ -122,7 +122,7 @@ $expect = @{
         # core story 39 (0.15.4): no focus chip after the mouse open; the chip on Base's checkbox after LEFT, on its gear after RIGHT; no chip WARN
         "\[$D\] OK CHIP open ", "\[$D\] OK CHIP tg ", "\[$D\] OK CHIP cfg "
         # core story 42 (0.17.1): the chip stays on Dep's focused checkbox after ENTER, box off then on
-        "\[$D\] OK CHIP enter1 ", "\[$D\] OK CHIP enter2 "
+        "\[$D\] OK CHIP enter1 ", "\[$D\] OK CHIP enter2 ", "\[$D\] OK CIPROBE "
         "!\[$M\] WARN .*(focus chip|list row)"
         "#3|\[$M\] TOGGLE ModManagerDep off\s*$", "#3|\[$M\] TOGGLE ModManagerDep on\s*$", "#1|\[$M\] TOGGLE ModManagerBase off\s*$"
         "#7|\[$M\] TOGGLE "
