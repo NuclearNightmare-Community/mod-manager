@@ -15,7 +15,7 @@
 --             T_Restart): DOWN to Dep's checkbox (TGFIRSTFOCUS), ENTER, Dep off with the restart icon within 10 s
 --             (TGFIRST); core story 42: CIPROBE (core's CommonInput calls work), the chip stays on Dep's focused checkbox after that ENTER (CHIP enter1, box off,
 --             shot mm-chip-enter-off) and after a second ENTER (CHIP enter2, box on, shot mm-chip-enter-on), a third
---             ENTER turns it off again; a mouse click back on within 10 s (TGFIRSTCLICK); MEASURE of the long name; CARDFIT (the content inside the
+--             ENTER turns it off again; a mouse click back on within 10 s (TGFIRSTCLICK), the IconBack hidden after it (CHIP backoff); MEASURE of the long name; CARDFIT (the content inside the
 --             card, the list above BACK); story 6: Dep off and on with mods.txt and state.json read back, Base off
 --             through the confirm (BACK, then TURN OFF), the restart and dependency icons, the banner and QUIT GAME
 --             (CARDFIT2), Nucleus's lock and a pak's disabled box changing nothing (FIXED); the fixture's Configure:
@@ -182,11 +182,17 @@ end
 function CHIP.hasFocus(w) local b = prop(w, "Btn") return b ~= nil and try(function() return b:HasKeyboardFocus() end) == true end
 -- Core story 42 (0.17.1): the dark box behind a chipped checkbox's icon (core's button widget's IconBack). back(w) ->
 -- ok, what: ok when IconBack is shown (HitTestInvisible, 3) in core's theme.game.focusChipBack (read in this state;
--- core 0.17.1: the panel's dark, linear 0.0052, 0.0070, 0.0091) and not in the chip's colour.
+-- core 0.17.1: the panel's dark, linear 0.0052, 0.0070, 0.0091) and not in the chip's colour, and the Icon itself is
+-- not drawn in the chip's ink (theme.game.focusChipInk: the ink tinted the tick before 0.17.1).
 function CHIP.back(w)
     local want = { r = 0.0052, g = 0.0070, b = 0.0091, a = 1 } -- core 0.17.1's theme.game.focusChipBack
+    local ink = { r = 0.0052, g = 0.0070, b = 0.0091 } -- core 0.15.5's theme.game.focusChipInk
     local okT, th = pcall(require, CORE:lower() .. ".ui.theme")
     if okT and type(th) == "table" and th.game and th.game.focusChipBack then want = th.game.focusChipBack end
+    if okT and type(th) == "table" and th.game and th.game.focusChipInk then ink = th.game.focusChipInk end
+    local ic = prop(w, "Icon")
+    local icc = v(ic) and try(function() return ic.ColorAndOpacity end)
+    local ir, ig, ibl, ia = try(function() return icc.R end), try(function() return icc.G end), try(function() return icc.B end), try(function() return icc.A end)
     local chip = CHIP.base()
     local ib = prop(w, "IconBack")
     local vis = v(ib) and try(function() return ib:GetVisibility() end)
@@ -195,7 +201,9 @@ function CHIP.back(w)
     local near = function(x, y) return type(x) == "number" and math.abs(x - y) < 0.002 end
     local ok = vis == 3 and near(cr, want.r) and near(cg, want.g) and near(cb, want.b) and near(ca, want.a)
         and not (near(cr, chip.r) and near(cg, chip.g) and near(cb, chip.b))
-    return ok, string.format("IconBack %s visibility %s colour %s,%s,%s,%s", tostring(v(ib)), tostring(vis), tostring(cr), tostring(cg), tostring(cb), tostring(ca))
+        and type(ir) == "number" and not (near(ir, ink.r) and near(ig, ink.g) and near(ibl, ink.b))
+    return ok, string.format("IconBack %s visibility %s colour %s,%s,%s,%s; icon %s,%s,%s,%s", tostring(v(ib)), tostring(vis), tostring(cr), tostring(cg), tostring(cb), tostring(ca),
+        tostring(ir), tostring(ig), tostring(ibl), tostring(ia))
 end
 local function headerCell(part)
     local _, c = screenOf("main")
@@ -719,7 +727,7 @@ local function buildScreen()
         end) or nil
         local t = v(sub) and try(function() return sub:GetCurrentInputType() end)
         local sim = v(sub) and try(function() return sub.bIsGamepadSimulatedClick end)
-        check(v(cls) and v(sub) and type(t) == "number", "CIPROBE class %s subsystem %s type %s (%s) simulated %s",
+        check(v(cls) and v(sub) and type(t) == "number" and type(sim) == "boolean", "CIPROBE class %s subsystem %s type %s (%s) simulated %s",
             tostring(v(cls)), tostring(v(sub)), tostring(t), type(t), tostring(sim))
     end)
     settle(1)
@@ -744,6 +752,12 @@ local function buildScreen()
         check(sec <= 10 and readFile("mods.txt") == R.txtFirst and d ~= nil and d.toggle == "on" and d.icons == "-" and pendingHidden(),
             "TGFIRSTCLICK a mouse click turns Dep back on: mods.txt as at the start, box %s, icons %s, banner hidden %s, %.1f s after the click (at most 10)",
             tostring(d and d.toggle), tostring(d and d.icons), tostring(pendingHidden()), sec)
+    end)
+    -- Core story 42: after that mouse click (mouse mode, no chip) Dep's checkbox hides its IconBack again (Collapsed, 1).
+    step("chip: back off", function()
+        local ib = prop(depTg(), "IconBack")
+        local vis = v(ib) and try(function() return ib:GetVisibility() end)
+        check(vis == 1, "CHIP backoff Dep's checkbox after the mouse click: IconBack %s visibility %s (want 1, Collapsed)", tostring(v(ib)), tostring(vis))
     end)
     step("cursor away again", function() return request("move 5 5"), 30, "cursor away" end)
     step("rows", function()
