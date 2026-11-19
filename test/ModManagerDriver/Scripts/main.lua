@@ -13,7 +13,9 @@
 --             settings; GEARLOOK: the gear drawn that way, judged only when it doesn't hold keyboard focus); one DOWN
 --             right after the first open and a focus shot; story 11: the first toggle before any Configure (cold
 --             T_Restart): DOWN to Dep's checkbox (TGFIRSTFOCUS), ENTER, Dep off with the restart icon within 10 s
---             (TGFIRST), a mouse click back on within 10 s (TGFIRSTCLICK); MEASURE of the long name; CARDFIT (the content inside the
+--             (TGFIRST); core story 42: CIPROBE (core's CommonInput calls work), the chip stays on Dep's focused checkbox after that ENTER (CHIP enter1, box off,
+--             shot mm-chip-enter-off) and after a second ENTER (CHIP enter2, box on, shot mm-chip-enter-on), a third
+--             ENTER turns it off again; a mouse click back on within 10 s (TGFIRSTCLICK); MEASURE of the long name; CARDFIT (the content inside the
 --             card, the list above BACK); story 6: Dep off and on with mods.txt and state.json read back, Base off
 --             through the confirm (BACK, then TURN OFF), the restart and dependency icons, the banner and QUIT GAME
 --             (CARDFIT2), Nucleus's lock and a pak's disabled box changing nothing (FIXED); the fixture's Configure:
@@ -178,6 +180,23 @@ function CHIP.of(w)
     return on, string.format("%s parent %s base %s,%s,%s scale %s content %s", cls, par, tostring(cr), tostring(cg), tostring(cb), tostring(sb), tostring(sc))
 end
 function CHIP.hasFocus(w) local b = prop(w, "Btn") return b ~= nil and try(function() return b:HasKeyboardFocus() end) == true end
+-- Core story 42 (0.17.1): the dark box behind a chipped checkbox's icon (core's button widget's IconBack). back(w) ->
+-- ok, what: ok when IconBack is shown (HitTestInvisible, 3) in core's theme.game.focusChipBack (read in this state;
+-- core 0.17.1: the panel's dark, linear 0.0052, 0.0070, 0.0091) and not in the chip's colour.
+function CHIP.back(w)
+    local want = { r = 0.0052, g = 0.0070, b = 0.0091, a = 1 } -- core 0.17.1's theme.game.focusChipBack
+    local okT, th = pcall(require, CORE:lower() .. ".ui.theme")
+    if okT and type(th) == "table" and th.game and th.game.focusChipBack then want = th.game.focusChipBack end
+    local chip = CHIP.base()
+    local ib = prop(w, "IconBack")
+    local vis = v(ib) and try(function() return ib:GetVisibility() end)
+    local c = v(ib) and try(function() return ib.ColorAndOpacity end)
+    local cr, cg, cb, ca = try(function() return c.R end), try(function() return c.G end), try(function() return c.B end), try(function() return c.A end)
+    local near = function(x, y) return type(x) == "number" and math.abs(x - y) < 0.002 end
+    local ok = vis == 3 and near(cr, want.r) and near(cg, want.g) and near(cb, want.b) and near(ca, want.a)
+        and not (near(cr, chip.r) and near(cg, chip.g) and near(cb, chip.b))
+    return ok, string.format("IconBack %s visibility %s colour %s,%s,%s,%s", tostring(v(ib)), tostring(vis), tostring(cr), tostring(cg), tostring(cb), tostring(ca))
+end
 local function headerCell(part)
     local _, c = screenOf("main")
     local hl = childTagged(c, "hdr.list")
@@ -668,6 +687,53 @@ local function buildScreen()
             "TGFIRST ENTER on Dep's checkbox: ': 0', box %s, icons %s, banner and QUIT GAME %s, %.1f s after the key (at most 10)",
             tostring(d and d.toggle), tostring(d and d.icons), tostring(pendingShown()), sec)
     end)
+    -- 2c. Core story 42 (0.17.1): ENTER keeps the focus chip on Dep's checkbox, and the box reads as it does unfocused
+    -- (its icon in its own colours over core's dark IconBack, the chip as the ring around it: CHIP.back, and the shots). CHIP enter1: focus, chip, box off; ENTER turns it
+    -- on (mods.txt back to the session start's): CHIP enter2: focus, chip, box on; ENTER turns it off again, so the
+    -- mouse click below finds it as before.
+    local function chipEnter(name, want)
+        step("chip: " .. name, function()
+            local d = rowNamed(DEP)
+            local w = depTg()
+            local on, what = CHIP.of(w)
+            local back, bwhat = CHIP.back(w)
+            check(d ~= nil and CHIP.hasFocus(w) and on and back and d.toggle == want,
+                "CHIP %s Dep's checkbox (row %s): focus %s, the focus chip (%s), dark inside (%s), box %s (want %s)", name, tostring(d and d.n),
+                tostring(CHIP.hasFocus(w)), what, bwhat, tostring(d and d.toggle), want)
+        end)
+    end
+    local function enterDep(label)
+        step("chip: ENTER " .. label, function()
+            say("KEY ENTER on Dep's checkbox (%s)", label)
+            return request("key ENTER"), 30, "key ENTER"
+        end)
+    end
+    -- CIPROBE: the CommonInput chain core's gamepad check relies on works under UE4SS (the native class found,
+    -- GetLocalPlayerSubsystem(the local player controller, class) a valid subsystem, GetCurrentInputType a Lua number:
+    -- 0 under the VM's keyboard input) and its simulated-click flag reads.
+    step("chip: CommonInput probe", function()
+        local cls = StaticFindObject("/Script/CommonInput.CommonInputSubsystem")
+        local p = pc()
+        local sub = v(cls) and v(p) and try(function()
+            return StaticFindObject("/Script/Engine.Default__SubsystemBlueprintLibrary"):GetLocalPlayerSubsystem(p, cls)
+        end) or nil
+        local t = v(sub) and try(function() return sub:GetCurrentInputType() end)
+        local sim = v(sub) and try(function() return sub.bIsGamepadSimulatedClick end)
+        check(v(cls) and v(sub) and type(t) == "number", "CIPROBE class %s subsystem %s type %s (%s) simulated %s",
+            tostring(v(cls)), tostring(v(sub)), tostring(t), type(t), tostring(sim))
+    end)
+    settle(1)
+    chipEnter("enter1", "off")
+    shot("mm-chip-enter-off")
+    enterDep("back on")
+    fileWait("chip: Dep on in mods.txt", "mods.txt", function(t) return t == R.txtFirst end)
+    waitFor("chip: Dep's box on", function() local d = rowNamed(DEP) return d ~= nil and d.toggle == "on" and d.icons == "-" end, 5)
+    settle(1)
+    chipEnter("enter2", "on")
+    shot("mm-chip-enter-on")
+    enterDep("off again")
+    fileWait("chip: Dep off in mods.txt", "mods.txt", function(t) return t:find("ModManagerDep : 0", 1, true) ~= nil end)
+    waitFor("chip: Dep's box off", function() local d = rowNamed(DEP) return d ~= nil and d.toggle == "off" and d.icons == "restart" and pendingShown() end, 5)
     step("first: click start", function() R.firstClickAt = os.clock() end)
     clickOn("Dep's checkbox (back on)", depTg)
     fileWait("first toggle: mods.txt back", "mods.txt", function(t) return t == R.txtFirst end)
