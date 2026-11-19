@@ -13,7 +13,7 @@
 --             settings; GEARLOOK: the gear drawn that way, judged only when it doesn't hold keyboard focus); one DOWN
 --             right after the first open and a focus shot; story 11: the first toggle before any Configure (cold
 --             T_Restart): DOWN to Dep's checkbox (TGFIRSTFOCUS), ENTER, Dep off with the restart icon within 10 s
---             (TGFIRST); core story 42: the chip stays on Dep's focused checkbox after that ENTER (CHIP enter1, box off,
+--             (TGFIRST); core story 42: CIPROBE (core's CommonInput calls work), the chip stays on Dep's focused checkbox after that ENTER (CHIP enter1, box off,
 --             shot mm-chip-enter-off) and after a second ENTER (CHIP enter2, box on, shot mm-chip-enter-on), a third
 --             ENTER turns it off again; a mouse click back on within 10 s (TGFIRSTCLICK); MEASURE of the long name; CARDFIT (the content inside the
 --             card, the list above BACK); story 6: Dep off and on with mods.txt and state.json read back, Base off
@@ -690,6 +690,20 @@ local function buildScreen()
             return request("key ENTER"), 30, "key ENTER"
         end)
     end
+    -- CIPROBE: the CommonInput chain core's gamepad check relies on works under UE4SS (the native class found,
+    -- GetLocalPlayerSubsystem(the local player controller, class) a valid subsystem, GetCurrentInputType a Lua number:
+    -- 0 under the VM's keyboard input) and its simulated-click flag reads.
+    step("chip: CommonInput probe", function()
+        local cls = StaticFindObject("/Script/CommonInput.CommonInputSubsystem")
+        local p = pc()
+        local sub = v(cls) and v(p) and try(function()
+            return StaticFindObject("/Script/Engine.Default__SubsystemBlueprintLibrary"):GetLocalPlayerSubsystem(p, cls)
+        end) or nil
+        local t = v(sub) and try(function() return sub:GetCurrentInputType() end)
+        local sim = v(sub) and try(function() return sub.bIsGamepadSimulatedClick end)
+        check(v(cls) and v(sub) and type(t) == "number", "CIPROBE class %s subsystem %s type %s (%s) simulated %s",
+            tostring(v(cls)), tostring(v(sub)), tostring(t), type(t), tostring(sim))
+    end)
     settle(1)
     chipEnter("enter1", "off")
     shot("mm-chip-enter-off")
