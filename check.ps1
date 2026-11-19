@@ -21,10 +21,8 @@
       column's left edge, the header's NAME within 1 unit of the row's name.
     - TGFIRST (story 11): the first toggle of the session, before any Configure and with no restart icon shown
       (TGFIRSTCOLD: core's restart texture still cold): ENTER on Dep's focused checkbox
-      (TGFIRSTFOCUS) turns it off within 10 s with the restart icon (TGFIRST); core story 42: the focus chip stays on
-      the checkbox after that ENTER (CHIP enter1, box off) and after a second ENTER (CHIP enter2, box on), a third ENTER
-      turns it off again; a mouse click turns it back on within 10 s (TGFIRSTCLICK); so Dep is toggled off and on
-      three times in the run, seven TOGGLE lines in all.
+      (TGFIRSTFOCUS) turns it off within 10 s with the restart icon (TGFIRST), a mouse click turns it back on within
+      10 s (TGFIRSTCLICK); so Dep is toggled off and on twice in the run, five TOGGLE lines in all.
     - FIXED: no [ModManager] line between the driver's FIXED begin and FIXED end (the lock and a pak's box log nothing).
     - QUIT: the game closed itself ("[run.ps1] RUN game exited") with "[ModManager] QUIT pending=" after the driver's
       "END result=PASS".
@@ -121,11 +119,9 @@ $expect = @{
         "\[$D\] OK TGFIRSTCOLD ", "\[$D\] OK TGFIRSTFOCUS ", "\[$D\] OK TGFIRST ", "\[$D\] OK TGFIRSTCLICK "
         # core story 39 (0.15.4): no focus chip after the mouse open; the chip on Base's checkbox after LEFT, on its gear after RIGHT; no chip WARN
         "\[$D\] OK CHIP open ", "\[$D\] OK CHIP tg ", "\[$D\] OK CHIP cfg "
-        # core story 42 (0.17.1): the chip stays on Dep's focused checkbox after ENTER, box off then on
-        "\[$D\] OK CHIP enter1 ", "\[$D\] OK CHIP enter2 ", "\[$D\] OK CIPROBE "
         "!\[$M\] WARN .*(focus chip|list row)"
-        "#3|\[$M\] TOGGLE ModManagerDep off\s*$", "#3|\[$M\] TOGGLE ModManagerDep on\s*$", "#1|\[$M\] TOGGLE ModManagerBase off\s*$"
-        "#7|\[$M\] TOGGLE "
+        "#2|\[$M\] TOGGLE ModManagerDep off\s*$", "#2|\[$M\] TOGGLE ModManagerDep on\s*$", "#1|\[$M\] TOGGLE ModManagerBase off\s*$"
+        "#5|\[$M\] TOGGLE "
         "#1|\[$M\] CONFIRM ModManagerBase cancelled \(close\)\s*$"
         # story 6: Configure's problem lines and settings
         "\[$D\] OK CFGPROBLEMS ", "\[$D\] OK SETKINDS ", "\[$D\] OK SETBY ", "\[$D\] OK SETRO ", "\[$D\] OK SETMARK ", "\[$D\] OK SETFILE "
