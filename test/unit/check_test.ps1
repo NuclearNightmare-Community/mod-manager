@@ -38,7 +38,7 @@ function Start-Log { @(
 $MV = (Get-Content (Join-Path $repo 'mod.json') -Raw | ConvertFrom-Json).version # check.ps1 expects the Mod Manager's own version
 $rowLines = @(
     "ROW Nucleus | 0.8.0 | toggle=lock | box=none | gear=dim | status=0 | icons=- | need=- | build=V8.2.3 26601774"
-    "ROW Mod Manager | $MV | toggle=lock | box=none | gear=dim | status=0 | icons=- | need=>=0.12.0 | build=V8.2.3 26601774"
+    "ROW Mod Manager | $MV | toggle=lock | box=none | gear=dim | status=0 | icons=- | need=>=0.20.0 | build=V8.2.3 26601774"
     "ROW Mod Manager Base | 1.0.0 | toggle=on | box=live | gear=dim | status=0 | icons=- | need=>=0.12.0 | build=V8.2.3 26601774"
     "ROW Mod Manager Dep | 1.0.0 | toggle=on | box=live | gear=dim | status=0 | icons=- | need=- | build=V8.2.3 26601774"
     "ROW ModManagerBare | - | toggle=off | box=live | gear=dim | status=0 | icons=- | need=- | build=-"
@@ -62,7 +62,7 @@ function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE n
     [string] $gearlook = 'OK GEARLOOK 1 Nucleus looks dim (offers dim)', [int[]] $popin = @(1, 2, 3, 4), [int[]] $hiddenFirst = @(2, 3, 4)) {
     $l = (Start-Log) + @(
         (L $D 'SCENARIO screen'), (L $D 'LOADED 7 steps'),
-        (L $M 'CONNECT ok Nucleus 0.8.0 (pong 0.8.0 boot=1)'), (L $M 'READY entry=manage need=>=0.12.0'),
+        (L $M 'CONNECT ok Nucleus 0.8.0 (pong 0.8.0 boot=1)'), (L $M 'READY entry=manage need=>=0.20.0'),
         (L $D 'ENTRY menu1 text=MANAGE MODS above=OPTIONS below=QUIT'),
         (L $D 'OK ENTRYPOS menu1 between OPTIONS (UI_Button_Master_2) and QUIT (UI_Button_Master_3)'), (L $D 'OK ENTRYLOOK menu1 style x / x font y / y (the options style)'),
         (L $M 'MOD 1 Nucleus | Nucleus | 0.8.0 | locked | settings=no | need=- | build=V8.2.3 26601774'))
@@ -237,7 +237,7 @@ Expect ($good | Where-Object { $_ -notmatch 'OK BLOCKEDGEAR' }) 'screen' 1 'scre
 Expect ($good | Where-Object { $_ -notmatch 'OK CFGDIMOPEN' }) 'screen' 1 'screen: no dimmed-gear Configure fails'
 Expect ($good | Where-Object { $_ -notmatch 'OK SAME' }) 'screen' 1 'screen: no SAME (DW-59) fails'
 Expect ($good | Where-Object { $_ -notmatch 'ENTRY menu1 text=' }) 'screen' 1 'screen: no entry text fails'
-Expect ($good + (L $M 'READY entry=manage need=>=0.12.0')) 'screen' 1 'screen: two READY lines fail'
+Expect ($good + (L $M 'READY entry=manage need=>=0.20.0')) 'screen' 1 'screen: two READY lines fail'
 Expect (($good | Where-Object { $_ -notmatch "\[$M\] OPEN rows" }) + (L $M 'OPEN rows=8 total=8 lang=en')) 'screen' 1 'screen: one OPEN fails' 'opened twice'
 $swapped = [Collections.Generic.List[string]]::new([string[]]$good)
 $ic = $swapped.FindIndex({ param($l) $l -match '\[ModManager\] CONNECT ok' }); $ir = $swapped.FindIndex({ param($l) $l -match '\[ModManager\] READY ' })
@@ -249,14 +249,55 @@ $noCore = @((U "Starting Lua mod '$D'"), (L $D 'SCENARIO no-core'), (U "Starting
     (L $M 'Nucleus is not installed. ModManager will not run.'), (L $D 'OK NOENTRY no MANAGE MODS entry in the menu for 15 s'),
     (L $D 'END result=PASS checks=2 failures=0'), '[run.ps1] FILES unchanged')
 Expect $noCore 'no-core' 0 'no-core: passes' 'All checks passed'
-Expect ($noCore + (L $M 'READY entry=manage need=>=0.12.0')) 'no-core' 1 'no-core: a second [ModManager] line fails'
+Expect ($noCore + (L $M 'READY entry=manage need=>=0.20.0')) 'no-core' 1 'no-core: a second [ModManager] line fails'
 Expect ($noCore | Where-Object { $_ -notmatch 'NOENTRY' }) 'no-core' 1 'no-core: no NOENTRY fails'
 $oldCore = (Start-Log) + @((L $D "OLDCORE published nucleus.version=0.1.0 (from Nucleus's installed mod.json)"),
-    (L $M 'ERROR Nucleus 0.1.0 is older than ModManager needs (>=0.12.0). Update Nucleus. ModManager will not run.'),
+    (L $M 'ERROR Nucleus 0.1.0 is older than ModManager needs (>=0.20.0). Update Nucleus. ModManager will not run.'),
     (L $D 'OK NOENTRY no MANAGE MODS entry in the menu for 15 s'), (L $D 'END result=PASS checks=2 failures=0'), '[run.ps1] FILES unchanged')
 Expect $oldCore 'old-core' 0 'old-core: passes' 'All checks passed'
 Expect ($oldCore + (L $M 'ERROR start failed: x')) 'old-core' 1 'old-core: a second [ModManager] line fails'
-Expect ($oldCore -replace 'needs \(>=0\.12\.0\)', 'needs (>=0.7.0)') 'old-core' 1 'old-core: the wrong need fails'
+Expect ($oldCore -replace 'needs \(>=0\.20\.0\)', 'needs (>=0.7.0)') 'old-core' 1 'old-core: the wrong need fails'
+
+# ---------------------------------------------------------------- restart (story 8): two sessions in one log
+$R = 'ModManagerRestart'
+function Session([int] $n) {
+    (Start-Log) + @((L $R 'loaded') | Where-Object { $n -eq 1 }) + @(
+        (L $D 'SCENARIO restart'), (L $D "RESTART session $n"), (L $D 'LOADED 20 steps'),
+        (L $M 'CONNECT ok Nucleus 0.20.0 (pong 0.20.0 boot=1)'), (L $M 'READY entry=manage need=>=0.20.0'),
+        (L $M 'OPEN rows=10 total=10 lang=en game=V8.2.3 build=- us=4000'), (L $M 'RESTARTMODE direct'))
+}
+$s1 = (Session 1) + @(
+    (L $D 'OK RSLOADED1 x'), (L $D 'OK RSROW1 x'), (L $D 'OK RSHIDDEN x'), (L $D 'OK RSTXT0 x'), (L $M "TOGGLE $R off"), (L $M "STATUS $R restart | TURNS OFF AFTER A RESTART"),
+    (L $D 'OK RSOFF x'), (L $D 'OK RSSHOWN x'), (L $D 'OK RSPLACE x'), (L 'Nucleus' 'native: restart: helper started (mode=direct, pid=4242)'),
+    (L $D 'OK RSMODULE x'), (L $D 'OK RSMODE x'), (L $D 'OK RSSTART1 x'), (L $D 'OK RSSTART2 x'), (L $D 'OK RSFACTS x'), (L $D 'CLICK RESTART NOW at (900,700)'),
+    (L $M 'RESTART mode=direct pending=1'))
+$s2 = (Session 2) + @(
+    (L $D 'FACTS mode=direct start1=true start2=nil already started checks=14 failures=0'), (L $D 'OK RSFACTS2 x'), (L $D 'OK RSNOTLOADED x'),
+    (L $D 'OK RSROW2 x'), (L $D 'OK RSNOPENDING x'), (L $D 'OK RSTXT2 x'), (L $M "TOGGLE $R on"), (L $D 'OK RSSHOWN2 x'), (L $D 'OK QUITPOINT x'),
+    (L $D 'END result=PASS checks=9 failures=0'), (L $D 'CLICK QUIT GAME at (900,740)'), (L $M 'QUIT pending=1'))
+$tail = @('[run.ps1] RELAUNCH old=100 new=200 cmdline=same userdir=yes',
+    '[run.ps1] MOTW NuclearNightmare/Binaries/Win64/ue4ss/Mods/Nucleus/bin/NucleusRestart.exe ZoneId=3',
+    '[run.ps1] DEFENDER status realtime=True behavior=True smartappcontrol=Off signatures=1.463.380.0 since=2026-11-20T01:00:00',
+    '[run.ps1] DEFENDER detections=0', '[run.ps1] DEFENDER events=0', '[run.ps1] DEFENDER codeintegrity-blocks=0',
+    '[run.ps1] RUN game exited (crash?)', '[run.ps1] FILES unchanged',
+    "[run.ps1] BUILDSCAN main.dll no threats found signatures=1.463.380.0 package=same",
+    "[run.ps1] BUILDSCAN bin/NucleusRestart.exe no threats found signatures=1.463.380.0 package=same")
+$rgood = $s1 + @('[run.ps1] SESSION 2 (relaunched by the game)') + $s2 + $tail
+Expect $rgood 'restart' 0 'restart: passes' 'All checks passed'
+Expect ($rgood -replace 'cmdline=same', 'cmdline=differs') 'restart' 1 'restart: a different command line fails'
+Expect ($rgood -replace 'userdir=yes', 'userdir=no') 'restart' 1 'restart: no -userdir fails'
+Expect ($rgood | Where-Object { $_ -notmatch 'SESSION 2' }) 'restart' 1 'restart: no second session fails'
+Expect ($rgood -replace 'DEFENDER detections=0', 'DEFENDER detections=1') 'restart' 1 'restart: a Defender detection fails'
+Expect ($rgood + '[run.ps1] DEFENDER event id=1116 at=x Microsoft Defender Antivirus has detected malware') 'restart' 1 'restart: a Defender event line fails'
+Expect ($rgood -replace 'realtime=True', 'realtime=False') 'restart' 1 'restart: real-time protection off fails'
+Expect ($rgood -replace 'codeintegrity-blocks=0', 'codeintegrity-blocks=1') 'restart' 1 'restart: a Code Integrity block fails'
+Expect ($rgood -replace 'ZoneId=3', 'not set (read back: )') 'restart' 1 'restart: no Mark of the Web fails'
+Expect ($rgood -replace 'NucleusRestart\.exe no threats found(.*)package=same', 'NucleusRestart.exe no threats found$1package=differs') 'restart' 1 'restart: a scan of another helper fails'
+Expect ($s1 + @('[run.ps1] SESSION 2 (relaunched by the game)') + $s2 + (L $R 'loaded') + $tail) 'restart' 1 'restart: the fixture loading in session 2 fails' 'session 2: '
+Expect ($s1 + @('[run.ps1] SESSION 2 (relaunched by the game)') + (($s2 | Where-Object { $_ -notmatch 'QUIT pending' })) + $tail) 'restart' 1 'restart: no QUIT in session 2 fails'
+Expect (($s1 | Where-Object { $_ -notmatch 'RESTART mode=' }) + @('[run.ps1] SESSION 2 (relaunched by the game)') + $s2 + $tail) 'restart' 1 'restart: no RESTART line in session 1 fails' 'session 1: '
+Expect ($s1 + (L $D 'END result=FAIL checks=3 failures=1') + @('[run.ps1] SESSION 2 (relaunched by the game)') + $s2 + $tail) 'restart' 1 'restart: an END line in session 1 fails'
+Expect ($s1 + @('[run.ps1] SESSION 2 (relaunched by the game)') + $s2 + (L 'Nucleus' 'native: restart: helper started (mode=direct, pid=5)') + $tail) 'restart' 1 'restart: a helper started in session 2 fails'
 
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ("check_test: {0} passed, {1} failed" -f $script:passed, $script:failed)

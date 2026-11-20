@@ -2,6 +2,12 @@
 
 All notable changes to the Mod Manager are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-11-20
+
+### Added
+
+- RESTART NOW (story 8). While changes are pending and the game can be started again the way it was launched, a RESTART NOW button shows right above QUIT GAME. It closes the game and starts it again: through Steam on a normal Steam install (with your Steam launch options), or the same exe with the same command line on a dev copy. Nucleus's small relaunch helper does the waiting and the starting; the Mod Manager asks `core.restart` once per session which way applies (`RESTARTMODE`), and a click starts the helper and then quits like QUIT GAME (`RESTART mode=<m> pending=<n>`). If the helper can't start, the game keeps running and the window says `CAN'T RESTART: USE QUIT GAME AND START THE GAME AGAIN.` (one `WARN`). A game started some other way shows QUIT GAME only. Pending Blueprint (pak) changes are still not applied by a restart. Needs Nucleus 0.20.0 or newer (`>=0.20.0`).
+
 ## [0.2.1] - 2026-11-17
 
 ### Fixed

@@ -7,6 +7,7 @@
 --   view:refresh(rows)                puts new data into the open window's rows (after a toggle or a setting)
 --   view:setToggle(n, on)             sets row n's checkbox back without a callback
 --   view:setPending(count)            the banner and QUIT GAME, shown while count > 0
+--   view:setRestartable(on)           story 8: RESTART NOW shows beside QUIT GAME (pending and on); on = core.restart has a mode
 --   view:setMessage(text | nil)       the main window's message line
 --   view:openConfirm(text)            the confirm window (TURN OFF), on top; view:closeConfirm()
 --   view:openAlert(text)              the alert window (BACK only), on top
@@ -16,7 +17,7 @@
 --   view:setControl(i, value)         sets setting i's control back without a callback
 --   view:setCfgMessage(text | nil)    Configure's message line
 -- Callbacks the caller sets (main.lua wraps each in pcall): onGearClick(n), onToggle(n, checked), onConfirm(),
--- onQuit(), onSetting(i, value).
+-- onQuit(), onRestart() (story 8), onSetting(i, value).
 --
 -- Elements are created once per session and reused on every open: a window's elements stay created across closes and
 -- attach again on the next open of the same id (core's screen host). Rows are made as they are first needed; rows above
@@ -33,7 +34,9 @@
 --
 -- Layout (0.1.1, story 9): the title, the header list and the list stack in the card's top-left corner; core's BACK is
 -- in its bottom-left corner. Story 6 adds QUIT GAME, the banner and the message line in the bottom-right corner (shown
--- only while needed), so LIST_RESERVE leaves room for that stack beside BACK. The Configure window stacks its heading,
+-- only while needed), so LIST_RESERVE leaves room for that stack beside BACK. Story 8 adds RESTART NOW to that stack,
+-- right above QUIT GAME (bottom to top: QUIT GAME, RESTART NOW, the banner, the message line). The card hugs it: with
+-- all four shown at layout height 1080 the card stays inside the viewport (core logs a WARN if it is ever clamped). The Configure window stacks its heading,
 -- its detail lines, its problem lines, its settings list (or NO SETTINGS) and its message line in its top-left corner.
 local Screen = {}
 Screen.__index = Screen
@@ -66,7 +69,7 @@ local ICON_OF = { build = "warning", dep = "warning", restart = "restart" }
 
 function Screen.new(ui, strings)
     return setmetatable({ ui = ui, S = strings, lang = "en", data = {}, made = 0, cells = {}, size = nil,
-        main = nil, cfgWin = nil, cfgMade = false, sCells = {}, sMade = 0, pending = 0, message = nil }, Screen)
+        main = nil, cfgWin = nil, cfgMade = false, sCells = {}, sMade = 0, pending = 0, message = nil, restartable = false }, Screen)
 end
 
 function Screen:str(key) return self.S.get(key, self.lang) end
@@ -138,11 +141,15 @@ function Screen:build(size)
     self.quitSpec = { id = "quit", label = self:str("quit"), place = br(), onClick = function() if self.onQuit then self.onQuit() end end }
     self.quitBtn = ui.button.create(self.quitSpec)
     ui.button.setVisible(self.quitBtn, false)
+    -- story 8: RESTART NOW, right above QUIT GAME in the same stack
+    self.restartSpec = { id = "restart", label = self:str("restart"), place = br(), onClick = function() if self.onRestart then self.onRestart() end end }
+    self.restartBtn = ui.button.create(self.restartSpec)
+    ui.button.setVisible(self.restartBtn, false)
     self.banner = ui.text.create{ id = "banner", text = self:str("banner"), place = br(), style = { font = "body" } }
     ui.text.setVisible(self.banner, false)
     self.msg = ui.text.create{ id = "msg", text = "", place = br(), style = { font = "body" } }
     ui.text.setVisible(self.msg, false)
-    self.shown = { quit = false, banner = false, msg = false }
+    self.shown = { quit = false, restart = false, banner = false, msg = false }
 end
 
 -- Row n's elements (made once).
@@ -235,6 +242,10 @@ function Screen:fill()
         self.quitSpec.label = self:str("quit")
         ui.button.create(self.quitSpec) -- the same id: core applies the new label
     end
+    if self.restartSpec and self.restartSpec.label ~= self:str("restart") then
+        self.restartSpec.label = self:str("restart")
+        ui.button.create(self.restartSpec)
+    end
     for n = 1, self.made do
         local c, r = self.cells[n], self.data[n]
         if r then
@@ -291,18 +302,22 @@ function Screen:setToggle(n, on)
     c.checked = on == true
 end
 
--- The bottom-right stack: QUIT GAME and the banner while something is pending, the message line while it has text.
+-- The bottom-right stack: QUIT GAME and the banner while something is pending, RESTART NOW with them while the game
+-- can be restarted (story 8), the message line while it has text.
 function Screen:applyFooter()
     if not self.built then return end
     local ui = self.ui
     local pend = (self.pending or 0) > 0
     if self.shown.quit ~= pend then ui.button.setVisible(self.quitBtn, pend); self.shown.quit = pend end
+    local rs = pend and self.restartable == true
+    if self.restartBtn and self.shown.restart ~= rs then ui.button.setVisible(self.restartBtn, rs); self.shown.restart = rs end
     if self.shown.banner ~= pend then ui.text.setVisible(self.banner, pend); self.shown.banner = pend end
     local m = self.message
     if m and self.msgText ~= m then ui.text.set(self.msg, m); self.msgText = m end
     if self.shown.msg ~= (m ~= nil) then ui.text.setVisible(self.msg, m ~= nil); self.shown.msg = m ~= nil end
 end
 function Screen:setPending(count) self.pending = count or 0; self:applyFooter() end
+function Screen:setRestartable(on) self.restartable = on == true; self:applyFooter() end
 function Screen:setMessage(text) self.message = text and cut(text, Screen.MAX_TEXT) or nil; self:applyFooter() end
 
 -- ---------------------------------------------------------------- the confirm and alert windows

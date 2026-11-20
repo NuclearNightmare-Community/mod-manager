@@ -3,13 +3,15 @@
 -- Story 6: the toggle turns a mod on or off for the next start (mods.txt, and a folder's enabled.txt, written at once
 -- and atomically); the status slot shows another game build, dependency problems and changes pending a restart; turning
 -- off a mod others need asks first; Nucleus made for another game build shows one alert; the gear's Configure window
--- changes settings through core.settings; QUIT GAME shows while changes are pending. The Mod Manager's own state is
+-- changes settings through core.settings; QUIT GAME shows while changes are pending, and story 8's RESTART NOW beside it
+-- when core.restart can start the game again the way it was launched (core's relaunch helper, then the same QuitGame).
+-- The Mod Manager's own state is
 -- Mods/ModManager/state.json. It writes only mods.txt, Mods/<Folder>/enabled.txt(.disabled) and its state.json (with
 -- their .mm-tmp/.mm-bak), never a pak, and settings only through core.settings.
 -- Runs on Nucleus (core) through the dependent bootstrap (core's api-contract.md) and uses only core's public API
--- (connect, core.ui, core.settings, core.log) and core's pure modules nucleus.modid and nucleus.semver. Holds no
+-- (connect, core.ui, core.settings, core.restart, core.log) and core's pure modules nucleus.modid and nucleus.semver. Holds no
 -- UObject between calls: element handles, plain tables and strings only.
-local CORE, NEED, ME = "Nucleus", ">=0.12.0", "ModManager"
+local CORE, NEED, ME = "Nucleus", ">=0.20.0", "ModManager"
 local ENTRY = "manage"
 local MAX_WARN_KEYS = 64     -- distinct warnings logged per session; then one line says the rest are dropped
 local MAX_LOGGED_ROWS = 512  -- distinct mods whose data is logged per session
@@ -127,6 +129,8 @@ local function start(core)
         return
     end
     local settingsApi = type(core.settings) == "table" and core.settings or nil
+    -- Story 8: core.restart (Nucleus 0.20.0). Missing, or a mode of nil: no RESTART NOW, QUIT GAME as before.
+    local restartApi = type(core.restart) == "table" and type(core.restart.mode) == "function" and type(core.restart.start) == "function" and core.restart or nil
 
     -- Each warning once per session (by key), at most MAX_WARN_KEYS of them.
     local warned, nWarned = {}, 0
@@ -149,7 +153,7 @@ local function start(core)
     local view = Screen.new(ui, S)
     local function fmt(key, ...) return S.fmt(key, view.lang, ...) end
     local session = { baseline = nil, state = State.empty(), settingsPending = {}, running = {}, status = {}, pending = 0,
-        statusLogged = {}, nStatusLogged = 0 }
+        statusLogged = {}, nStatusLogged = 0, restartMode = nil, restartAsked = false }
     local confirm -- { n, key } while the confirm window asks
 
     local function statePath(paths) return paths.mods .. "\\" .. Inv.SELF_FOLDER .. "\\state.json" end
@@ -288,6 +292,19 @@ local function start(core)
         logRows(result.rows)
         view.message = nil
         view:openMain(result.rows, lang, layoutSize())
+        -- Story 8: whether this game can be started again the way it was launched (asked once per session: the exe and
+        -- its folder don't change while it runs).
+        if not session.restartAsked then
+            session.restartAsked = true
+            if restartApi then
+                local okM, m, why = pcall(restartApi.mode)
+                session.restartMode = okM and (m == "steam" or m == "direct") and m or nil
+                log.info("RESTARTMODE %s", session.restartMode or ("none (" .. Screen.clean(tostring(okM and why or m), 64) .. ")"))
+            else
+                log.info("RESTARTMODE none (%s has no core.restart)", CORE)
+            end
+        end
+        view:setRestartable(session.restartMode ~= nil)
         view:setPending(session.pending)
         log.info("OPEN rows=%d total=%d lang=%s game=%s build=%s%s", #result.rows, result.total, lang, session.running.version or "-",
             session.running.build or "-", t0 and string.format(" us=%d", micros() - t0) or "")
@@ -430,14 +447,34 @@ local function start(core)
     end)
     if not okW then warnOnce("watch", "the confirm window can't be watched: %s", tostring(errW):match("^[^\n]*")) end
 
-    -- ---------------------------------------------------------------- Quit
+    -- ---------------------------------------------------------------- Quit and Restart now
+    local function quitGame()
+        local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+        local pc = FindFirstOf("PlayerController") -- fresh; nothing kept
+        if not (ksl and ksl:IsValid() and pc and pc:IsValid()) then error("no KismetSystemLibrary or PlayerController") end
+        ksl:QuitGame(pc:GetWorld(), pc, 0, false)
+    end
     view.onQuit = function()
         guard("QUIT GAME", function()
-            local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
-            local pc = FindFirstOf("PlayerController") -- fresh; nothing kept
-            if not (ksl and ksl:IsValid() and pc and pc:IsValid()) then error("no KismetSystemLibrary or PlayerController") end
-            ksl:QuitGame(pc:GetWorld(), pc, 0, false)
+            quitGame()
             log.info("QUIT pending=%d", session.pending) -- only once QuitGame returned
+        end)
+    end
+    -- Story 8: core starts its relaunch helper (it waits for this game to exit, then starts it again the way it was
+    -- launched), then the same QuitGame as QUIT GAME. "already started": a helper is already waiting, so quitting still
+    -- restarts. Any other answer: the game keeps running, the message line says so, one WARN per reason.
+    view.onRestart = function()
+        soon("RESTART NOW", function()
+            if not (restartApi and session.restartMode) then return end -- (the button is hidden then)
+            local okS, res, why = pcall(restartApi.start)
+            if okS and (res == true or why == "already started") then
+                log.info("RESTART mode=%s pending=%d", session.restartMode, session.pending)
+                quitGame()
+                return
+            end
+            local reason = Screen.clean(tostring(okS and why or res), 64)
+            warnOnce("restart:" .. reason, "RESTART NOW could not restart the game (%s); the game keeps running", reason)
+            view:setMessage(fmt("cantRestart"))
         end)
     end
 

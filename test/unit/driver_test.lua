@@ -32,10 +32,24 @@ local function frame() local q = frames; frames = {}; for _, f in ipairs(q) do f
 ModRef = { SetSharedVariable = function(_, k, v) shared[k] = v end, GetSharedVariable = function(_, k) return shared[k] end }
 
 local scenarioFile = DIR .. "/scenario.txt"
-for _, sc in ipairs({ "screen", "no-core", "old-core" }) do
+local NL = string.char(10)
+local factsFile = DIR .. "/restart-facts.txt" -- story 8: the restart scenario's session 2 reads session 1's facts
+os.remove(factsFile)
+for _, run in ipairs({ "screen", "no-core", "old-core", "restart", "restart session 2" }) do
+    local sc = run:match("^(%S+)")
     printed, loops, notifies = {}, {}, {}
     local f = assert(io.open(scenarioFile, "w")); f:write(sc); f:close()
+    if run == "restart session 2" then
+        local g = assert(io.open(factsFile, "w")); g:write("mode=direct" .. NL .. "start1=true" .. NL .. "start2=nil already started" .. NL .. "checks=9" .. NL .. "failures=0" .. NL); g:close()
+    end
     local okL, err = pcall(dofile, MAIN)
+    os.remove(factsFile)
+    if sc == "restart" then
+        local want = run == "restart" and 1 or 2
+        local said = false
+        for _, l in ipairs(printed) do if l == "[ModManagerDriver] RESTART session " .. want then said = true end end
+        ok(said, run .. ": RESTART session " .. want)
+    end
     ok(okL, sc .. ": loads", err)
     local loaded, scen
     for _, l in ipairs(printed) do
