@@ -12,7 +12,7 @@ $script:passed = 0; $script:failed = 0
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("mod-manager-check-test-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory $tmp | Out-Null
 $coreManifest = Join-Path $tmp 'nucleus-mod.json'
-Set-Content $coreManifest '{ "id": "nuclearnightmare-community.nucleus", "name": "Nucleus", "version": "0.8.0", "game": { "version": "V8.2.3", "build": "26601774" }, "dependsOn": [] }'
+Set-Content $coreManifest '{ "id": "nuclearnightmare-community.nucleus", "name": "Nucleus", "version": "0.8.0", "scope": "client", "game": { "version": "V8.2.3", "build": "26601774" }, "dependsOn": [] }'
 
 $script:t = 0
 function L([string] $tag, [string] $msg) { $script:t++; "[2026-11-14 01:00:{0:D2}.{1:D7}] [Lua] [$tag] $msg" -f [int]($script:t / 1000 % 60), $script:t }
@@ -189,7 +189,17 @@ Expect (Screen-Log -rows (Swap 8 'box=fixed' 'box=live')) 'screen' 1 'screen: a 
 Expect (Screen-Log -rows (Swap 0 'toggle=lock \| box=none' 'toggle=on | box=live')) 'screen' 1 'screen: Nucleus without the lock fails' 'ROW Nucleus'
 # Story 12: the scope, its tooltip and the RUNS ON line per row.
 Expect (Screen-Log -rows (Swap 2 'scope=host \|' 'scope=client |')) 'screen' 1 'screen: Base with the client icon fails' 'Mod Manager Base .*got .*scope=client'
-Expect (Screen-Log -rows (Swap 6 'scope=unknown' 'scope=T_Gear')) 'screen' 1 "screen: the fixture's retired all not unknown fails" 'ModManagerFixture'
+Expect (Screen-Log -rows (Swap 6 'scope=unknown' 'scope=client')) 'screen' 1 "screen: the fixture's retired all read as a real scope fails" 'ModManagerFixture'
+# Nucleus's expected scope comes from its deployed mod.json: host there expects host, and a manifest without one expects unknown.
+$keepCore = $coreManifest
+$coreManifest = Join-Path $tmp 'nucleus-host.json'
+Set-Content $coreManifest ((Get-Content $keepCore -Raw) -replace '"scope": "client"', '"scope": "host"')
+Expect (Screen-Log) 'screen' 1 "screen: Nucleus's row client while its mod.json says host fails" 'ROW Nucleus .*scope=host .*got .*scope=client'
+Expect (Screen-Log -rows (Swap 0 ([regex]::Escape((Sc 'client'))) (Sc 'host'))) 'screen' 0 "screen: Nucleus's row host as its mod.json says passes" 'All checks passed'
+$coreManifest = Join-Path $tmp 'nucleus-noscope.json'
+Set-Content $coreManifest ((Get-Content $keepCore -Raw) -replace '"scope": "client", ', '')
+Expect (Screen-Log -rows (Swap 0 ([regex]::Escape((Sc 'client'))) (Sc 'unknown'))) 'screen' 0 "screen: no scope in Nucleus's mod.json expects unknown" 'All checks passed'
+$coreManifest = $keepCore
 Expect (Screen-Log -rows (Swap 7 'scope=host-plus' 'scope=host')) 'screen' 1 'screen: Long as host fails' 'ModManagerLong'
 Expect (Screen-Log -rows (Swap 3 'stip=HOST AND PLAYERS' 'stip=HOST ONLY')) 'screen' 1 "screen: Dep's tooltip wrong fails" 'Mod Manager Dep'
 Expect (Screen-Log -rows (Swap 4 'runs=RUNS ON: UNKNOWN - .*$' 'runs=?')) 'screen' 1 "screen: Bare's Configure without RUNS ON fails" 'ModManagerBare'

@@ -297,7 +297,7 @@ end
 local function sig(rows)
     local t = {}
     -- (no gear: ROW takes it from Configure, GEARLOOK and CFGDIM judge its look; keyboard focus changes how it is drawn)
-    for i, r in ipairs(rows) do t[i] = string.format("%s|%s|%s|%s|%d|%s|%s", r.name, r.ver, r.toggle, r.box, r.status, r.icons, r.scope) end
+    for i, r in ipairs(rows) do t[i] = string.format("%s|%s|%s|%s|%d|%s|%s|%s", r.name, r.ver, r.toggle, r.box, r.status, r.icons, r.scope, r.stip) end
     return table.concat(t, "\n")
 end
 
