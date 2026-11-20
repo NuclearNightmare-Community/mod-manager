@@ -169,31 +169,34 @@ try {
     Eq (Names $paks) 'NuclearNightmare-Windows.pak' 'deploy: no fixture pak without -Test'
     Ok (-not (Test-Path (Join-Path $mods 'ModManager\state.json'))) 'deploy: no state.json shipped'
 
-    # -Test: the driver, the fixtures, the paks, mods.txt.
-    $d = Deploy @('-Test', '-Scenario', 'screen')
-    Ok ($d.Code -eq 0) 'deploy -Test: installed' $d.Out
-    Eq (Txt) ("Nucleus : 1`r`nModManagerDriver : 1`r`nModManager : 1`r`nModManagerBase : 1`r`nModManagerDep : 1`r`nModManagerFixture : 0`r`n" + $stockTxt) 'deploy -Test: Nucleus, the driver, ModManager, Base and Dep on, the fixture off'
-    Ok ((Test-Path (Join-Path $mods 'ModManagerBase\mod.json')) -and (Test-Path (Join-Path $mods 'ModManagerDep\mod.json')) -and @(Get-ChildItem (Join-Path $mods 'ModManagerDep') -Recurse).Count -eq 1) 'deploy -Test: Base and Dep hold mod.json only'
-    Eq ([IO.File]::ReadAllText((Join-Path $mods 'ModManagerDriver\Scripts\scenario.txt'))) 'screen' 'deploy -Test: scenario.txt'
-    Ok ((Test-Path (Join-Path $mods 'ModManagerFixture\mod.json')) -and @(Get-ChildItem (Join-Path $mods 'ModManagerFixture') -Recurse).Count -eq 1) 'deploy -Test: ModManagerFixture holds mod.json only'
-    Ok ((Test-Path (Join-Path $mods 'ModManagerBare\Scripts')) -and @(Get-ChildItem (Join-Path $mods 'ModManagerBare') -Recurse -File).Count -eq 0) 'deploy -Test: ModManagerBare has an empty Scripts/'
-    Ok ((Get-Content (Join-Path $mods 'ModManagerLong\mod.json') -Raw) -match 'ModManagerLong W') 'deploy -Test: ModManagerLong'
-    Eq (Names $paks) 'ModManagerPak_P.pak,ModManagerPakOff_P.pak.disabled,NuclearNightmare-Windows.pak' 'deploy -Test: the fixture paks in Content/Paks'
-    Eq (Names (Join-Path $paks 'LogicMods')) '' 'deploy -Test: nothing in LogicMods'
-    Ok (-not (Test-Path (Join-Path $mods 'ModManagerRestart'))) 'deploy -Test -Scenario screen: no ModManagerRestart (story 8: restart only)'
-    # Story 8: -Scenario restart adds ModManagerRestart (mod.json and Scripts/main.lua), on; a leftover facts file goes.
-    [IO.File]::WriteAllText((Join-Path $mods 'ModManagerDriver\Scripts\restart-facts.txt'), 'mode=direct')
-    $d = Deploy @('-Test', '-Scenario', 'restart')
-    Ok ($d.Code -eq 0) 'deploy -Test -Scenario restart: installed' $d.Out
-    Eq (Txt) ("Nucleus : 1`r`nModManagerDriver : 1`r`nModManager : 1`r`nModManagerBase : 1`r`nModManagerDep : 1`r`nModManagerRestart : 1`r`nModManagerFixture : 0`r`n" + $stockTxt) 'deploy -Test -Scenario restart: ModManagerRestart on'
-    Eq ((@(Get-ChildItem (Join-Path $mods 'ModManagerRestart') -Recurse -File | ForEach-Object Name) | Sort-Object) -join ',') 'main.lua,mod.json' 'deploy -Test -Scenario restart: ModManagerRestart holds mod.json and Scripts/main.lua'
-    Ok (-not (Test-Path (Join-Path $mods 'ModManagerDriver\Scripts\restart-facts.txt'))) 'deploy -Test: no leftover restart-facts.txt'
-    Eq ([IO.File]::ReadAllText((Join-Path $mods 'ModManagerDriver\Scripts\scenario.txt'))) 'restart' 'deploy -Test -Scenario restart: scenario.txt'
-    # Redeploy without -Test: the driver and the fixtures go.
-    $d = Deploy @()
-    Ok ($d.Code -eq 0 -and -not (Test-Path (Join-Path $mods 'ModManagerDriver')) -and -not (Test-Path (Join-Path $mods 'ModManagerBare')) -and -not (Test-Path (Join-Path $mods 'ModManagerBase')) -and -not (Test-Path (Join-Path $mods 'ModManagerDep')) -and -not (Test-Path (Join-Path $mods 'ModManagerRestart'))) 'deploy without -Test removes the driver and fixtures' $d.Out
-    Eq (Names $paks) 'NuclearNightmare-Windows.pak' 'deploy without -Test removes the fixture paks'
-    Eq (Txt) ("Nucleus : 1`r`nModManager : 1`r`n" + $stockTxt) 'deploy without -Test: mods.txt back to one line'
+    # -Test builds the fixture paks with build.ps1 -Fixtures, which needs the workspace's repak: CI (NN_CI=1) skips it.
+    if ($env:NN_CI -eq '1') { Write-Host "SKIP (CI): deploy -Test needs the workspace's tools/repak (build.ps1 -Fixtures)" } else {
+        # -Test: the driver, the fixtures, the paks, mods.txt.
+        $d = Deploy @('-Test', '-Scenario', 'screen')
+        Ok ($d.Code -eq 0) 'deploy -Test: installed' $d.Out
+        Eq (Txt) ("Nucleus : 1`r`nModManagerDriver : 1`r`nModManager : 1`r`nModManagerBase : 1`r`nModManagerDep : 1`r`nModManagerFixture : 0`r`n" + $stockTxt) 'deploy -Test: Nucleus, the driver, ModManager, Base and Dep on, the fixture off'
+        Ok ((Test-Path (Join-Path $mods 'ModManagerBase\mod.json')) -and (Test-Path (Join-Path $mods 'ModManagerDep\mod.json')) -and @(Get-ChildItem (Join-Path $mods 'ModManagerDep') -Recurse).Count -eq 1) 'deploy -Test: Base and Dep hold mod.json only'
+        Eq ([IO.File]::ReadAllText((Join-Path $mods 'ModManagerDriver\Scripts\scenario.txt'))) 'screen' 'deploy -Test: scenario.txt'
+        Ok ((Test-Path (Join-Path $mods 'ModManagerFixture\mod.json')) -and @(Get-ChildItem (Join-Path $mods 'ModManagerFixture') -Recurse).Count -eq 1) 'deploy -Test: ModManagerFixture holds mod.json only'
+        Ok ((Test-Path (Join-Path $mods 'ModManagerBare\Scripts')) -and @(Get-ChildItem (Join-Path $mods 'ModManagerBare') -Recurse -File).Count -eq 0) 'deploy -Test: ModManagerBare has an empty Scripts/'
+        Ok ((Get-Content (Join-Path $mods 'ModManagerLong\mod.json') -Raw) -match 'ModManagerLong W') 'deploy -Test: ModManagerLong'
+        Eq (Names $paks) 'ModManagerPak_P.pak,ModManagerPakOff_P.pak.disabled,NuclearNightmare-Windows.pak' 'deploy -Test: the fixture paks in Content/Paks'
+        Eq (Names (Join-Path $paks 'LogicMods')) '' 'deploy -Test: nothing in LogicMods'
+        Ok (-not (Test-Path (Join-Path $mods 'ModManagerRestart'))) 'deploy -Test -Scenario screen: no ModManagerRestart (story 8: restart only)'
+        # Story 8: -Scenario restart adds ModManagerRestart (mod.json and Scripts/main.lua), on; a leftover facts file goes.
+        [IO.File]::WriteAllText((Join-Path $mods 'ModManagerDriver\Scripts\restart-facts.txt'), 'mode=direct')
+        $d = Deploy @('-Test', '-Scenario', 'restart')
+        Ok ($d.Code -eq 0) 'deploy -Test -Scenario restart: installed' $d.Out
+        Eq (Txt) ("Nucleus : 1`r`nModManagerDriver : 1`r`nModManager : 1`r`nModManagerBase : 1`r`nModManagerDep : 1`r`nModManagerRestart : 1`r`nModManagerFixture : 0`r`n" + $stockTxt) 'deploy -Test -Scenario restart: ModManagerRestart on'
+        Eq ((@(Get-ChildItem (Join-Path $mods 'ModManagerRestart') -Recurse -File | ForEach-Object Name) | Sort-Object) -join ',') 'main.lua,mod.json' 'deploy -Test -Scenario restart: ModManagerRestart holds mod.json and Scripts/main.lua'
+        Ok (-not (Test-Path (Join-Path $mods 'ModManagerDriver\Scripts\restart-facts.txt'))) 'deploy -Test: no leftover restart-facts.txt'
+        Eq ([IO.File]::ReadAllText((Join-Path $mods 'ModManagerDriver\Scripts\scenario.txt'))) 'restart' 'deploy -Test -Scenario restart: scenario.txt'
+        # Redeploy without -Test: the driver and the fixtures go.
+        $d = Deploy @()
+        Ok ($d.Code -eq 0 -and -not (Test-Path (Join-Path $mods 'ModManagerDriver')) -and -not (Test-Path (Join-Path $mods 'ModManagerBare')) -and -not (Test-Path (Join-Path $mods 'ModManagerBase')) -and -not (Test-Path (Join-Path $mods 'ModManagerDep')) -and -not (Test-Path (Join-Path $mods 'ModManagerRestart'))) 'deploy without -Test removes the driver and fixtures' $d.Out
+        Eq (Names $paks) 'NuclearNightmare-Windows.pak' 'deploy without -Test removes the fixture paks'
+        Eq (Txt) ("Nucleus : 1`r`nModManager : 1`r`n" + $stockTxt) 'deploy without -Test: mods.txt back to one line'
+    }
 
     # -Force without core.
     Remove-Item (Join-Path $mods 'Nucleus') -Recurse -Force
