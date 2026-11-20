@@ -7,8 +7,9 @@
   run.ps1's run guard, check.ps1 against synthetic logs). check.ps1 -Scenario unit runs this too.
   Lua: the first of lua, lua5.4, lua54, lua5.3, texlua (MiKTeX's texlua.exe is Lua 5.3) found on PATH; -Lua picks one.
   The Lua tests load core's pure nucleus.modid from the Nucleus repo: <Nucleus>/lua/pkg goes on the Lua path (LUA_PATH,
-  read by test/unit/nucleus_pkg.lua). -Nucleus names that repo; the default is the Nucleus checkout beside this repo's
-  main checkout (the sibling of the folder that holds git's common dir, so a worktree finds mods/Nucleus too).
+  read by test/unit/nucleus_pkg.lua). -Nucleus names that repo; else $env:NN_NUCLEUS (set by the ci workflow to its
+  Nucleus checkout); else the Nucleus checkout beside this repo's main checkout (the sibling of the folder that holds
+  git's common dir, so a worktree finds mods/Nucleus too).
 .EXAMPLE
   ./test.ps1
   ./test.ps1 -Only lua
@@ -16,6 +17,7 @@
 param([string] $Lua, [ValidateSet('all', 'lua', 'ps')] [string] $Only = 'all', [string] $Nucleus)
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
+if (-not $Nucleus -and $env:NN_NUCLEUS) { $Nucleus = $env:NN_NUCLEUS }
 if (-not $Nucleus) {
     $common = git -C $here rev-parse --path-format=absolute --git-common-dir 2>$null
     if ($common) { $Nucleus = Join-Path (Split-Path (Split-Path $common)) 'Nucleus' }

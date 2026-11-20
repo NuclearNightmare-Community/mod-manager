@@ -30,10 +30,11 @@ Throws { Test-VersionNeed -Version '0.8.0' -Need '<0.9.0' } 'unsupported version
 
 # ---------------------------------------------------------------- core ids (the shared cases of core's nucleus.modid)
 # The workspace's shared cases (tools/release/tests/modid-cases.json): ConvertTo-ModId must accept and refuse the same
-# ids and return the same normalized id (it returns no message). The workspace is the parent of mods/, found from the
-# repo's git common dir so a worktree finds it too.
+# ids and return the same normalized id (it returns no message). The file is $env:NN_MODID_CASES when set (the ci
+# workflow: the ci repo's synced copy), else in the workspace, the parent of mods/, found from the repo's git common
+# dir so a worktree finds it too.
 $common = git -C $repo rev-parse --path-format=absolute --git-common-dir 2>$null
-$casesFile = if ($common) { Join-Path (Split-Path (Split-Path (Split-Path $common))) 'tools/release/tests/modid-cases.json' }
+$casesFile = if ($env:NN_MODID_CASES) { $env:NN_MODID_CASES } elseif ($common) { Join-Path (Split-Path (Split-Path (Split-Path $common))) 'tools/release/tests/modid-cases.json' }
 if ($casesFile -and (Test-Path -LiteralPath $casesFile)) {
     $shared = Get-Content -LiteralPath $casesFile -Raw | ConvertFrom-Json
     $n = 0
