@@ -2,6 +2,8 @@
   "id": "nuclearnightmare-community.mod-manager",
   "name": "ModManager",
   "displayName": "Mod Manager",
+  "description": "Turn installed mods on and off from the title screen.",
+  "categories": ["tools", "ui"],
   "version": "0.4.0",
   "scope": "client",
   "game": { "version": "V8.2.3", "build": "26601774" },
