@@ -23,14 +23,17 @@
 -- attach again on the next open of the same id (core's screen host). Rows are made as they are first needed; rows above
 -- the current count are hidden, never removed. Element ids are index-based, well inside core's 64-character rule.
 --
--- A row: toggle | name | version | status (3 icons) | gear.
+-- A row: toggle | name | version | scope | status (3 icons) | gear.
 --   toggle: r<n>.on, an image with core's lock icon (Nucleus and the Mod Manager: ALWAYS ON), and r<n>.tg, core's
 --           checkbox (tooltip ON / OFF); a pak-only row or a folder row with a joined pak shows its state in a disabled
 --           checkbox (BLUEPRINT MODS CAN'T BE SWITCHED FROM THE GAME YET). Each row has both; the unused one is hidden.
 --   name, version: texts with fill 4 and 1, cut with an ellipsis at the column edge.
+--   scope: r<n>.sc (story 12), an image with core's scope-<host|client|host-plus|both|unknown> icon for the row's
+--          mod.json scope (inventory.lua), tooltip "<name> - <meaning>"; Configure repeats it as its RUNS ON line, which
+--          gamepad and keyboard players reach through the gear (images take no focus; tooltips show on hover only).
 --   status: r<n>.s1..s3, fixed images filled left to right (build, dependency, restart), the rest empty.
 --   gear: an icon-only button, tooltip CONFIGURE, dimmed when the mod declares no settings; it opens Configure.
--- The header mirrors a row (spacer, NAME, VERSION, three spacers, spacer) in a one-row list of the same width.
+-- The header mirrors a row (spacer, NAME, VERSION, spacer, three spacers, spacer) in a one-row list of the same width.
 --
 -- Layout (0.1.1, story 9): the title, the header list and the list stack in the card's top-left corner; core's BACK is
 -- in its bottom-left corner. Story 6 adds QUIT GAME, the banner and the message line in the bottom-right corner (shown
@@ -56,9 +59,10 @@ Screen.SIDE_RESERVE = 720
 Screen.LIST_NUDGE = 8
 Screen.FILL = { name = 4, ver = 1 }
 Screen.STATUS_SLOTS = 3
--- Configure: its settings list's height is the layout height less CFG_RESERVE (heading, three detail lines, the message
--- line, BACK, the card's chrome) and PROBLEM_H per problem line shown; at least CFG_LIST_MIN.
-Screen.CFG_RESERVE = 540
+-- Configure: its settings list's height is the layout height less CFG_RESERVE (heading, four detail lines, the message
+-- line, BACK, the card's chrome) and PROBLEM_H per problem line shown; at least CFG_LIST_MIN. Story 12's RUNS ON line is
+-- the fourth detail line: one more body line, so PROBLEM_H (a body line and its gap) more than the 540 for three.
+Screen.CFG_RESERVE = 540 + 46
 Screen.PROBLEM_H = 46
 Screen.CFG_LIST_MIN = 96
 Screen.MAX_PROBLEM_LINES = 8
@@ -66,6 +70,9 @@ Screen.MAX_SETTINGS = 64
 Screen.SETTING_FILL = { label = 3, control = 2 }
 Screen.MAX_TEXT = 256      -- core's text cap (characters); longer texts are cut here, so core never warns
 local ICON_OF = { build = "warning", dep = "warning", restart = "restart" }
+-- Story 12: a row's scope (inventory.lua: host, client, host-plus, both, unknown) -> its strings' key part
+-- (scope<Part> is the name, scope<Part>Means the meaning). Anything else reads as unknown.
+Screen.SCOPE_KEY = { host = "Host", client = "Client", ["host-plus"] = "HostPlus", both = "Both", unknown = "Unknown" }
 
 function Screen.new(ui, strings)
     return setmetatable({ ui = ui, S = strings, lang = "en", data = {}, made = 0, cells = {}, size = nil,
@@ -108,6 +115,26 @@ function Screen:versionText(row)
     return row.version or self:str("unknown")
 end
 
+-- Story 12: a row's scope key (unknown for anything inventory.lua didn't give), its words, its tooltip and its
+-- Configure line.
+function Screen.scopeOf(row)
+    local s = row and row.scope
+    if type(s) ~= "string" or not Screen.SCOPE_KEY[s] then s = "unknown" end
+    return s
+end
+function Screen:scopeWords(row)
+    local part = Screen.SCOPE_KEY[Screen.scopeOf(row)]
+    return self:str("scope" .. part), self:str("scope" .. part .. "Means")
+end
+function Screen:scopeTip(row)
+    local name, means = self:scopeWords(row)
+    return name .. " - " .. means
+end
+function Screen:scopeLine(row)
+    local name, means = self:scopeWords(row)
+    return self:str("scopeLabel") .. ": " .. name .. " - " .. means
+end
+
 function Screen.listSize(size)
     return { w = size.w - Screen.SIDE_RESERVE, h = size.h - Screen.LIST_RESERVE }
 end
@@ -135,6 +162,7 @@ function Screen:build(size)
     ui.image.create{ id = "hdr.on", place = { row = hdr }, size = Screen.ICON }
     self.hdrName = ui.text.create{ id = "hdr.name", text = self:str("name"), place = { row = hdr, fill = Screen.FILL.name }, style = { font = "body", overflow = "ellipsis" } }
     self.hdrVer = ui.text.create{ id = "hdr.ver", text = self:str("version"), place = { row = hdr, fill = Screen.FILL.ver }, style = { font = "body", overflow = "ellipsis" } }
+    ui.image.create{ id = "hdr.sc", place = { row = hdr }, size = Screen.ICON } -- story 12: above the scope column
     for k = 1, Screen.STATUS_SLOTS do ui.image.create{ id = "hdr.s" .. k, place = { row = hdr }, size = Screen.ICON } end
     ui.image.create{ id = "hdr.cfg", place = { row = hdr }, size = Screen.ICON }
     local function br() return { screen = self.main, corner = "bottom-right", gap = "normal" } end
@@ -166,6 +194,11 @@ function Screen:makeRow(n)
         onChange = function(_, checked) self:onToggleClick(n, checked) end }
     c.nameH = ui.text.create{ id = p .. ".name", text = "", place = { row = row, fill = Screen.FILL.name }, style = { font = "body", overflow = "ellipsis" } }
     c.verH = ui.text.create{ id = p .. ".ver", text = "", place = { row = row, fill = Screen.FILL.ver }, style = { font = "body", overflow = "ellipsis" } }
+    -- story 12: where the mod runs, from the data (fill sets it again only when it changes)
+    local d = self.data[n]
+    c.scope, c.scopeTip = Screen.scopeOf(d), self:scopeTip(d)
+    c.sc = ui.image.create{ id = p .. ".sc", place = { row = row }, image = { icon = "scope-" .. c.scope }, size = Screen.ICON,
+        tooltip = c.scopeTip }
     c.st = {}
     for k = 1, Screen.STATUS_SLOTS do
         c.st[k] = ui.image.create{ id = p .. ".s" .. k, place = { row = row }, size = Screen.ICON }
@@ -253,6 +286,9 @@ function Screen:fill()
             if c.name ~= r.name then ui.text.set(c.nameH, r.name); c.name = r.name end
             local v = self:versionText(r)
             if c.ver ~= v then ui.text.set(c.verH, v); c.ver = v end
+            local sc, scTip = Screen.scopeOf(r), self:scopeTip(r)
+            if c.scope ~= sc then ui.image.set(c.sc, { image = { icon = "scope-" .. sc } }); c.scope = sc end
+            if c.scopeTip ~= scTip then ui.image.setTooltip(c.sc, scTip); c.scopeTip = scTip end
             self:fillStatus(c, r)
             local dim = not r.settings
             local cfgTip = self:str("configure")
@@ -361,7 +397,7 @@ end
 
 -- ---------------------------------------------------------------- Configure
 
--- The Configure window's detail lines for a row: heading, VERSION, NUCLEUS, GAME BUILD.
+-- The Configure window's detail lines for a row: heading, VERSION, NUCLEUS, GAME BUILD, RUNS ON (story 12).
 function Screen:configureLines(row)
     local unknown = self:str("unknown")
     return {
@@ -369,6 +405,7 @@ function Screen:configureLines(row)
         ver = self:str("version") .. " " .. self:versionText(row),
         need = self:str("nucleus") .. " " .. (row.need or unknown),
         build = self:str("gameBuild") .. " " .. (row.build or unknown),
+        scope = self:scopeLine(row),
     }
 end
 
@@ -378,7 +415,7 @@ function Screen:cfgListSize(nProblems)
     return { w = size.w - Screen.SIDE_RESERVE, h = math.max(Screen.CFG_LIST_MIN, h) }
 end
 
--- Configure's elements, once: heading, VERSION, NUCLEUS, GAME BUILD, the problem lines, NO SETTINGS, the settings
+-- Configure's elements, once: heading, VERSION, NUCLEUS, GAME BUILD, RUNS ON, the problem lines, NO SETTINGS, the settings
 -- list and the message line, in that corner-stack order (all hidden that have nothing to show).
 function Screen:buildConfigure(l)
     local ui = self.ui
@@ -388,6 +425,7 @@ function Screen:buildConfigure(l)
     cfg.ver = ui.text.create{ id = "cfg.ver", text = l.ver, place = at(), style = { font = "body" } }
     cfg.need = ui.text.create{ id = "cfg.need", text = l.need, place = at(), style = { font = "body" } }
     cfg.build = ui.text.create{ id = "cfg.build", text = l.build, place = at(), style = { font = "body" } }
+    cfg.scope = ui.text.create{ id = "cfg.scope", text = l.scope, place = at(), style = { font = "body" } }
     for k = 1, Screen.MAX_PROBLEM_LINES do
         cfg.problems[k] = ui.text.create{ id = "cfg.p" .. k, text = "", place = at(), style = { font = "body" } }
         ui.text.setVisible(cfg.problems[k], false)
@@ -600,6 +638,7 @@ function Screen:openConfigure(n, settings)
         ui.text.set(self.cfg.ver, l.ver)
         ui.text.set(self.cfg.need, l.need)
         ui.text.set(self.cfg.build, l.build)
+        ui.text.set(self.cfg.scope, l.scope)
         self.cfgWin = ui.screen.open{ id = "configure" }
     else
         self.cfgWin = ui.screen.open{ id = "configure" }

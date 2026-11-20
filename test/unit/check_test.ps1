@@ -36,17 +36,26 @@ function Start-Log { @(
     (U "Starting Lua mod 'Nucleus'"), (L 'Nucleus' 'READY version=0.8.0 native=0.8.0 ue4ss=v3.0.1-1181-g83330635 boot=1'),
     (U "Starting Lua mod '$D'"), (U "Starting Lua mod '$M'")) }
 $MV = (Get-Content (Join-Path $repo 'mod.json') -Raw | ConvertFrom-Json).version # check.ps1 expects the Mod Manager's own version
+# Story 12: each ROW ends with the scope (from the icon's texture), its tooltip and Configure's RUNS ON line.
+$SW = @{
+    'host'      = "HOST ONLY - ONLY THE HOST NEEDS IT; PLAYERS WHO JOIN DON'T"
+    'client'    = 'JUST YOU - WORKS ON ITS OWN, WHETHER YOU HOST OR JOIN'
+    'host-plus' = 'HOST, PLAYERS OPTIONAL - THE HOST NEEDS IT; PLAYERS WHO HAVE IT GET MORE'
+    'both'      = 'HOST AND PLAYERS - THE HOST AND EVERY PLAYER NEED IT'
+    'unknown'   = "UNKNOWN - THIS MOD DOESN'T SAY WHERE IT RUNS"
+}
+function Sc([string] $s) { " | scope=$s | stip=$($SW[$s]) | runs=RUNS ON: $($SW[$s])" }
 $rowLines = @(
-    "ROW Nucleus | 0.8.0 | toggle=lock | box=none | gear=dim | status=0 | icons=- | need=- | build=V8.2.3 26601774"
-    "ROW Mod Manager | $MV | toggle=lock | box=none | gear=dim | status=0 | icons=- | need=>=0.20.0 | build=V8.2.3 26601774"
-    "ROW Mod Manager Base | 1.0.0 | toggle=on | box=live | gear=dim | status=0 | icons=- | need=>=0.12.0 | build=V8.2.3 26601774"
-    "ROW Mod Manager Dep | 1.0.0 | toggle=on | box=live | gear=dim | status=0 | icons=- | need=- | build=V8.2.3 26601774"
-    "ROW ModManagerBare | - | toggle=off | box=live | gear=dim | status=0 | icons=- | need=- | build=-"
-    "ROW ModManagerDriver | - | toggle=on | box=live | gear=dim | status=0 | icons=- | need=- | build=-"
-    "ROW ModManagerFixture | 9.9.9 | toggle=off | box=live | gear=lit | status=2 | icons=warning,warning | need=>=0.1.0 | build=V0.0.0 1"
-    "ROW $LONG | 1.0.0 | toggle=off | box=live | gear=dim | status=0 | icons=- | need=>=0.2.0 | build=V8.2.3 26601774"
-    "ROW ModManagerPak | UNMANAGED | toggle=on | box=fixed | gear=dim | status=0 | icons=- | need=- | build=-"
-    "ROW ModManagerPakOff | UNMANAGED | toggle=off | box=fixed | gear=dim | status=0 | icons=- | need=- | build=-"
+    ("ROW Nucleus | 0.8.0 | toggle=lock | box=none | gear=dim | status=0 | icons=- | need=- | build=V8.2.3 26601774" + (Sc 'client'))
+    ("ROW Mod Manager | $MV | toggle=lock | box=none | gear=dim | status=0 | icons=- | need=>=0.21.0 | build=V8.2.3 26601774" + (Sc 'client'))
+    ("ROW Mod Manager Base | 1.0.0 | toggle=on | box=live | gear=dim | status=0 | icons=- | need=>=0.12.0 | build=V8.2.3 26601774" + (Sc 'host'))
+    ("ROW Mod Manager Dep | 1.0.0 | toggle=on | box=live | gear=dim | status=0 | icons=- | need=- | build=V8.2.3 26601774" + (Sc 'both'))
+    ("ROW ModManagerBare | - | toggle=off | box=live | gear=dim | status=0 | icons=- | need=- | build=-" + (Sc 'unknown'))
+    ("ROW ModManagerDriver | - | toggle=on | box=live | gear=dim | status=0 | icons=- | need=- | build=-" + (Sc 'unknown'))
+    ("ROW ModManagerFixture | 9.9.9 | toggle=off | box=live | gear=lit | status=2 | icons=warning,warning | need=>=0.1.0 | build=V0.0.0 1" + (Sc 'unknown'))
+    ("ROW $LONG | 1.0.0 | toggle=off | box=live | gear=dim | status=0 | icons=- | need=>=0.2.0 | build=V8.2.3 26601774" + (Sc 'host-plus'))
+    ("ROW ModManagerPak | UNMANAGED | toggle=on | box=fixed | gear=dim | status=0 | icons=- | need=- | build=-" + (Sc 'unknown'))
+    ("ROW ModManagerPakOff | UNMANAGED | toggle=off | box=fixed | gear=dim | status=0 | icons=- | need=- | build=-" + (Sc 'unknown'))
 )
 $statusLines = @(
     'STATUS Nucleus none | ', 'STATUS ModManager none | ', 'STATUS ModManagerBase none | ', 'STATUS ModManagerDep none | ', 'STATUS ModManagerBare none | ',
@@ -62,7 +71,7 @@ function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE n
     [string] $gearlook = 'OK GEARLOOK 1 Nucleus looks dim (offers dim)', [int[]] $popin = @(1, 2, 3, 4), [int[]] $hiddenFirst = @(2, 3, 4)) {
     $l = (Start-Log) + @(
         (L $D 'SCENARIO screen'), (L $D 'LOADED 7 steps'),
-        (L $M 'CONNECT ok Nucleus 0.8.0 (pong 0.8.0 boot=1)'), (L $M 'READY entry=manage need=>=0.20.0'),
+        (L $M 'CONNECT ok Nucleus 0.8.0 (pong 0.8.0 boot=1)'), (L $M 'READY entry=manage need=>=0.21.0'),
         (L $D 'ENTRY menu1 text=MANAGE MODS above=OPTIONS below=QUIT'),
         (L $D 'OK ENTRYPOS menu1 between OPTIONS (UI_Button_Master_2) and QUIT (UI_Button_Master_3)'), (L $D 'OK ENTRYLOOK menu1 style x / x font y / y (the options style)'),
         (L $M 'MOD 1 Nucleus | Nucleus | 0.8.0 | locked | settings=no | need=- | build=V8.2.3 26601774'))
@@ -163,7 +172,7 @@ Expect (Screen-Log -gearlook 'OK GEARLOOK 7 ModManagerFixture looks lit (offers 
 Expect ($good + (L $D 'FAIL GEARLOOK 1 Nucleus looks lit (offers dim)')) 'screen' 1 'screen: a failed GEARLOOK fails' 'FAIL: !.*FAIL '
 Expect (Screen-Log -cardfit 'FAIL CARDFIT the title, header and list are inside the card (false) and the list ends -20.0 units above BACK''s top') 'screen' 1 'screen: a failed CARDFIT fails' 'FAIL: .*OK CARDFIT'
 # Other installed mods may sit between the expected rows.
-Expect (Screen-Log -rows (@($rowLines[0], $rowLines[1], 'ROW Clock | 0.1.0 | toggle=on | box=live | gear=lit | status=0 | icons=- | need=>=0.2.0 | build=V8.2.3 26601774') + $rowLines[2..9])) 'screen' 0 'screen: another mod between them is fine' 'All checks passed'
+Expect (Screen-Log -rows (@($rowLines[0], $rowLines[1], ('ROW Clock | 0.1.0 | toggle=on | box=live | gear=lit | status=0 | icons=- | need=>=0.2.0 | build=V8.2.3 26601774' + (Sc 'client'))) + $rowLines[2..9])) 'screen' 0 'screen: another mod between them is fine' 'All checks passed'
 Expect (Screen-Log -rows $rowLines[0..8]) 'screen' 1 'screen: a missing row (PakOff) fails' 'ModManagerPakOff .*found 0'
 Expect (Screen-Log -rows ($rowLines + $rowLines[4])) 'screen' 1 'screen: a row twice fails' 'found 2'
 Expect (Screen-Log -rows (@($rowLines[1], $rowLines[0]) + $rowLines[2..9])) 'screen' 1 'screen: Nucleus after Mod Manager fails' 'out of order'
@@ -178,8 +187,15 @@ Expect (Screen-Log -rows (Swap 2 'status=0 \| icons=-' 'status=1 | icons=warning
 Expect (Screen-Log -rows (Swap 3 'box=live' 'box=fixed')) 'screen' 1 'screen: Dep with a fixed box fails' 'Mod Manager Dep'
 Expect (Screen-Log -rows (Swap 8 'box=fixed' 'box=live')) 'screen' 1 'screen: a pak with a live box fails' 'ModManagerPak \|'
 Expect (Screen-Log -rows (Swap 0 'toggle=lock \| box=none' 'toggle=on | box=live')) 'screen' 1 'screen: Nucleus without the lock fails' 'ROW Nucleus'
-Expect (Screen-Log -rows ($rowLines + 'ROW Keybinds | - | toggle=on | box=live | gear=dim | status=0 | icons=- | need=- | build=-')) 'screen' 1 'screen: a built-in row fails' 'must be absent: Keybinds'
-Expect (Screen-Log -rows ($rowLines + 'ROW NuclearNightmare-Windows | UNMANAGED | toggle=on | box=fixed | gear=dim | status=0 | icons=- | need=- | build=-')) 'screen' 1 'screen: the base pak row fails' 'must be absent'
+# Story 12: the scope, its tooltip and the RUNS ON line per row.
+Expect (Screen-Log -rows (Swap 2 'scope=host \|' 'scope=client |')) 'screen' 1 'screen: Base with the client icon fails' 'Mod Manager Base .*got .*scope=client'
+Expect (Screen-Log -rows (Swap 6 'scope=unknown' 'scope=T_Gear')) 'screen' 1 "screen: the fixture's retired all not unknown fails" 'ModManagerFixture'
+Expect (Screen-Log -rows (Swap 7 'scope=host-plus' 'scope=host')) 'screen' 1 'screen: Long as host fails' 'ModManagerLong'
+Expect (Screen-Log -rows (Swap 3 'stip=HOST AND PLAYERS' 'stip=HOST ONLY')) 'screen' 1 "screen: Dep's tooltip wrong fails" 'Mod Manager Dep'
+Expect (Screen-Log -rows (Swap 4 'runs=RUNS ON: UNKNOWN - .*$' 'runs=?')) 'screen' 1 "screen: Bare's Configure without RUNS ON fails" 'ModManagerBare'
+Expect (Screen-Log -rows (Swap 0 ' \| scope=.*$' '')) 'screen' 1 'screen: a ROW without the scope fields fails' 'ROW Nucleus .*found 0'
+Expect (Screen-Log -rows ($rowLines + ('ROW Keybinds | - | toggle=on | box=live | gear=dim | status=0 | icons=- | need=- | build=-' + (Sc 'unknown')))) 'screen' 1 'screen: a built-in row fails' 'must be absent: Keybinds'
+Expect (Screen-Log -rows ($rowLines + ('ROW NuclearNightmare-Windows | UNMANAGED | toggle=on | box=fixed | gear=dim | status=0 | icons=- | need=- | build=-' + (Sc 'unknown')))) 'screen' 1 'screen: the base pak row fails' 'must be absent'
 Expect (Screen-Log -rows (Swap 1 ([regex]::Escape("| $MV |")) '| 9.8.7 |')) 'screen' 1 "screen: Mod Manager's version from its mod.json"
 Expect (Screen-Log -measure 'MEASURE name width=900.0 desired=820.5 right=1225.0 verLeft=1233.0 headerLeft=405.0 rowLeft=405.0') 'screen' 1 'screen: a long name not cut fails' 'is cut'
 Expect (Screen-Log -measure 'MEASURE name width=680.0 desired=820.5 right=1240.0 verLeft=1233.0 headerLeft=405.0 rowLeft=405.0') 'screen' 1 'screen: an overlap fails' 'right edge'
@@ -237,7 +253,7 @@ Expect ($good | Where-Object { $_ -notmatch 'OK BLOCKEDGEAR' }) 'screen' 1 'scre
 Expect ($good | Where-Object { $_ -notmatch 'OK CFGDIMOPEN' }) 'screen' 1 'screen: no dimmed-gear Configure fails'
 Expect ($good | Where-Object { $_ -notmatch 'OK SAME' }) 'screen' 1 'screen: no SAME (DW-59) fails'
 Expect ($good | Where-Object { $_ -notmatch 'ENTRY menu1 text=' }) 'screen' 1 'screen: no entry text fails'
-Expect ($good + (L $M 'READY entry=manage need=>=0.20.0')) 'screen' 1 'screen: two READY lines fail'
+Expect ($good + (L $M 'READY entry=manage need=>=0.21.0')) 'screen' 1 'screen: two READY lines fail'
 Expect (($good | Where-Object { $_ -notmatch "\[$M\] OPEN rows" }) + (L $M 'OPEN rows=8 total=8 lang=en')) 'screen' 1 'screen: one OPEN fails' 'opened twice'
 $swapped = [Collections.Generic.List[string]]::new([string[]]$good)
 $ic = $swapped.FindIndex({ param($l) $l -match '\[ModManager\] CONNECT ok' }); $ir = $swapped.FindIndex({ param($l) $l -match '\[ModManager\] READY ' })
@@ -249,21 +265,21 @@ $noCore = @((U "Starting Lua mod '$D'"), (L $D 'SCENARIO no-core'), (U "Starting
     (L $M 'Nucleus is not installed. ModManager will not run.'), (L $D 'OK NOENTRY no MANAGE MODS entry in the menu for 15 s'),
     (L $D 'END result=PASS checks=2 failures=0'), '[run.ps1] FILES unchanged')
 Expect $noCore 'no-core' 0 'no-core: passes' 'All checks passed'
-Expect ($noCore + (L $M 'READY entry=manage need=>=0.20.0')) 'no-core' 1 'no-core: a second [ModManager] line fails'
+Expect ($noCore + (L $M 'READY entry=manage need=>=0.21.0')) 'no-core' 1 'no-core: a second [ModManager] line fails'
 Expect ($noCore | Where-Object { $_ -notmatch 'NOENTRY' }) 'no-core' 1 'no-core: no NOENTRY fails'
 $oldCore = (Start-Log) + @((L $D "OLDCORE published nucleus.version=0.1.0 (from Nucleus's installed mod.json)"),
-    (L $M 'ERROR Nucleus 0.1.0 is older than ModManager needs (>=0.20.0). Update Nucleus. ModManager will not run.'),
+    (L $M 'ERROR Nucleus 0.1.0 is older than ModManager needs (>=0.21.0). Update Nucleus. ModManager will not run.'),
     (L $D 'OK NOENTRY no MANAGE MODS entry in the menu for 15 s'), (L $D 'END result=PASS checks=2 failures=0'), '[run.ps1] FILES unchanged')
 Expect $oldCore 'old-core' 0 'old-core: passes' 'All checks passed'
 Expect ($oldCore + (L $M 'ERROR start failed: x')) 'old-core' 1 'old-core: a second [ModManager] line fails'
-Expect ($oldCore -replace 'needs \(>=0\.20\.0\)', 'needs (>=0.7.0)') 'old-core' 1 'old-core: the wrong need fails'
+Expect ($oldCore -replace 'needs \(>=0\.21\.0\)', 'needs (>=0.7.0)') 'old-core' 1 'old-core: the wrong need fails'
 
 # ---------------------------------------------------------------- restart (story 8): two sessions in one log
 $R = 'ModManagerRestart'
 function Session([int] $n) {
     (Start-Log) + @((L $R 'loaded') | Where-Object { $n -eq 1 }) + @(
         (L $D 'SCENARIO restart'), (L $D "RESTART session $n"), (L $D 'LOADED 20 steps'),
-        (L $M 'CONNECT ok Nucleus 0.20.0 (pong 0.20.0 boot=1)'), (L $M 'READY entry=manage need=>=0.20.0'),
+        (L $M 'CONNECT ok Nucleus 0.21.0 (pong 0.21.0 boot=1)'), (L $M 'READY entry=manage need=>=0.21.0'),
         (L $M 'OPEN rows=10 total=10 lang=en game=V8.2.3 build=- us=4000'), (L $M 'RESTARTMODE direct'))
 }
 $s1 = (Session 1) + @(

@@ -12,7 +12,10 @@
       Manager's expected values come from their deployed mod.json (-CoreManifest; this repo's mod.json). Per row: the
       toggle (lock | on | off), its box (none | live | fixed), the gear (what the row's Configure offers: dim for NO
       SETTINGS, lit for a settings list; not its look), the status icons (the fixture: build and dependency;
-      every other row none). No row for a UE4SS built-in, shared or NuclearNightmare-Windows.
+      every other row none), story 12's scope (from the icon's texture: Nucleus and the Mod Manager client, Base host,
+      Dep both, Long host-plus, the fixture's retired 'all' and every row without a mod.json unknown), its tooltip
+      (stip, that scope's words) and Configure's RUNS ON line (runs, 'RUNS ON: ' and the same words). No row for a
+      UE4SS built-in, shared or NuclearNightmare-Windows.
     - GEARLOOK: at least one "OK GEARLOOK ... looks dim (offers dim)" (a dimmed gear drawn as its Configure offers;
       a gear holding keyboard focus is skipped; a FAIL GEARLOOK fails the run like any driver FAIL).
     - STATUS (story 6): the Mod Manager's first STATUS line for Nucleus, ModManagerBase, ModManagerDep and ModManagerBare
@@ -273,8 +276,9 @@ if ($Scenario -eq 'screen') {
 
     # ---- ROW lines against the matrix
     $rows = @($lines | Where-Object { $_ -match "\[$D\] ROW " } | ForEach-Object {
-        if ($_ -match "\[$D\] ROW (.*) \| (.*) \| toggle=(\S+) \| box=(\S+) \| gear=(\S+) \| status=(-?\d+) \| icons=(\S+) \| need=(.*) \| build=(.*?)\s*$") {
-            [pscustomobject]@{ Name = $Matches[1]; Ver = $Matches[2]; Toggle = $Matches[3]; Box = $Matches[4]; Gear = $Matches[5]; Status = [int]$Matches[6]; Icons = $Matches[7]; Need = $Matches[8]; Build = $Matches[9] }
+        if ($_ -match "\[$D\] ROW (.*) \| (.*) \| toggle=(\S+) \| box=(\S+) \| gear=(\S+) \| status=(-?\d+) \| icons=(\S+) \| need=(.*) \| build=(.*?) \| scope=(\S+) \| stip=(.*) \| runs=(.*?)\s*$") {
+            [pscustomobject]@{ Name = $Matches[1]; Ver = $Matches[2]; Toggle = $Matches[3]; Box = $Matches[4]; Gear = $Matches[5]; Status = [int]$Matches[6]; Icons = $Matches[7]; Need = $Matches[8]; Build = $Matches[9]
+                Scope = $Matches[10]; Stip = $Matches[11]; Runs = $Matches[12] }
         } else { [pscustomobject]@{ Name = "(unparsed) $_"; Status = -1 } }
     })
     function BuildOf($mj) { $parts = @($mj.game.version, $mj.game.build | Where-Object { $_ }); if ($parts) { $parts -join ' ' } else { '-' } }
@@ -286,29 +290,39 @@ if ($Scenario -eq 'screen') {
     $fixture = (Get-Content (Join-Path $PSScriptRoot "test\${name}Fixture\mod.json") -Raw | ConvertFrom-Json)
     $baseMj = (Get-Content (Join-Path $PSScriptRoot "test\${name}Base\mod.json") -Raw | ConvertFrom-Json)
     $depMj = (Get-Content (Join-Path $PSScriptRoot "test\${name}Dep\mod.json") -Raw | ConvertFrom-Json)
-    function W($n, $ver, $tog, $box, $gear, $need, $build, $status = 0, $icons = '-') {
-        [pscustomobject]@{ Name = $n; Ver = $ver; Toggle = $tog; Box = $box; Gear = $gear; Need = $need; Build = $build; Status = $status; Icons = $icons }
+    # Story 12: each scope's words (Scripts/strings.lua, en), as the scope icon's tooltip; Configure's line is 'RUNS ON: ' and the same.
+    $scopeWords = @{
+        'host'      = "HOST ONLY - ONLY THE HOST NEEDS IT; PLAYERS WHO JOIN DON'T"
+        'client'    = 'JUST YOU - WORKS ON ITS OWN, WHETHER YOU HOST OR JOIN'
+        'host-plus' = 'HOST, PLAYERS OPTIONAL - THE HOST NEEDS IT; PLAYERS WHO HAVE IT GET MORE'
+        'both'      = 'HOST AND PLAYERS - THE HOST AND EVERY PLAYER NEED IT'
+        'unknown'   = "UNKNOWN - THIS MOD DOESN'T SAY WHERE IT RUNS"
+    }
+    function W($n, $ver, $tog, $box, $gear, $need, $build, $status = 0, $icons = '-', $scope = 'unknown') {
+        [pscustomobject]@{ Name = $n; Ver = $ver; Toggle = $tog; Box = $box; Gear = $gear; Need = $need; Build = $build; Status = $status; Icons = $icons
+            Scope = $scope; Stip = $scopeWords[$scope]; Runs = "RUNS ON: $($scopeWords[$scope])" }
     }
     $want = @(
-        (W $CoreName "$($core.version)" 'lock' 'none' $(if ($core) { GearOf $core } else { 'dim' }) $(if ($core) { NeedOf $core } else { '-' }) $(if ($core) { BuildOf $core } else { '-' }))
-        (W $manifest.displayName $manifest.version 'lock' 'none' (GearOf $manifest) (NeedOf $manifest) (BuildOf $manifest))
-        (W $baseMj.displayName $baseMj.version 'on' 'live' 'dim' (NeedOf $baseMj) (BuildOf $baseMj))
-        (W $depMj.displayName $depMj.version 'on' 'live' 'dim' '-' (BuildOf $depMj))
+        (W $CoreName "$($core.version)" 'lock' 'none' $(if ($core) { GearOf $core } else { 'dim' }) $(if ($core) { NeedOf $core } else { '-' }) $(if ($core) { BuildOf $core } else { '-' }) 0 '-' 'client')
+        (W $manifest.displayName $manifest.version 'lock' 'none' (GearOf $manifest) (NeedOf $manifest) (BuildOf $manifest) 0 '-' 'client')
+        (W $baseMj.displayName $baseMj.version 'on' 'live' 'dim' (NeedOf $baseMj) (BuildOf $baseMj) 0 '-' 'host')
+        (W $depMj.displayName $depMj.version 'on' 'live' 'dim' '-' (BuildOf $depMj) 0 '-' 'both')
         (W "${name}Bare" '-' 'off' 'live' 'dim' '-' '-')
         (W "${name}Driver" '-' 'on' 'live' 'dim' '-' '-')
-        (W "${name}Fixture" $fixture.version 'off' 'live' 'lit' '>=0.1.0' 'V0.0.0 1' 2 'warning,warning')
-        (W $long.displayName $long.version 'off' 'live' 'dim' '>=0.2.0' (BuildOf $long))
+        (W "${name}Fixture" $fixture.version 'off' 'live' 'lit' '>=0.1.0' 'V0.0.0 1' 2 'warning,warning' 'unknown')
+        (W $long.displayName $long.version 'off' 'live' 'dim' '>=0.2.0' (BuildOf $long) 0 '-' 'host-plus')
         (W "${name}Pak" 'UNMANAGED' 'on' 'fixed' 'dim' '-' '-')
         (W "${name}PakOff" 'UNMANAGED' 'off' 'fixed' 'dim' '-' '-')
     )
     $last = -1
     foreach ($w in $want) {
         $hits = @(for ($i = 0; $i -lt $rows.Count; $i++) { if ($rows[$i].Name -ceq $w.Name) { $i } })
-        $label = "ROW $($w.Name) | $($w.Ver) | toggle=$($w.Toggle) | box=$($w.Box) | gear=$($w.Gear) | status=$($w.Status) | icons=$($w.Icons) | need=$($w.Need) | build=$($w.Build)"
+        $label = "ROW $($w.Name) | $($w.Ver) | toggle=$($w.Toggle) | box=$($w.Box) | gear=$($w.Gear) | status=$($w.Status) | icons=$($w.Icons) | need=$($w.Need) | build=$($w.Build) | scope=$($w.Scope) | stip=$($w.Stip) | runs=$($w.Runs)"
         if ($hits.Count -ne 1) { Fail "$label (found $($hits.Count) rows named so)"; continue }
         $r = $rows[$hits[0]]
         $same = $r.Ver -ceq $w.Ver -and $r.Toggle -ceq $w.Toggle -and $r.Box -ceq $w.Box -and $r.Gear -ceq $w.Gear -and $r.Status -eq $w.Status -and $r.Icons -ceq $w.Icons -and $r.Need -ceq $w.Need -and $r.Build -ceq $w.Build
-        if (-not $same) { Fail "$label (got $($r.Ver) | toggle=$($r.Toggle) | box=$($r.Box) | gear=$($r.Gear) | status=$($r.Status) | icons=$($r.Icons) | need=$($r.Need) | build=$($r.Build))" }
+        $same = $same -and $r.Scope -ceq $w.Scope -and $r.Stip -ceq $w.Stip -and $r.Runs -ceq $w.Runs
+        if (-not $same) { Fail "$label (got $($r.Ver) | toggle=$($r.Toggle) | box=$($r.Box) | gear=$($r.Gear) | status=$($r.Status) | icons=$($r.Icons) | need=$($r.Need) | build=$($r.Build) | scope=$($r.Scope) | stip=$($r.Stip) | runs=$($r.Runs))" }
         elseif ($hits[0] -le $last) { Fail "$label (out of order: row $($hits[0] + 1))" }
         else { Pass $label }
         $last = [math]::Max($last, $hits[0])

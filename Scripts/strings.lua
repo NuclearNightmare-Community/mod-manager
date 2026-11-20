@@ -45,6 +45,19 @@ S.TABLES = {
         setBy = "SET BY %s",                         -- a setting with a source
         notSaved = "NOT SAVED (%s)",                 -- Configure's message line
         noSettings = "NO SETTINGS",
+        -- story 12: where a mod runs (mod.json scope): the scope icon's tooltip is "<name> - <meaning>", and Configure's
+        -- line is "RUNS ON: <name> - <meaning>"
+        scopeLabel = "RUNS ON",
+        scopeHost = "HOST ONLY",
+        scopeHostMeans = "ONLY THE HOST NEEDS IT; PLAYERS WHO JOIN DON'T",
+        scopeClient = "JUST YOU",
+        scopeClientMeans = "WORKS ON ITS OWN, WHETHER YOU HOST OR JOIN",
+        scopeHostPlus = "HOST, PLAYERS OPTIONAL",
+        scopeHostPlusMeans = "THE HOST NEEDS IT; PLAYERS WHO HAVE IT GET MORE",
+        scopeBoth = "HOST AND PLAYERS",
+        scopeBothMeans = "THE HOST AND EVERY PLAYER NEED IT",
+        scopeUnknown = "UNKNOWN",
+        scopeUnknownMeans = "THIS MOD DOESN'T SAY WHERE IT RUNS",
     },
 }
 
