@@ -193,6 +193,23 @@ local function newCore(o)
     core.settings = FakeUi.settings({ ModManagerFixture = { settings = settings } })
     return core
 end
+-- Story 8: core.restart. o.mode: what mode() answers ("direct" by default; false: nil, "unsupported launch");
+-- o.starts: the answers start() gives in turn ({ { true } } by default; { false, why } for nil, why; { "raise" }).
+local function fakeRestart(core, o)
+    o = o or {}
+    local R = { calls = { mode = 0, start = 0 }, starts = o.starts or { { true } } }
+    core.restart = {
+        mode = function() R.calls.mode = R.calls.mode + 1 if o.mode == false then return nil, "unsupported launch" end return o.mode or "direct" end,
+        start = function()
+            R.calls.start = R.calls.start + 1
+            local a = R.starts[math.min(R.calls.start, #R.starts)]
+            if a[1] == "raise" then error("boom start") end
+            if a[1] == true then return true end
+            return nil, a[2]
+        end,
+    }
+    return R
+end
 local function connect(core) W.connects[1].onReady(core) end
 local function lines(pat) local r = {} for _, l in ipairs(W.printed) do if l:find(pat) then r[#r + 1] = l end end return r end
 local function rowOf(U, name) for n = 1, 64 do local el = U.byId["r" .. n .. ".name"] if el and el.text == name and U.byId["r" .. n].visible then return n end end end
@@ -211,24 +228,24 @@ do -- Nucleus missing: exactly one [ModManager] line, the bootstrap's own.
     eq(#W.connects, 0, "no core: no connect")
     restore()
 end
-do -- Nucleus present: connect{ mod = "ModManager", need = ">=0.12.0" }, nothing logged before it answers.
+do -- Nucleus present: connect{ mod = "ModManager", need = ">=0.20.0" }, nothing logged before it answers.
     boot()
     eq(#W.connects, 1, "connect called once")
     local c = W.connects[1]
-    ok(c.mod == "ModManager" and c.need == ">=0.12.0", "connect{ mod = 'ModManager', need = '>=0.12.0' }", tostring(c.mod) .. " " .. tostring(c.need))
+    ok(c.mod == "ModManager" and c.need == ">=0.20.0", "connect{ mod = 'ModManager', need = '>=0.20.0' }", tostring(c.mod) .. " " .. tostring(c.need))
     eq(#W.printed, 0, "nothing printed during main.lua")
-    c.onFail("Nucleus 0.11.0 is older than ModManager needs (>=0.12.0). Update Nucleus.")
+    c.onFail("Nucleus 0.19.0 is older than ModManager needs (>=0.20.0). Update Nucleus.")
     eq(#W.printed, 0, "onFail adds no line (connect's is the only one)")
     eq(W.iterations, 0, "onFail scans nothing")
     eq(#W.writes, 0, "onFail writes nothing")
     restore()
 end
-do -- mod.json and main.lua agree on the need; 0.2.1.
+do -- mod.json and main.lua agree on the need; 0.3.0 (story 8: core.restart needs Nucleus 0.20.0).
     local mj = assert(realOpen(ROOT .. "/mod.json", "rb")):read("a")
-    ok(mj:find('"version": ">=0.12.0"', 1, true) and mj:find('"id": "nuclearnightmare-community.nucleus"', 1, true), "mod.json dependsOn nuclearnightmare-community.nucleus >=0.12.0")
-    ok(mj:find('"version": "0.2.1"', 1, true), "mod.json version 0.2.1")
+    ok(mj:find('"version": ">=0.20.0"', 1, true) and mj:find('"id": "nuclearnightmare-community.nucleus"', 1, true), "mod.json dependsOn nuclearnightmare-community.nucleus >=0.20.0")
+    ok(mj:find('"version": "0.3.0"', 1, true), "mod.json version 0.3.0")
     local src = assert(realOpen(MAIN, "rb")):read("a")
-    ok(src:find('local CORE, NEED, ME = "Nucleus", ">=0.12.0", "ModManager"', 1, true), "main.lua NEED = dependsOn")
+    ok(src:find('local CORE, NEED, ME = "Nucleus", ">=0.20.0", "ModManager"', 1, true), "main.lua NEED = dependsOn")
 end
 
 -- ---------------------------------------------------------------- start
@@ -257,7 +274,7 @@ do -- The entry, READY, a click, the window, the gear, warnings once, faults onc
     eq(#U.entries, 1, "one menu entry")
     local e = U.entries[1]
     ok(e.id == "manage" and e.style == "options" and e.label.en == "MANAGE MODS" and type(e.onClick) == "function", "entry{ id = 'manage', label = { en = 'MANAGE MODS' }, style = 'options' }")
-    eq(#lines("^%[ModManager%] READY entry=manage need=>=0%.12%.0$"), 1, "one READY line after onReady")
+    eq(#lines("^%[ModManager%] READY entry=manage need=>=0%.20%.0$"), 1, "one READY line after onReady")
     eq(W.iterations, 1, "onReady scans once (the session baseline)")
     eq(U.count("screen.open"), 0, "no window before a click")
     eq(#W.writes, 0, "onReady writes nothing")
@@ -869,6 +886,102 @@ do -- A QuitGame that raises: no QUIT line, one WARN.
     U.byId.quit.onClick()
     eq(#lines("QUIT pending"), 0, "a failed quit logs no QUIT line")
     eq(#lines("^%[ModManager%] WARN QUIT GAME failed: .*boom quit"), 1, "one WARN")
+    restore()
+end
+
+-- ---------------------------------------------------------------- Restart now (story 8)
+local function restartSession(o)
+    boot()
+    local core = newCore()
+    local R = o ~= false and fakeRestart(core, o) or nil
+    connect(core)
+    core.ui.entries[1].onClick()
+    return core, core.ui, R
+end
+do -- Nothing pending: RESTART NOW made, hidden; mode asked once per session, logged.
+    local core, U, R = restartSession()
+    ok(U.byId.restart and U.byId.restart.kind == "button" and U.byId.restart.label == "RESTART NOW", "RESTART NOW made")
+    ok(not U.byId.restart.visible, "nothing pending: RESTART NOW hidden")
+    eq(#lines("^%[ModManager%] RESTARTMODE direct$"), 1, "RESTARTMODE direct")
+    core.ui.open.main = nil
+    core.ui.entries[1].onClick()
+    eq(R.calls.mode, 1, "mode asked once per session")
+    restore()
+end
+do -- Pending, mode direct: RESTART NOW beside QUIT GAME; a click starts the helper, logs RESTART, quits.
+    local core, U, R = restartSession()
+    U.toggle("r" .. rowOf(U, "Mod Manager Dep") .. ".tg")
+    ok(U.byId.restart.visible and U.byId.quit.visible, "pending: RESTART NOW and QUIT GAME shown")
+    U.byId.restart.onClick()
+    eq(R.calls.start, 1, "start called once")
+    eq(#lines("^%[ModManager%] RESTART mode=direct pending=1$"), 1, "RESTART mode=direct pending=1")
+    eq(#W.quits, 1, "QuitGame called once (the QUIT GAME path)")
+    ok(W.quits[1] and W.quits[1][1] == "world" and W.quits[1][3] == 0 and W.quits[1][4] == false, "QuitGame(world, pc, 0 (Quit), false)")
+    eq(#lines("QUIT pending"), 0, "no QUIT line for a restart")
+    eq(#lines("WARN"), 0, "no WARN")
+    restore()
+end
+do -- "already started" (a helper is already waiting): still RESTART and the quit; steam mode is logged as such.
+    local core, U, R = restartSession{ mode = "steam", starts = { { false, "already started" } } }
+    U.toggle("r" .. rowOf(U, "Mod Manager Dep") .. ".tg")
+    U.byId.restart.onClick()
+    eq(#lines("^%[ModManager%] RESTART mode=steam pending=1$"), 1, "already started: RESTART mode=steam pending=1")
+    eq(#W.quits, 1, "already started: QuitGame called")
+    restore()
+end
+for _, why in ipairs({ "helper missing", "start failed: 5", "unsupported launch", "command line too long", "native part missing" }) do
+    -- Any other answer: no quit, the message line, one WARN per reason (a second click adds none).
+    local core, U, R = restartSession{ starts = { { false, why } } }
+    U.toggle("r" .. rowOf(U, "Mod Manager Dep") .. ".tg")
+    U.byId.restart.onClick()
+    U.byId.restart.onClick()
+    eq(#W.quits, 0, why .. ": no quit")
+    eq(#lines("RESTART mode"), 0, why .. ": no RESTART line")
+    ok(U.byId.msg.visible and U.byId.msg.text == "CAN'T RESTART: USE QUIT GAME AND START THE GAME AGAIN.", why .. ": the message line", U.byId.msg.text)
+    eq(#lines("^%[ModManager%] WARN RESTART NOW could not restart the game %(" .. why:gsub("%p", "%%%0") .. "%); the game keeps running$"), 1, why .. ": one WARN")
+    ok(U.byId.restart.visible and U.byId.quit.visible, why .. ": both buttons stay")
+    U.byId.quit.onClick()
+    eq(#W.quits, 1, why .. ": QUIT GAME still works")
+    restore()
+end
+do -- start() raising: no quit, the message line, one WARN.
+    local core, U, R = restartSession{ starts = { { "raise" } } }
+    U.toggle("r" .. rowOf(U, "Mod Manager Dep") .. ".tg")
+    U.byId.restart.onClick()
+    eq(#W.quits, 0, "raise: no quit")
+    eq(#lines("^%[ModManager%] WARN RESTART NOW could not restart the game %(.*boom start.*%)"), 1, "raise: one WARN")
+    ok(U.byId.msg.visible, "raise: the message line")
+    restore()
+end
+do -- Neither a manifest nor steam_appid.txt (mode nil): RESTART NOW absent while pending, QUIT GAME works (AC 3).
+    local core, U, R = restartSession{ mode = false }
+    eq(#lines("^%[ModManager%] RESTARTMODE none %(unsupported launch%)$"), 1, "RESTARTMODE none (unsupported launch)")
+    U.toggle("r" .. rowOf(U, "Mod Manager Dep") .. ".tg")
+    ok(U.byId.quit.visible and U.byId.banner.visible, "pending: QUIT GAME and the banner")
+    ok(not U.byId.restart.visible, "mode nil: RESTART NOW absent")
+    U.byId.quit.onClick()
+    eq(#W.quits, 1, "mode nil: QUIT GAME quits")
+    eq(#lines("^%[ModManager%] QUIT pending=1$"), 1, "mode nil: QUIT pending=1")
+    eq(R.calls.start, 0, "mode nil: start never called")
+    restore()
+end
+do -- An older core without core.restart: no RESTART NOW, QUIT GAME as before.
+    local core, U = restartSession(false)
+    eq(#lines("^%[ModManager%] RESTARTMODE none %(Nucleus has no core%.restart%)$"), 1, "no core.restart: RESTARTMODE none")
+    U.toggle("r" .. rowOf(U, "Mod Manager Dep") .. ".tg")
+    ok(U.byId.quit.visible and not U.byId.restart.visible, "no core.restart: QUIT GAME only")
+    restore()
+end
+do -- mode() raising: treated as none.
+    boot()
+    local core = newCore()
+    core.restart = { mode = function() error("boom mode") end, start = function() return true end }
+    connect(core)
+    core.ui.entries[1].onClick()
+    local U = core.ui
+    U.toggle("r" .. rowOf(U, "Mod Manager Dep") .. ".tg")
+    ok(not U.byId.restart.visible, "mode raising: RESTART NOW absent")
+    eq(#lines("^%[ModManager%] RESTARTMODE none %(.*boom mode"), 1, "mode raising: RESTARTMODE none (...)")
     restore()
 end
 

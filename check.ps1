@@ -32,8 +32,17 @@
       "END result=PASS".
     - FILES (run.ps1 appends it): screen: the pak folders as they were after the deploy (mods.txt may change: the
       scenario turns Base off); no-core and old-core: unchanged.
+  restart (story 8; the VM runner's log holds both sessions, split at "[run.ps1] SESSION 2"): the whole log has no
+  crash or driver FAIL, "[run.ps1] RELAUNCH ... cmdline=same userdir=yes", "[run.ps1] MOTW ...Restart.exe ZoneId=3",
+  Defender's real-time and behaviour monitoring on with no detection, no event 1006/1015/1116/1117 and no Code
+  Integrity block since the launch, and build.ps1's scans of main.dll and the helper "no threats found" for the
+  packaged files (BUILDSCAN ... package=same); session 1: ModManagerRestart loaded, the driver's RS* checks, core's
+  "helper started (mode=direct" once, "[ModManager] RESTART mode=direct pending=1" once, no END line; session 2: the
+  Mod Manager running once more, no ModManagerRestart line, no helper started, the driver's facts and RS* checks, END
+  result=PASS, then "[ModManager] QUIT pending=1" and the game closing itself. A failed check here is the story's
+  evidence: a Defender, SmartScreen or Smart App Control line means stop and report, never work around it.
   Exit code 1 when any check fails; otherwise prints "All checks passed."
-  Scenarios: screen, no-core, old-core (run.ps1 drives them); unit needs no log: it runs test.ps1.
+  Scenarios: screen, no-core, old-core, restart (run.ps1 drives them); unit needs no log: it runs test.ps1.
   -Target vm: a log from run.ps1 -Target vm. The VM's game shares the CPU with the host, so core's "hud slow tick"
   WARN under the Mod Manager's tag is soft there.
 .EXAMPLE
@@ -42,7 +51,7 @@
 param(
     [string] $Instance,
     [string] $Log,
-    [ValidateSet('screen', 'no-core', 'old-core', 'unit')]
+    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'unit')]
     [string] $Scenario = 'screen',
     [ValidateSet('host', 'vm')] [string] $Target = 'host',
     [string] $CoreManifest # Nucleus's deployed mod.json; default: -Instance's, else the workspace's mods/Nucleus/build/package
@@ -73,7 +82,7 @@ if (-not $CoreManifest) {
 $lines = @(Get-Content $Log)
 Write-Host "--- $name lines ($Scenario) ---"
 $lines | Where-Object {
-    $_ -match "\[$M\]|\[$D\]|^\[run\.ps1\]" -or
+    $_ -match "\[$M\]|\[$D\]|^\[run\.ps1\]|\[${M}Restart\]|\[$K\] native: restart" -or
     $_ -match 'Error executing script|threw an exception|removing hook|Unhandled Exception|stack traceback|\[script_hook\]'
 } | ForEach-Object { $_ -replace '^\[[^\]]+\]\s*', '' -replace '^\[Lua\]\s*', '' }
 
@@ -159,6 +168,22 @@ $expect = @{
         "\[$D\] OK NOENTRY "
         "\[$D\] END result=PASS"
     )
+    # Story 8: the patterns of the whole log (session 1 and session 2 below are checked on their own part).
+    'restart' = @(
+        '^\[run\.ps1\] SESSION 2 \(relaunched by the game\)'
+        '^\[run\.ps1\] RELAUNCH old=\d+ new=\d+ cmdline=same userdir=yes\s*$'
+        "^\[run\.ps1\] MOTW .*/$K/bin/${K}Restart\.exe ZoneId=3\s*$"
+        '^\[run\.ps1\] DEFENDER status realtime=True behavior=True '
+        '^\[run\.ps1\] DEFENDER detections=0\s*$'
+        '^\[run\.ps1\] DEFENDER events=0\s*$'
+        '^\[run\.ps1\] DEFENDER codeintegrity-blocks=0\s*$'
+        '!^\[run\.ps1\] DEFENDER (detection|event|codeintegrity|error) '
+        '^\[run\.ps1\] BUILDSCAN main\.dll no threats found.* package=same\s*$'
+        "^\[run\.ps1\] BUILDSCAN bin/${K}Restart\.exe no threats found.* package=same\s*$"
+        '!^\[run\.ps1\] BUILDSCAN (missing|unreadable)'
+        '^\[run\.ps1\] RUN game exited'
+        '^\[run\.ps1\] FILES (unchanged|changed: mods\.txt sha256 [0-9A-F]{64} -> [0-9A-F]{64})$'
+    )
     'old-core' = @(
         '^\[run\.ps1\] FILES unchanged$'
         "#1|\[$M\] "
@@ -173,21 +198,69 @@ $failed = 0
 $warned = 0
 function Fail([string] $label) { Write-Host "FAIL: $label"; $script:failed++ }
 function Pass([string] $label) { Write-Host "ok:   $label" }
-Write-Host "--- checks ($Scenario) ---"
-foreach ($pattern in ($always + $expect[$Scenario])) {
-    if ($pattern.StartsWith('#')) {
-        $count, $p = $pattern.Substring(1) -split '\|', 2
-        $hits = @($lines | Where-Object { $_ -match $p }).Count
-        if ($hits -eq [int]$count) { Pass "$pattern (found $hits)" } else { Fail "$pattern (found $hits)" }
-    } elseif ($pattern.StartsWith('?!')) {
-        if ($lines | Where-Object { $_ -match $pattern.Substring(2) }) { Write-Host "warn: $pattern"; $warned++ } else { Pass $pattern }
-    } elseif ($pattern.StartsWith('?')) {
-        if ($lines | Where-Object { $_ -match $pattern.Substring(1) }) { Pass $pattern } else { Write-Host "warn: $pattern"; $warned++ }
-    } elseif ($pattern.StartsWith('!')) {
-        if ($lines | Where-Object { $_ -match $pattern.Substring(1) }) { Fail $pattern } else { Pass $pattern }
-    } else {
-        if ($lines | Where-Object { $_ -match $pattern }) { Pass $pattern } else { Fail $pattern }
+# Each pattern against $set (the whole log, or one session of the restart scenario); $tag names the part in the output.
+function Test-Patterns([string[]] $patterns, [string[]] $set, [string] $tag = '') {
+    foreach ($pattern in $patterns) {
+        if ($pattern.StartsWith('#')) {
+            $count, $p = $pattern.Substring(1) -split '\|', 2
+            $hits = @($set | Where-Object { $_ -match $p }).Count
+            if ($hits -eq [int]$count) { Pass "$tag$pattern (found $hits)" } else { Fail "$tag$pattern (found $hits)" }
+        } elseif ($pattern.StartsWith('?!')) {
+            if ($set | Where-Object { $_ -match $pattern.Substring(2) }) { Write-Host "warn: $tag$pattern"; $script:warned++ } else { Pass "$tag$pattern" }
+        } elseif ($pattern.StartsWith('?')) {
+            if ($set | Where-Object { $_ -match $pattern.Substring(1) }) { Pass "$tag$pattern" } else { Write-Host "warn: $tag$pattern"; $script:warned++ }
+        } elseif ($pattern.StartsWith('!')) {
+            if ($set | Where-Object { $_ -match $pattern.Substring(1) }) { Fail "$tag$pattern" } else { Pass "$tag$pattern" }
+        } else {
+            if ($set | Where-Object { $_ -match $pattern }) { Pass "$tag$pattern" } else { Fail "$tag$pattern" }
+        }
     }
+}
+Write-Host "--- checks ($Scenario) ---"
+Test-Patterns ($always + $expect[$Scenario]) $lines
+
+if ($Scenario -eq 'restart') {
+    # Story 8: session 1 runs until the RESTART NOW click, session 2 is the relaunched game.
+    $cut = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match '^\[run\.ps1\] SESSION 2 ') { $cut = $i; break } }
+    $s1 = if ($cut -gt 0) { @($lines[0..($cut - 1)]) } elseif ($cut -lt 0) { $lines } else { @() }
+    $s2 = if ($cut -ge 0 -and $cut + 1 -lt $lines.Count) { @($lines[($cut + 1)..($lines.Count - 1)]) } else { @() }
+    $R = [regex]::Escape("${name}Restart")
+    Test-Patterns ($running + @(
+        "\[$D\] SCENARIO restart\s*$"
+        "\[$D\] RESTART session 1\s*$"
+        "#1|\[$R\] loaded\s*$"
+        "\[$D\] OK RSLOADED1 ", "\[$D\] OK RSROW1 ", "\[$D\] OK RSHIDDEN ", "\[$D\] OK RSTXT0 ", "\[$D\] OK RSOFF ", "\[$D\] OK RSSHOWN "
+        "\[$D\] OK RSPLACE ", "\[$D\] OK RSMODULE ", "\[$D\] OK RSMODE ", "\[$D\] OK RSSTART1 ", "\[$D\] OK RSSTART2 ", "\[$D\] OK RSFACTS "
+        "\[$D\] CLICK RESTART NOW at "
+        "#1|\[$M\] TOGGLE ${R} off\s*$"
+        "#1|\[$M\] RESTARTMODE direct\s*$"
+        "#1|\[$K\] native: restart: helper started \(mode=direct, pid=\d+\)"
+        "!\[$K\] native: restart: not started"
+        "#1|\[$M\] RESTART mode=direct pending=1\s*$"
+        "!\[$M\] WARN RESTART NOW"
+        "!\[$D\] END result="
+        "!\[$M\] QUIT pending="
+    )) $s1 'session 1: '
+    Test-Patterns ($running + @(
+        "\[$D\] SCENARIO restart\s*$"
+        "\[$D\] RESTART session 2\s*$"
+        "!\[$R\] loaded"
+        "\[$D\] FACTS mode=direct start1=true start2=nil already started checks=\d+ failures=0\s*$"
+        "\[$D\] OK RSFACTS2 ", "\[$D\] OK RSNOTLOADED ", "\[$D\] OK RSROW2 ", "\[$D\] OK RSNOPENDING ", "\[$D\] OK RSTXT2 ", "\[$D\] OK RSSHOWN2 "
+        "\[$D\] OK QUITPOINT "
+        "#1|\[$M\] TOGGLE ${R} on\s*$"
+        "!\[$K\] native: restart: helper started"
+        "!\[$M\] RESTART mode="
+        "\[$D\] END result=PASS"
+        "#1|\[$M\] QUIT pending=1\s*$"
+    )) $s2 'session 2: '
+    $iend, $iquit = -1, -1
+    for ($i = 0; $i -lt $s2.Count; $i++) {
+        if ($iend -lt 0 -and $s2[$i] -match "\[$D\] END result=PASS") { $iend = $i }
+        if ($iquit -lt 0 -and $s2[$i] -match "\[$M\] QUIT pending=") { $iquit = $i }
+    }
+    if ($iend -ge 0 -and $iquit -gt $iend) { Pass 'session 2: QUIT GAME clicked after END result=PASS' } else { Fail "session 2: QUIT GAME clicked after END result=PASS (END at line $iend, QUIT at line $iquit)" }
 }
 
 function IndexOf([string] $p) { for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match $p) { return $i } } return -1 }

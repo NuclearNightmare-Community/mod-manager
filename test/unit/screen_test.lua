@@ -91,6 +91,7 @@ do -- First open: the window, the title, the header, the lists, one row per mod.
     ok(U.byId["r6"] == nil, "no row beyond the data")
     -- the bottom-right stack, hidden while nothing is pending
     ok(U.byId.quit.kind == "button" and U.byId.quit.label == "QUIT GAME" and not U.byId.quit.visible, "QUIT GAME made, hidden")
+    ok(U.byId.restart.kind == "button" and U.byId.restart.label == "RESTART NOW" and not U.byId.restart.visible, "story 8: RESTART NOW made, hidden")
     ok(U.byId.banner.text == "CHANGES APPLY AFTER A RESTART." and not U.byId.banner.visible and not U.byId.msg.visible, "banner and message hidden")
 
     -- Second open: same elements, nothing created again, the window opened again.
@@ -155,14 +156,30 @@ do -- Story 6: status icons, tooltips, refresh in place, pending, the message li
     -- pending: QUIT GAME and the banner; the message line
     v:setPending(2)
     ok(U.byId.quit.visible and U.byId.banner.visible, "pending: QUIT GAME and the banner shown")
+    -- story 8: RESTART NOW only while pending and restartable
+    ok(not U.byId.restart.visible, "pending, not restartable (the default): RESTART NOW hidden")
+    v:setRestartable(true)
+    ok(U.byId.restart.visible and U.byId.quit.visible, "pending and restartable: RESTART NOW beside QUIT GAME")
+    v:setPending(0)
+    ok(not U.byId.restart.visible and not U.byId.quit.visible, "restartable, nothing pending: both hidden")
+    v:setPending(2)
+    ok(U.byId.restart.visible, "pending again: RESTART NOW back")
+    v:setRestartable(false)
+    ok(not U.byId.restart.visible and U.byId.quit.visible, "not restartable: RESTART NOW hidden, QUIT GAME stays")
+    v:setRestartable(true)
     v:setMessage("COULD NOT SAVE THE CHANGE")
     ok(U.byId.msg.visible and U.byId.msg.text == "COULD NOT SAVE THE CHANGE", "the message line")
     v:setPending(0); v:setMessage(nil)
-    ok(not U.byId.quit.visible and not U.byId.banner.visible and not U.byId.msg.visible, "nothing pending: all hidden")
+    ok(not U.byId.quit.visible and not U.byId.restart.visible and not U.byId.banner.visible and not U.byId.msg.visible, "nothing pending: all hidden")
     local qc = 0
     v.onQuit = function() qc = qc + 1 end
     U.byId.quit.onClick()
     eq(qc, 1, "QUIT GAME calls onQuit")
+    local rc = 0
+    v.onRestart = function() rc = rc + 1 end
+    U.byId.restart.onClick()
+    eq(rc, 1, "RESTART NOW calls onRestart")
+    eq(qc, 1, "RESTART NOW doesn't call onQuit itself")
     -- a checkbox click reaches onToggle with the new state; setToggle sets it back without a callback
     local got
     v.onToggle = function(n, c) got = n .. ":" .. tostring(c) end
@@ -221,9 +238,9 @@ do -- The Configure window: heading and three lines; created once; Close is core
     v.onGearClick = nil
     U.byId["r3.cfg"].onClick()
     eq(U.byId["cfg.title"].text, "ModManagerFixture", "without a hook the gear opens Configure itself")
-    -- clickable buttons: the gears and QUIT GAME (the toggles are checkboxes)
+    -- clickable buttons: the gears, QUIT GAME and RESTART NOW (the toggles are checkboxes)
     for id, el in pairs(U.byId) do
-        if el.onClick then ok(id:match("^r%d+%.cfg$") ~= nil or id == "quit", "only gears and QUIT GAME are buttons: " .. id) end
+        if el.onClick then ok(id:match("^r%d+%.cfg$") ~= nil or id == "quit" or id == "restart", "only gears, QUIT GAME and RESTART NOW are buttons: " .. id) end
     end
 end
 
@@ -371,14 +388,19 @@ do -- 0.1.1 layout: the card's top-left corner stack, no fixed offsets; the list
     eq(8 + l.place.offset.x, 16, "the list's left edge is the header list's (tight gap + nudge = normal gap)")
     ok(hl.place.screen == w and l.place.screen == w, "both lists on the main window")
     eq(cornerOrder(U, w), "title,hdr.list,list", "the corner stack's creation order: title, header list, list")
-    eq(cornerOrder(U, w, "bottom-right"), "quit,banner,msg", "story 6: QUIT GAME, the banner and the message line in the bottom-right corner")
+    eq(cornerOrder(U, w, "bottom-right"), "quit,restart,banner,msg", "story 6: QUIT GAME, (story 8) RESTART NOW right after it, the banner and the message line in the bottom-right corner")
     eq(hl.size.h, Screen.HEADER_H, "header list height")
     eq(l.size.h, 1080 - Screen.LIST_RESERVE, "list height: the layout height less the reserve")
     ok(l.size.h <= 1080 - Screen.LIST_RESERVE and l.size.h >= 32, "list height: at most 1080 less the reserve, and a valid list size")
     -- The budget's headroom against core 0.12.0's clamp at layout height 1080 (968), with generous estimates of what the
     -- Mod Manager doesn't own (title about 60, gaps 16 + 8 + 16 + 16) and the taller bottom stack (story 6's QUIT GAME,
-    -- banner and message line, about 50 + 16 + 40 + 16 + 40 with its inset 16): at least 40 under.
-    ok(16 + 60 + 16 + Screen.HEADER_H + 8 + l.size.h + 16 + 16 + 50 + 16 + 40 + 16 + 40 <= 968 - 40, "the estimated hug stays at least 40 units under the clamp")
+    -- banner and message line, about 50 + 16 + 40 + 16 + 40 with its inset 16; story 8's RESTART NOW, 16 + 50 more).
+    -- Measured in the VM (story 9's CARDFIT at 1280x720): a button is about 44 high and a text line about 30, so the real
+    -- hug is lower still. Pending, the usual state (no message line): at least 40 under; with the message line too:
+    -- under the clamp.
+    local top = 16 + 60 + 16 + Screen.HEADER_H + 8 + l.size.h + 16
+    ok(top + 16 + 50 + 16 + 50 + 16 + 40 <= 968 - 40, "pending, both buttons and the banner: the estimated hug stays at least 40 units under the clamp")
+    ok(top + 16 + 50 + 16 + 50 + 16 + 40 + 16 + 40 <= 968, "with the message line as well: the estimated hug stays under the clamp")
     ok(Screen.SIDE_RESERVE > 0 and Screen.LIST_RESERVE > 0, "the reserves are positive")
     local U2 = FakeUi.new()
     Screen.new(U2, S):openMain(ROWS, "en", { w = 1920, h = 1080 })

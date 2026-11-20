@@ -18,6 +18,8 @@
     Mods/ModManagerDep       mod.json only, needing ModManagerBase, "ModManagerDep : 1"
     Content/Paks/ModManagerPak_P.pak and ModManagerPakOff_P.pak.disabled (build/fixtures/ModManagerPak_P.pak,
                              built by build.ps1 -Fixtures, which this runs when the file is missing)
+    Mods/ModManagerRestart   story 8, only with -Scenario restart: mod.json and a Scripts/main.lua that logs
+                             "[ModManagerRestart] loaded", "ModManagerRestart : 1"
   A deploy without -Test removes the driver and the fixtures. -Remove deletes all of it and their mods.txt lines;
   nothing else changes (mods.txt keeps its bytes when it had none of these lines).
   -Staged: $Instance is the host-side staging folder of a VM run (run.ps1 -Target vm, tools/vm/vm-sp.ps1), not a game
@@ -31,7 +33,7 @@
 param(
     [Parameter(Mandatory)] [string] $Instance,
     [switch] $Test,
-    [ValidateSet('screen', 'no-core', 'old-core')]
+    [ValidateSet('screen', 'no-core', 'old-core', 'restart')]
     [string] $Scenario = 'screen',
     [switch] $Force,
     [switch] $Remove,
@@ -45,7 +47,7 @@ $here     = $PSScriptRoot
 $manifest = Get-Content (Join-Path $here 'mod.json') -Raw | ConvertFrom-Json
 $name     = $manifest.name
 $driver   = "${name}Driver"
-$fixtures = @("${name}Fixture", "${name}Bare", "${name}Long", "${name}Base", "${name}Dep")
+$fixtures = @("${name}Fixture", "${name}Bare", "${name}Long", "${name}Base", "${name}Dep", "${name}Restart") # Restart: story 8, restart scenario only
 $fixturePaks = @("${name}Pak_P.pak", "${name}PakOff_P.pak.disabled")
 $inst     = (Resolve-Path $Instance).Path
 $win64    = Join-Path $inst 'NuclearNightmare\Binaries\Win64'
@@ -128,7 +130,7 @@ $add = @($name)
 $off = @()
 if ($Test) {
     Copy-Item (Join-Path $here "test\$driver") (Join-Path $modsDir $driver) -Recurse -Force
-    foreach ($f in 'scenario.txt', 'request.txt', 'done.txt') { Remove-Item (Join-Path $modsDir "$driver\Scripts\$f") -ErrorAction SilentlyContinue }
+    foreach ($f in 'scenario.txt', 'request.txt', 'done.txt', 'restart-facts.txt') { Remove-Item (Join-Path $modsDir "$driver\Scripts\$f") -ErrorAction SilentlyContinue }
     [IO.File]::WriteAllText((Join-Path $modsDir "$driver\Scripts\scenario.txt"), $Scenario)
     New-Item -ItemType Directory -Force (Join-Path $modsDir "${name}Fixture"), (Join-Path $modsDir "${name}Bare\Scripts"), (Join-Path $modsDir "${name}Long") | Out-Null
     Copy-Item (Join-Path $here "test\${name}Fixture\mod.json") (Join-Path $modsDir "${name}Fixture") -Force
@@ -142,6 +144,11 @@ if ($Test) {
     Copy-Item $fixturePak (Join-Path $paksDir $fixturePaks[1]) -Force
     $add = @($driver, $name, "${name}Base", "${name}Dep")
     $off = @("${name}Fixture")
+    if ($Scenario -eq 'restart') {
+        # Story 8: the mod the scenario turns off before RESTART NOW (the relaunched game must not load it).
+        Copy-Item (Join-Path $here "test\${name}Restart") (Join-Path $modsDir "${name}Restart") -Recurse -Force
+        $add += "${name}Restart"
+    }
 }
 $lines = Edit-ModsTxt -Lines $clean -Add $add -Disabled $off -After $CoreName
 Write-ModsTxt $modsTxt $file $lines

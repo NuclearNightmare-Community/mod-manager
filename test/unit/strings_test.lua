@@ -22,7 +22,9 @@ local want = { manage = "MANAGE MODS", title = "MOD MANAGER", name = "NAME", ver
     couldNotSave = "COULD NOT SAVE THE CHANGE", banner = "CHANGES APPLY AFTER A RESTART.", quit = "QUIT GAME",
     alert = "NUCLEUS %s WAS MADE FOR GAME %s. THIS GAME IS %s. MODS MAY NOT WORK UNTIL NUCLEUS IS UPDATED.",
     gameAt = "%s (BUILD %s)", appliesAfterRestart = "APPLIES AFTER A RESTART", lobbyOnly = "CAN ONLY BE CHANGED IN A LOBBY",
-    setBy = "SET BY %s", notSaved = "NOT SAVED (%s)", noSettings = "NO SETTINGS" }
+    setBy = "SET BY %s", notSaved = "NOT SAVED (%s)", noSettings = "NO SETTINGS",
+    -- story 8
+    restart = "RESTART NOW", cantRestart = "CAN'T RESTART: USE QUIT GAME AND START THE GAME AGAIN." }
 for k, v in pairs(want) do eq(S.TABLES.en[k], v, "en." .. k) end
 for k, v in pairs(S.TABLES.en) do
     ok(want[k] ~= nil, "en." .. k .. " is a string the spec names")

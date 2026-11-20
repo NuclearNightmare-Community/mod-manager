@@ -24,6 +24,14 @@
   Scenarios that break core on purpose (no-core: Mods/Nucleus moved aside; old-core: its mod.json version set to
   0.1.0, which the driver publishes as core's runtime version) first check that deploy.ps1 refuses without -Force,
   then deploy with -Force, and put core back afterwards (in the VM they act on the stage only).
+  The restart scenario (story 8; VM only: the host runner can't follow a relaunch) turns ModManagerRestart off, starts
+  core's relaunch helper and clicks RESTART NOW; the game closes and starts itself again. The VM runner is called with
+  -AllowRelaunch (one exit followed by a new game process within 60 s; the kept log holds both sessions and a
+  "[run.ps1] RELAUNCH old=<pid> new=<pid> cmdline=same|differs userdir=yes|no" line), -MarkOfTheWeb on the deployed
+  Mods/Nucleus/bin/NucleusRestart.exe (tagged as downloaded before the launch) and -DefenderReport ("[run.ps1] DEFENDER
+  ..." lines). run.ps1 then appends "[run.ps1] BUILDSCAN <file> <result> package=same|differs" for each line of
+  Nucleus's build/logs/defender.txt (build.ps1's Windows Defender scans), comparing the scanned SHA-256 with the
+  file in Nucleus's build/package.
   Keeps the log as <workspace>/dumps/<copy>/mod-manager/<scenario>[.vm].log (ignored by git) and runs check.ps1 on it.
   Refuses to start while another runner's test or driver mod is enabled in the copy (the workspace's tools/run-guard:
   the refusal names each and the command that clears it); -AllowOtherDrivers runs anyway.
@@ -33,22 +41,23 @@
 #>
 param(
     [Parameter(Mandatory)] [string] $Instance,
-    [ValidateSet('screen', 'no-core', 'old-core')]
+    [ValidateSet('screen', 'no-core', 'old-core', 'restart')]
     [string] $Scenario = 'screen',
-    [int] $TimeoutSec = 0, # 0: screen 1200 s (about 90 requests and two map loads), others 420 s; x1.5 in the VM
+    [int] $TimeoutSec = 0, # 0: screen 1200 s (about 90 requests and two map loads), restart 600 s (two launches), others 420 s; x1.5 in the VM
     [ValidateSet('host', 'vm')] [string] $Target = 'vm',
     [switch] $AllowOtherDrivers # run even when another runner's test mod is enabled in the copy (tools/run-guard)
 )
 $ErrorActionPreference = 'Stop'
-$hostTimeout = switch ($Scenario) { 'screen' { 1200 } default { 420 } }
+$hostTimeout = switch ($Scenario) { 'screen' { 1200 } 'restart' { 600 } default { 420 } }
+if ($Scenario -eq 'restart' -and $Target -ne 'vm') { throw 'The restart scenario runs only in the VM (-Target vm): the host runner does not follow a game that starts itself again.' }
 if ($TimeoutSec -le 0 -and $Target -eq 'host') { $TimeoutSec = $hostTimeout }
 $CoreName = 'Nucleus'
 $here     = $PSScriptRoot
 $name     = (Get-Content (Join-Path $here 'mod.json') -Raw | ConvertFrom-Json).name
 $driver   = "${name}Driver"
-# The line that ends a run early: screen ends with QUIT GAME after END result=PASS, so only a FAIL stops it here.
-$endRx = if ($Scenario -eq 'screen') { "\[$driver\] END result=FAIL" } else { "\[$driver\] END result=" }
-$fixtures = @("${name}Fixture", "${name}Bare", "${name}Long", "${name}Base", "${name}Dep")
+# The line that ends a run early: screen and restart end with QUIT GAME after END result=PASS, so only a FAIL stops it here.
+$endRx = if ($Scenario -in 'screen', 'restart') { "\[$driver\] END result=FAIL" } else { "\[$driver\] END result=" }
+$fixtures = @("${name}Fixture", "${name}Bare", "${name}Long", "${name}Base", "${name}Dep", "${name}Restart")
 $fixturePaks = @("${name}Pak_P.pak", "${name}PakOff_P.pak.disabled")
 $inst     = (Resolve-Path $Instance).Path
 $root     = Split-Path (Split-Path $inst)
@@ -147,9 +156,16 @@ if ($Target -eq 'vm') {
     if (-not (Test-Path $coreDeploy)) { throw "$CoreName's deploy.ps1 not found at $coreDeploy (the VM run installs core from its build/package)." }
     $kept = Join-Path $outDir "$Scenario.vm.log"
     Remove-Item $kept -ErrorAction SilentlyContinue
+    # Story 8: the restart scenario lets the game relaunch itself once, tags the deployed helper with Mark of the Web and
+    # reports Windows Defender afterwards.
+    $relaunch = @{}
+    if ($Scenario -eq 'restart') {
+        $relaunch = @{ AllowRelaunch = $true; DefenderReport = $true
+            MarkOfTheWeb = "NuclearNightmare\Binaries\Win64\ue4ss\Mods\$CoreName\bin\${CoreName}Restart.exe" }
+    }
     try {
         $run = Invoke-NNBSpRun -Instance $inst -TestMod $driver -Mods (@($CoreName, $driver, $name) + $fixtures) -Paks "$CoreName.pak" -BasePaks $fixturePaks -FileState `
-            -EndPattern $endRx -TimeoutSec (Get-NNBSpTimeout $hostTimeout $TimeoutSec) -LogOut $kept -Prepare {
+            -EndPattern $endRx -TimeoutSec (Get-NNBSpTimeout $hostTimeout $TimeoutSec) -LogOut $kept @relaunch -Prepare {
                 param($stage)
                 $refusal = Get-RunGuardRefusal -Workspace $root -Instance $stage -Owner 'mod-manager' -Bypass:$AllowOtherDrivers -Vm
                 if ($refusal) { throw $refusal }
@@ -163,6 +179,22 @@ if ($Target -eq 'vm') {
     if ($run.Log) {
         Add-FilesLine $kept "[run.ps1] RUN $($run.Result)"
         Add-FilesLine $kept (Get-FilesLine $run.FilesBefore $run.FilesAfter)
+        if ($Scenario -eq 'restart') {
+            # Story 8: build.ps1's Windows Defender scans of what was installed (Nucleus's build/logs/defender.txt).
+            $coreBuild = Join-Path $root "mods\$CoreName\build"
+            $scanLog = Join-Path $coreBuild 'logs\defender.txt'
+            $scans = if (Test-Path $scanLog) { @(Get-Content $scanLog | Where-Object { $_ -match '^SCAN ' }) } else { @() }
+            if (-not $scans) { Add-FilesLine $kept "[run.ps1] BUILDSCAN missing ($scanLog)" }
+            foreach ($l in $scans) {
+                if ($l -match '^SCAN (\S+) sha256=([0-9A-F]{64}) result=(.*)$') {
+                    $rel, $sha, $res = $Matches[1], $Matches[2], $Matches[3]
+                    $pkgRel = if ($rel -eq 'main.dll') { 'dlls/main.dll' } else { $rel }
+                    $pkgFile = Join-Path $coreBuild "package\Mods\$CoreName\$($pkgRel -replace '/', '\')"
+                    $same = (Test-Path -LiteralPath $pkgFile) -and (Get-FileHash -LiteralPath $pkgFile -Algorithm SHA256).Hash -eq $sha
+                    Add-FilesLine $kept "[run.ps1] BUILDSCAN $rel $res package=$(if ($same) { 'same' } else { 'differs' })"
+                } else { Add-FilesLine $kept "[run.ps1] BUILDSCAN unreadable: $l" }
+            }
+        }
         & pwsh -NoProfile -NonInteractive -File (Join-Path $here 'check.ps1') -Log $kept -Scenario $Scenario -Target vm `
             -CoreManifest (Join-Path $root "mods\$CoreName\build\package\Mods\$CoreName\mod.json")
         $code = $LASTEXITCODE

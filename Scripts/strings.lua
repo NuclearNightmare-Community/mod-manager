@@ -1,4 +1,4 @@
--- Mod Manager story 3 (story 6 adds its strings): every string the player sees, per language, and the picker. The rule is core's
+-- Mod Manager story 3 (story 6 adds its strings, story 8 RESTART NOW's): every string the player sees, per language, and the picker. The rule is core's
 -- (mods/Nucleus/lua/pkg/ui/strings.lua): the game's language tag exactly, then its prefix before "-", then English,
 -- all without regard to case. A language table may leave keys out; those come from English. English is required and
 -- upper case, like the game's own labels (the menu column's buttons have no case transform).
@@ -35,6 +35,9 @@ S.TABLES = {
         couldNotSave = "COULD NOT SAVE THE CHANGE",  -- the main window's message line
         banner = "CHANGES APPLY AFTER A RESTART.",   -- while a change is pending
         quit = "QUIT GAME",
+        -- story 8: Restart now (shown beside QUIT GAME when the game can be started again the way it was launched)
+        restart = "RESTART NOW",
+        cantRestart = "CAN'T RESTART: USE QUIT GAME AND START THE GAME AGAIN.", -- the message line when the helper can't start
         alert = "NUCLEUS %s WAS MADE FOR GAME %s. THIS GAME IS %s. MODS MAY NOT WORK UNTIL NUCLEUS IS UPDATED.",
         gameAt = "%s (BUILD %s)",                    -- a game in the alert
         appliesAfterRestart = "APPLIES AFTER A RESTART", -- a restart setting's mark

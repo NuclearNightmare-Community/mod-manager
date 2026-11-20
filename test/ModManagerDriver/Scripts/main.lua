@@ -26,6 +26,16 @@
 --             every menu sampled each frame for pop-in, NOPOPIN menu1..4, HIDDENFIRST menu2..4; a menu<k>-return shot once
 --             its entry is in);
 --             the entry again, the same rows (DW-59); END; then QUIT GAME, which closes the game.
+--   restart:  story 8, two sessions (VM only; the runner lets the game relaunch itself once). Session 1 (no
+--             restart-facts.txt next to this file): ModManagerRestart loaded; its row on, nothing pending, no RESTART NOW;
+--             its box clicked off: the restart icon, the banner, QUIT GAME and RESTART NOW (right above QUIT GAME);
+--             core.restart (core's own module, required here: this driver doesn't connect) mode() is "direct", start()
+--             is true, a second start() is nil, "already started"; the facts saved to restart-facts.txt; then a real
+--             click on RESTART NOW (the Mod Manager's start() gets "already started", the first helper relaunches the
+--             game). No END line in session 1 unless a check failed before the click (END result=FAIL, no click).
+--             Session 2 (the facts file there): the facts logged and judged; ModManagerRestart not loaded; its row
+--             off with nothing pending (no banner, QUIT GAME or RESTART NOW), mods.txt ': 0'; the box clicked back on
+--             (pending again, both buttons shown); END; then QUIT GAME.
 --   no-core:  (run.ps1 moves core aside) the menu has no MANAGE MODS entry.
 --   old-core: (run.ps1 sets core's installed mod.json to 0.1.0) publishes that version as <core>.version before the
 --             Mod Manager connects, as an old core would; the menu has no MANAGE MODS entry.
@@ -1119,6 +1129,151 @@ local function buildScreen()
     end)
 end
 
+-- ---------------------------------------------------------------- restart (story 8): two sessions around RESTART NOW
+local function buildRestart()
+    local RSNAME = "ModManagerRestart"
+    local LOADED_KEY = "modmanagerrestart.loaded"
+    local FACTS = scriptDir .. "\\restart-facts.txt"
+    local RS = {}
+    local function rowNamed(name) for _, r in ipairs(readRows()) do if r.name == name then return r end end end
+    local function nOf() local r = rowNamed(RSNAME) return r and r.n end
+    local function clickBox()
+        step("view " .. RSNAME, function() local n = nOf() if n then nested(function() intoView(n) end) end end)
+        clickOn(RSNAME .. "'s tg", function() local n = nOf() return n and cell(n, "tg") end)
+    end
+    local function txtHas(s) return function() local t = readFile("mods.txt") return t ~= nil and t:find(s, 1, true) ~= nil end end
+    local function pendingShown() return shownW(mainEl("banner")) and shownW(mainEl("quit")) and shownW(mainEl("restart")) end
+    local function noneShown() return not shownW(mainEl("banner")) and not shownW(mainEl("quit")) and not shownW(mainEl("restart")) end
+    local facts
+    do
+        local f = io.open(FACTS, "r")
+        if f then
+            facts = {}
+            for line in (f:read("a") or ""):gmatch("[^\r\n]+") do
+                local k, val = line:match("^(%w+)=(.*)$")
+                if k then facts[k] = val end
+            end
+            f:close()
+        end
+    end
+    say("RESTART session %d", facts and 2 or 1)
+
+    local function menuUp(phase)
+        waitWorld(phase, "NewMainMenu", 120)
+        pastStartup()
+        waitFor("the entry", function() return menu() ~= nil and entryOf(menu()) ~= nil end, 60)
+        settle(3)
+    end
+
+    if not facts then
+        -- ---- session 1
+        menuUp("menu1")
+        step("restart: fixture loaded", function()
+            check(ModRef:GetSharedVariable(LOADED_KEY) == true, "RSLOADED1 %s loaded in session 1", RSNAME)
+        end)
+        openMain("first")
+        step("restart: begin", function()
+            local r = rowNamed(RSNAME)
+            check(r ~= nil and r.toggle == "on" and r.box == "live" and r.icons == "-", "RSROW1 %s: a live box, on, no icon (%s, %s, %s)",
+                RSNAME, tostring(r and r.toggle), tostring(r and r.box), tostring(r and r.icons))
+            check(noneShown(), "RSHIDDEN nothing pending: no banner, QUIT GAME or RESTART NOW")
+            local t = readFile("mods.txt")
+            check(t ~= nil and t:find(RSNAME .. " : 1", 1, true) ~= nil, "RSTXT0 mods.txt has '%s : 1'", RSNAME)
+        end)
+        clickBox()
+        waitFor(RSNAME .. " off in mods.txt", txtHas(RSNAME .. " : 0"), 10)
+        settle(1.5)
+        step("restart: pending", function()
+            local r = rowNamed(RSNAME)
+            check(r ~= nil and r.toggle == "off" and r.icons == "restart", "RSOFF %s: box off, the restart icon (%s, %s)", RSNAME, tostring(r and r.toggle), tostring(r and r.icons))
+            check(pendingShown(), "RSSHOWN changes pending: the banner, QUIT GAME and RESTART NOW are shown")
+            local q, rr = absR(mainEl("quit")), absR(mainEl("restart"))
+            local sc = scale()
+            check(q ~= nil and rr ~= nil and rr.b <= q.t + 1 and (q.t - rr.b) / sc <= 24 and rr.r > q.l and rr.l < q.r,
+                "RSPLACE RESTART NOW sits right above QUIT GAME in the bottom-right stack (%s over %s)", rs(rr), rs(q))
+        end)
+        step("cursor away", function() return request("move 5 5"), 30, "cursor away" end)
+        shot("mm-restart-pending")
+        step("restart: core.restart twice", function()
+            local mods = scriptDir:match("^(.*)[/\\][^/\\]+[/\\][Ss]cripts$") or "."
+            local add = mods .. "\\" .. CORE .. "\\Scripts\\?.lua"
+            if not package.path:find(add, 1, true) then package.path = package.path .. ";" .. add end
+            local okM, RM = pcall(require, CORE:lower() .. ".restart")
+            if not check(okM and type(RM) == "table", "RSMODULE %s.restart loads in the driver's state (%s)", CORE:lower(), okM and type(RM) or firstLine(RM)) then return end
+            local m, mw = RM.mode()
+            local a1, w1 = RM.start()
+            local a2, w2 = RM.start()
+            RS.mode, RS.s1, RS.s2 = tostring(m), tostring(a1) .. (w1 and (" " .. tostring(w1)) or ""), tostring(a2) .. (w2 and (" " .. tostring(w2)) or "")
+            check(m == "direct", "RSMODE core.restart.mode() is direct on the dev copy (%s, %s)", tostring(m), tostring(mw))
+            check(a1 == true, "RSSTART1 the first core.restart.start() is true (%s)", RS.s1)
+            check(a2 == nil and w2 == "already started", "RSSTART2 the second is nil, \"already started\" (%s)", RS.s2)
+        end)
+        step("restart: save the facts", function()
+            local text = string.format("mode=%s\nstart1=%s\nstart2=%s\nchecks=%d\nfailures=%d\n", RS.mode or "?", RS.s1 or "?", RS.s2 or "?", S.checks, S.failures)
+            local f = io.open(FACTS, "w")
+            if f then f:write(text); f:close() end
+            local g = io.open(FACTS, "r")
+            local back = g and g:read("a")
+            if g then g:close() end
+            check(back == text, "RSFACTS session 1's facts saved to restart-facts.txt")
+        end)
+        step("restart: click", function()
+            if S.failures > 0 then
+                say("RESTART not clicked: %d check(s) failed in session 1", S.failures)
+                finish() -- END result=FAIL; the runner stops the game and the waiting helper
+                return
+            end
+            local r = absR(mainEl("restart"))
+            if not check(r ~= nil, "RSPOINT RESTART NOW has a point to click") then finish() return end
+            local x, y = center(r)
+            say("CLICK RESTART NOW at (%d,%d)", x, y)
+            request(string.format("click %d %d", x, y))
+            -- The game closes; this session ends here without an END line.
+            return after(120), 130, "the game to close after RESTART NOW"
+        end)
+        step("restart: still running", function() check(false, "RSQUIT the game did not close within 120 s of the RESTART NOW click") end)
+        return
+    end
+
+    -- ---- session 2
+    step("restart: session 1's facts", function()
+        say("FACTS mode=%s start1=%s start2=%s checks=%s failures=%s", tostring(facts.mode), tostring(facts.start1), tostring(facts.start2), tostring(facts.checks), tostring(facts.failures))
+        check(facts.mode == "direct" and facts.start1 == "true" and facts.start2 == "nil already started" and facts.failures == "0" and (tonumber(facts.checks) or 0) > 0,
+            "RSFACTS2 session 1: mode direct, start() true then nil \"already started\", no failed check")
+    end)
+    menuUp("menu1")
+    step("restart: not loaded", function()
+        check(ModRef:GetSharedVariable(LOADED_KEY) == nil, "RSNOTLOADED %s did not load in the relaunched game", RSNAME)
+    end)
+    openMain("relaunched")
+    step("restart: row off", function()
+        local r = rowNamed(RSNAME)
+        check(r ~= nil and r.toggle == "off" and r.box == "live" and r.icons == "-", "RSROW2 %s: box off, no icon (%s, %s, %s)",
+            RSNAME, tostring(r and r.toggle), tostring(r and r.box), tostring(r and r.icons))
+        check(noneShown(), "RSNOPENDING nothing pending after the restart: no banner, QUIT GAME or RESTART NOW")
+        local t = readFile("mods.txt")
+        check(t ~= nil and t:find(RSNAME .. " : 0", 1, true) ~= nil, "RSTXT2 mods.txt has '%s : 0'", RSNAME)
+    end)
+    shot("mm-restart-relaunched")
+    clickBox()
+    waitFor(RSNAME .. " back on in mods.txt", txtHas(RSNAME .. " : 1"), 10)
+    settle(1.5)
+    step("restart: back on", function()
+        check(pendingShown(), "RSSHOWN2 turned back on: the banner, QUIT GAME and RESTART NOW are shown again")
+    end)
+    step("end and quit", function()
+        local r = absR(mainEl("quit"))
+        check(r ~= nil, "QUITPOINT QUIT GAME has a point to click")
+        local pass = S.failures == 0
+        finish()
+        if pass and r then
+            local x, y = center(r)
+            say("CLICK QUIT GAME at (%d,%d)", x, y)
+            request(string.format("click %d %d", x, y))
+        end
+    end)
+end
+
 -- ---------------------------------------------------------------- no-core and old-core: no entry
 local function buildNoEntry()
     waitWorld("menu1", "NewMainMenu", 120)
@@ -1165,7 +1320,7 @@ local function tick()
     busy = false
 end
 
-local build = ({ screen = buildScreen, ["no-core"] = buildNoEntry, ["old-core"] = buildNoEntry })[SCENARIO]
+local build = ({ screen = buildScreen, restart = buildRestart, ["no-core"] = buildNoEntry, ["old-core"] = buildNoEntry })[SCENARIO]
 if not build then
     say("END result=FAIL checks=0 failures=1 reason=unknown-scenario %s", SCENARIO)
     return
