@@ -45,6 +45,9 @@ if ($casesFile -and (Test-Path -LiteralPath $casesFile)) {
         Ok ($got -ceq $want) "shared case '$($c.name)'" "got '$got', want '$want'"
     }
     Ok ($n -ge 40) 'shared cases: read' $n
+} elseif ($env:NN_MODID_CASES) {
+    # Set but missing: a misconfigured CI must fail, not skip.
+    Ok $false 'shared cases: NN_MODID_CASES names an existing file' "missing: $env:NN_MODID_CASES"
 } else {
     Write-Host "NOTE the workspace's tools/release/tests/modid-cases.json is absent: the shared id cases are skipped"
 }
