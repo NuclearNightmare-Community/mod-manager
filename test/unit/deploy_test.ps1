@@ -201,8 +201,10 @@ try {
     # -Force without core.
     Remove-Item (Join-Path $mods 'Nucleus') -Recurse -Force
     [IO.File]::WriteAllText($modsTxt, $stockTxt)
-    $d = Deploy @('-Force', '-Test', '-Scenario', 'no-core')
-    Ok ($d.Code -eq 0 -and $d.Out -match 'forced: Nucleus is not installed') 'deploy -Force: warns and installs' $d.Out
+    if ($env:NN_CI -eq '1') { Write-Host "SKIP (CI): deploy -Force -Test needs the workspace's tools/repak (build.ps1 -Fixtures)" } else {
+        $d = Deploy @('-Force', '-Test', '-Scenario', 'no-core')
+        Ok ($d.Code -eq 0 -and $d.Out -match 'forced: Nucleus is not installed') 'deploy -Force: warns and installs' $d.Out
+    }
 
     # -Remove: back to exactly the stock files.
     $d = Deploy @('-Remove')
