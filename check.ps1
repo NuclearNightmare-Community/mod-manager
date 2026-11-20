@@ -9,7 +9,7 @@
     - the ROW lines: Nucleus, Mod Manager, Mod Manager Base, Mod Manager Dep, ModManagerBare, ModManagerDriver,
       ModManagerFixture, ModManagerLong..., ModManagerPak and ModManagerPakOff each exactly once, in that relative order
       (other installed mods may sit between them), with the values of the stories' I/O matrices; Nucleus's and the Mod
-      Manager's expected values come from their deployed mod.json (-CoreManifest; this repo's mod.json). Per row: the
+      Manager's expected values (their scope too) come from their deployed mod.json (-CoreManifest; this repo's mod.json). Per row: the
       toggle (lock | on | off), its box (none | live | fixed), the gear (what the row's Configure offers: dim for NO
       SETTINGS, lit for a settings list; not its look), the status icons (the fixture: build and dependency;
       every other row none), story 12's scope (from the icon's texture: Nucleus and the Mod Manager client, Base host,
@@ -283,6 +283,8 @@ if ($Scenario -eq 'screen') {
     })
     function BuildOf($mj) { $parts = @($mj.game.version, $mj.game.build | Where-Object { $_ }); if ($parts) { $parts -join ' ' } else { '-' } }
     function NeedOf($mj) { $dep = @($mj.dependsOn | Where-Object { Test-CoreId $_.id })[0]; if ($dep -and $dep.version) { $dep.version } else { '-' } }
+    # Story 12: a manifest's scope as the row shows it (one of the four, else unknown; unknown without a manifest).
+    function ScopeOf($mj) { $s = if ($mj) { $mj.scope } else { $null }; if ($s -is [string] -and $s -cin 'host', 'client', 'host-plus', 'both') { $s } else { 'unknown' } }
     function GearOf($mj) { if ($mj.settings -and @($mj.settings.PSObject.Properties).Count -gt 0) { 'lit' } else { 'dim' } }
     $core = $null
     try { $core = Get-Content $CoreManifest -Raw | ConvertFrom-Json } catch { Fail "Nucleus's deployed mod.json can't be read ($CoreManifest)" }
@@ -303,8 +305,8 @@ if ($Scenario -eq 'screen') {
             Scope = $scope; Stip = $scopeWords[$scope]; Runs = "RUNS ON: $($scopeWords[$scope])" }
     }
     $want = @(
-        (W $CoreName "$($core.version)" 'lock' 'none' $(if ($core) { GearOf $core } else { 'dim' }) $(if ($core) { NeedOf $core } else { '-' }) $(if ($core) { BuildOf $core } else { '-' }) 0 '-' 'client')
-        (W $manifest.displayName $manifest.version 'lock' 'none' (GearOf $manifest) (NeedOf $manifest) (BuildOf $manifest) 0 '-' 'client')
+        (W $CoreName "$($core.version)" 'lock' 'none' $(if ($core) { GearOf $core } else { 'dim' }) $(if ($core) { NeedOf $core } else { '-' }) $(if ($core) { BuildOf $core } else { '-' }) 0 '-' (ScopeOf $core))
+        (W $manifest.displayName $manifest.version 'lock' 'none' (GearOf $manifest) (NeedOf $manifest) (BuildOf $manifest) 0 '-' (ScopeOf $manifest))
         (W $baseMj.displayName $baseMj.version 'on' 'live' 'dim' (NeedOf $baseMj) (BuildOf $baseMj) 0 '-' 'host')
         (W $depMj.displayName $depMj.version 'on' 'live' 'dim' '-' (BuildOf $depMj) 0 '-' 'both')
         (W "${name}Bare" '-' 'off' 'live' 'dim' '-' '-')
