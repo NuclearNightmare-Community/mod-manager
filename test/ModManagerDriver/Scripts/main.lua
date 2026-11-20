@@ -8,8 +8,8 @@
 -- mods.txt order (deploy.ps1): <Core>, ModManagerDriver, ModManager.
 --
 -- Scenarios (Scripts/scenario.txt, written by deploy.ps1):
---   screen:   the entry; the main window's rows (ROW lines with the toggle, its box, the status icons; the gear, need
---             and build from each row's Configure window: gear=dim when it shows NO SETTINGS, lit when it lists
+--   screen:   the entry; the main window's rows (ROW lines with the toggle, its box, the status icons, story 12's scope
+--             icon and its tooltip; the gear, need, build and the RUNS ON line (CFGSCOPE) from each row's Configure window: gear=dim when it shows NO SETTINGS, lit when it lists
 --             settings; GEARLOOK: the gear drawn that way, judged only when it doesn't hold keyboard focus); one DOWN
 --             right after the first open and a focus shot; story 11: the first toggle before any Configure (cold
 --             T_Restart): DOWN to Dep's checkbox (TGFIRSTFOCUS), ENTER, Dep off with the restart icon within 10 s
@@ -84,6 +84,9 @@ local DIM = { 0.36, 0.41, 0.43, 0.55 } -- core's dimmed colour (the game's disab
 local VIS_VISIBLE, VIS_COLLAPSED, VIS_HIDDEN, VIS_HTI = 0, 1, 2, 3
 local TEX = { T_CheckboxOn = "on", T_CheckboxOff = "off", T_Lock = "lock", checkbox_ticked = "on", checkbox_unticked = "off" }
 local STATUS_TEX = { T_Warning = "warning", T_Restart = "restart" }
+-- Story 12: the scope icon's texture -> the scope it shows (read from the texture, which focus doesn't change).
+local SCOPE_TEX = { T_ScopeHost = "host", T_ScopeClient = "client", T_ScopeHostPlus = "host-plus", T_ScopeBoth = "both",
+    T_ScopeUnknown = "unknown" }
 
 local S = { failures = 0, checks = 0 }
 
@@ -245,8 +248,9 @@ local function near4(c, want) return c ~= nil and math.abs(c.R - want[1]) < 0.01
 -- One row as drawn (story 6): name, version, toggle (on | off | lock: the lock image r<n>.on when it is shown, else
 -- the checkbox r<n>.tg's texture), box (live | fixed: the checkbox's opacity, dimmed when disabled | none for the
 -- lock), gear (the look: lit | dim, or focus when it holds keyboard focus; ROW's gear comes from Configure), status
--- (how many of r<n>.s1..s3 show a texture, and which: warning | restart), the status images' tooltips, and its
--- rectangle.
+-- (how many of r<n>.s1..s3 show a texture, and which: warning | restart), the status images' tooltips, story 12's
+-- scope (r<n>.sc's texture: host | client | host-plus | both | unknown, else the texture's name) and its tooltip, and
+-- its rectangle.
 local function readRow(n)
     local r = rowW(n)
     if not r or visOf(r) == VIS_COLLAPSED or visOf(r) == VIS_HIDDEN then return nil end
@@ -273,7 +277,11 @@ local function readRow(n)
         local kind = STATUS_TEX[texOf(img)]
         if kind then icons[#icons + 1] = kind; tips[#tips + 1] = tipOf(img) or "" end
     end
-    return { n = n, name = textOf(cell(n, "name")) or "?", ver = textOf(cell(n, "ver")) or "?", toggle = toggle, box = box,
+    local scImg = prop(cell(n, "sc"), "Img")
+    local scTex = texOf(scImg)
+    local scope = SCOPE_TEX[scTex] or scTex
+    local stip = tipOf(scImg) or ""
+    return { n = n, name = textOf(cell(n, "name")) or "?", ver = textOf(cell(n, "ver")) or "?", toggle = toggle, box = box, scope = scope, stip = stip,
         gear = focused and "focus" or (near4(tint, DIM) and "dim" or (tint and "lit" or "?")), status = #icons, icons = #icons > 0 and table.concat(icons, ",") or "-",
         tips = tips, rect = absR(r) }
 end
@@ -289,7 +297,7 @@ end
 local function sig(rows)
     local t = {}
     -- (no gear: ROW takes it from Configure, GEARLOOK and CFGDIM judge its look; keyboard focus changes how it is drawn)
-    for i, r in ipairs(rows) do t[i] = string.format("%s|%s|%s|%s|%d|%s", r.name, r.ver, r.toggle, r.box, r.status, r.icons) end
+    for i, r in ipairs(rows) do t[i] = string.format("%s|%s|%s|%s|%d|%s|%s", r.name, r.ver, r.toggle, r.box, r.status, r.icons, r.scope) end
     return table.concat(t, "\n")
 end
 
@@ -540,6 +548,7 @@ local function configureOf(nOf, label)
         local n = nOf()
         if n then
             R.cfg[n] = screenOf("configure") and { title = cfgText("title"), ver = cfgText("ver"), need = cfgText("need"), build = cfgText("build"),
+                scope = cfgText("scope"), -- story 12: the RUNS ON line
                 gear = shownW(cfgEl("none")) and "dim" or (shownW(cfgEl("list")) and "lit" or "?") } or nil
         end
     end)
@@ -789,7 +798,11 @@ local function buildScreen()
                     local build = d and d.build and d.build:match("^GAME BUILD (.*)$") or "?"
                     check(d ~= nil and d.title == r.name and d.ver == "VERSION " .. r.ver, "CFGDATA %d heading %s, %s", r.n, tostring(d and d.title), tostring(d and d.ver))
                     local gear = d and d.gear or "?"
-                    say("ROW %s | %s | toggle=%s | box=%s | gear=%s | status=%d | icons=%s | need=%s | build=%s", r.name, r.ver, r.toggle, r.box, gear, r.status, r.icons, need, build)
+                    -- story 12: Configure's RUNS ON line repeats the row's scope words (the tooltip) for the gamepad
+                    local runs = d and d.scope or "?"
+                    check(runs == "RUNS ON: " .. r.stip, "CFGSCOPE %d %s: Configure's line %q is RUNS ON: and the row's tooltip %q", r.n, r.name, runs, r.stip)
+                    say("ROW %s | %s | toggle=%s | box=%s | gear=%s | status=%d | icons=%s | need=%s | build=%s | scope=%s | stip=%s | runs=%s", r.name, r.ver, r.toggle, r.box, gear, r.status, r.icons, need, build,
+                        r.scope, r.stip, runs)
                     -- the look, judged only on a gear without keyboard focus (focus draws a dimmed gear lit)
                     if r.look == "focus" then say("GEARLOOK %d skipped (focused)", r.n)
                     else check(gear ~= "?" and r.look == gear, "GEARLOOK %d %s looks %s (offers %s)", r.n, r.name, tostring(r.look), gear) end

@@ -10,7 +10,9 @@
 --              build | nil, paks = { file, ... }, pakDirs = { <folder of paks[i]>, ... },
 --              id | nil (mod.json id, normalized), deps = { { id, need | nil }, ... } (every dependsOn entry whose id
 --              normalizes; bare "nucleus" is core's legacy alias), enabledTxt (Mods/<F>/enabled.txt exists),
---              gameVersion | nil, gameBuild | nil }
+--              gameVersion | nil, gameBuild | nil, scope = "host" | "client" | "host-plus" | "both" | "unknown" }
+--   (story 12: scope is mod.json's top-level scope on an exact, case-sensitive match, else "unknown"; never warned
+--   about, never shown raw. Pak-only rows and folders without a readable mod.json are "unknown".)
 --   I.gameFs(modsDir) -> fs, paths | nil, err   the adapter (game thread; one IterateGameDirectories per call);
 --     paths.game is the Game folder. fs also has writeFile(path, bytes), rename(from, to) and remove(path), each
 --     -> true | nil, err, for files.lua; the caller builds every path from paths.mods and validated folder names.
@@ -102,6 +104,13 @@ end
 
 local function join(a, b) return a .. "\\" .. b end
 
+-- Story 12: where a mod runs (distribution story 14's vocabulary). Only the top-level scope counts, never a setting's.
+I.SCOPES = { host = true, client = true, ["host-plus"] = true, both = true }
+function I.scopeOf(v)
+    if type(v) == "string" and I.SCOPES[v] then return v end
+    return "unknown"
+end
+
 -- Reads Mods/<folder>/mod.json. Returns the row's fields from it, plus warnings.
 local function readManifest(fs, modsDir, folder, warn)
     local out = {}
@@ -136,6 +145,7 @@ local function readManifest(fs, modsDir, folder, warn)
         if not out.version then wrong[#wrong + 1] = "version" end
     end
     if m.id ~= nil then out.id = coreIdOf(m.id) end
+    out.scope = I.scopeOf(m.scope)
     if m.game ~= nil then
         if J.isObject(objects, m.game) then
             local parts = {}
@@ -246,7 +256,7 @@ function I.scan(fs, paths)
             local row = { key = lower, folder = folder, name = m.name or m.fallbackName or folder, version = m.version,
                 pakOnly = false, state = state, settings = m.settings == true, need = m.need, build = m.build, paks = {},
                 pakDirs = {}, id = m.id, deps = m.deps or {}, enabledTxt = enabledTxt, gameVersion = m.gameVersion,
-                gameBuild = m.gameBuild }
+                gameBuild = m.gameBuild, scope = m.scope or "unknown" }
             rows[#rows + 1] = row
             byKey[lower] = row
         end
@@ -270,7 +280,7 @@ function I.scan(fs, paths)
                         local row = byKey[key]
                         if not row then
                             row = { key = key, folder = nil, name = stem, version = nil, pakOnly = true, state = "off",
-                                settings = false, paks = {}, pakDirs = {}, deps = {}, enabledTxt = false }
+                                settings = false, paks = {}, pakDirs = {}, deps = {}, enabledTxt = false, scope = "unknown" }
                             rows[#rows + 1] = row
                             byKey[key] = row
                         end

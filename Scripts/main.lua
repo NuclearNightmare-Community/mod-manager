@@ -1,5 +1,5 @@
 -- Mod Manager (spec-mod-manager-v1, stories 3 and 6): a MANAGE MODS entry in the title-screen menu that opens a
--- full-screen window listing every installed mod: toggle | name | version | status icons | gear.
+-- full-screen window listing every installed mod: toggle | name | version | scope | status icons | gear.
 -- Story 6: the toggle turns a mod on or off for the next start (mods.txt, and a folder's enabled.txt, written at once
 -- and atomically); the status slot shows another game build, dependency problems and changes pending a restart; turning
 -- off a mod others need asks first; Nucleus made for another game build shows one alert; the gear's Configure window
@@ -11,7 +11,7 @@
 -- Runs on Nucleus (core) through the dependent bootstrap (core's api-contract.md) and uses only core's public API
 -- (connect, core.ui, core.settings, core.restart, core.log) and core's pure modules nucleus.modid and nucleus.semver. Holds no
 -- UObject between calls: element handles, plain tables and strings only.
-local CORE, NEED, ME = "Nucleus", ">=0.20.0", "ModManager"
+local CORE, NEED, ME = "Nucleus", ">=0.21.0", "ModManager"
 local ENTRY = "manage"
 local MAX_WARN_KEYS = 64     -- distinct warnings logged per session; then one line says the rest are dropped
 local MAX_LOGGED_ROWS = 512  -- distinct mods whose data is logged per session

@@ -231,6 +231,44 @@ do -- Bad mod.json: too big, invalid, a non-object, wrong field types; one WARN 
     eq(rowOf(res, "Ctl").version, nil, "a version with a control character: -")
 end
 
+do -- Story 12: scope, an exact case-sensitive match of host, client, host-plus, both; anything else unknown, no WARN.
+    local F = stockFs()
+    for _, s in ipairs({ "host", "client", "host-plus", "both" }) do F.folder("S-" .. s, manifest{ version = "1.0.0", scope = s }) end
+    local long = string.rep("h", 10240)
+    local bad = { All = "all", Upper = "Host", Empty = "", Num = 5, Long = long, Mid = string.rep("h", 1000), Either = "either", Spaced = " host",
+        Obj = { host = true }, Arr = { "host" }, Bool = true }
+    for k, s in pairs(bad) do F.folder("B" .. k, manifest{ version = "1.0.0", scope = s }) end
+    F.folder("None", manifest{ version = "1.0.0" })
+    F.folder("Bare", nil)
+    F.folder("Invalid", '{"scope": "host",}')
+    -- a setting-level scope never leaks into the row's
+    F.folder("SetOnly", manifest{ version = "1.0.0", settings = { a = { type = "bool", default = true, scope = "host" } } })
+    F.folder("SetBoth", manifest{ version = "1.0.0", scope = "client", settings = { a = { type = "bool", default = true, scope = "both" } } })
+    F.pak("PakOnly_P.pak")
+    F.lm("LmOnly.pak")
+    local res = I.scan(F, PATHS)
+    for _, s in ipairs({ "host", "client", "host-plus", "both" }) do eq(rowOf(res, "S-" .. s).scope, s, "scope " .. s .. ": as declared") end
+    for k in pairs(bad) do eq(rowOf(res, "B" .. k).scope, "unknown", "scope " .. k .. ": unknown") end
+    eq(rowOf(res, "None").scope, "unknown", "no scope: unknown")
+    eq(rowOf(res, "Bare").scope, "unknown", "no mod.json: unknown")
+    eq(rowOf(res, "Invalid").scope, "unknown", "invalid mod.json: unknown")
+    eq(rowOf(res, "SetOnly").scope, "unknown", "a setting's scope only: unknown (only the top level counts)")
+    eq(rowOf(res, "SetBoth").scope, "client", "a setting's scope doesn't override the top level")
+    eq(rowOf(res, "PakOnly").scope, "unknown", "a pak-only row: unknown")
+    eq(rowOf(res, "LmOnly").scope, "unknown", "a LogicMods pak-only row: unknown")
+    eq(warnsLike(res, "scope"), 0, "no scope WARN")
+    eq(warnsLike(res, "^Invalid/"), 1, "only the invalid mod.json warns (as before)")
+    -- a 10 KB string is past the JSON reader's 1024-byte string cap: that mod.json is invalid as a whole (story 3's WARN,
+    -- which names the position, never the value)
+    eq(warnsLike(res, "^BLong/mod%.json is not valid JSON %(1:10 string longer than 1024 bytes%)"), 1, "a 10 KB scope: the existing invalid-JSON WARN")
+    eq(#res.warns, 2, "no other WARN")
+    for _, w in ipairs(res.warns) do ok(not w.msg:find("hhhhhhhh", 1, true), "the raw value is never echoed") end
+    for _, r in ipairs(res.rows) do
+        ok(r.scope == "host" or r.scope == "client" or r.scope == "host-plus" or r.scope == "both" or r.scope == "unknown", r.key .. ": a known scope key")
+    end
+    eq(I.scopeOf("host"), "host", "scopeOf host"); eq(I.scopeOf(nil), "unknown", "scopeOf nil"); eq(I.scopeOf("HOST"), "unknown", "scopeOf HOST")
+end
+
 do -- Bad names: folders and paks that aren't mod names are absent, one WARN per name.
     local F = stockFs()
     F.folder("bad name!"); F.folder(string.rep("a", 65)); F.folder("Good")

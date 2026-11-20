@@ -3,7 +3,7 @@
   "name": "ModManagerLong",
   "displayName": "ModManagerLong WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
   "version": "1.0.0",
-  "scope": "client",
+  "scope": "host-plus",
   "game": { "version": "V8.2.3", "build": "26601774" },
   "dependsOn": [ { "id": "nuclearnightmare-community.nucleus", "version": ">=0.2.0" } ]
 }

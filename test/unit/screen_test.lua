@@ -18,16 +18,19 @@ local function eq(got, want, name) ok(got == want, name, "got " .. tostring(got)
 local SIZE = { w = 1920, h = 1080 }
 local function row(t)
     local r = { key = (t.folder or t.name):lower(), folder = t.folder, name = t.name, version = t.version, pakOnly = t.pakOnly or false,
-        state = t.state or "off", settings = t.settings or false, need = t.need, build = t.build, paks = t.paks or {}, st = t.st }
+        state = t.state or "off", settings = t.settings or false, need = t.need, build = t.build, paks = t.paks or {}, st = t.st,
+        scope = t.scope }
     return r
 end
 local ROWS = {
-    row{ folder = "Nucleus", name = "Nucleus", version = "0.8.0", state = "locked", build = "V8.2.3 26601774", paks = { "Nucleus.pak" } },
-    row{ folder = "ModManager", name = "Mod Manager", version = "0.1.0", state = "locked", need = ">=0.8.0", build = "V8.2.3 26601774" },
-    row{ folder = "ModManagerFixture", name = "ModManagerFixture", version = "9.9.9", state = "off", settings = true, need = ">=0.1.0", build = "V0.0.0 1" },
+    row{ folder = "Nucleus", name = "Nucleus", version = "0.8.0", state = "locked", build = "V8.2.3 26601774", paks = { "Nucleus.pak" }, scope = "client" },
+    row{ folder = "ModManager", name = "Mod Manager", version = "0.1.0", state = "locked", need = ">=0.8.0", build = "V8.2.3 26601774", scope = "client" },
+    row{ folder = "ModManagerFixture", name = "ModManagerFixture", version = "9.9.9", state = "off", settings = true, need = ">=0.1.0", build = "V0.0.0 1", scope = "host" },
     row{ folder = "ModManagerDriver", name = "ModManagerDriver", state = "on" },
-    row{ name = "ModManagerPak", pakOnly = true, state = "on", paks = { "ModManagerPak_P.pak" } },
+    row{ name = "ModManagerPak", pakOnly = true, state = "on", paks = { "ModManagerPak_P.pak" }, scope = "unknown" },
 }
+-- Story 12: each row's expected scope icon key.
+local SCOPES = { "client", "client", "host", "unknown", "unknown" }
 
 do -- First open: the window, the title, the header, the lists, one row per mod.
     local U = FakeUi.new()
@@ -55,10 +58,12 @@ do -- First open: the window, the title, the header, the lists, one row per mod.
     eq(U.byId.hdr.place.list, U.byId["hdr.list"].handle, "the header row is in the header list")
     local order = {}
     for _, c in ipairs(U.calls) do local o = c.args[1] if type(o) == "table" and o.place and o.place.row == U.byId.hdr.handle then order[#order + 1] = o.id end end
-    eq(table.concat(order, ","), "hdr.on,hdr.name,hdr.ver,hdr.s1,hdr.s2,hdr.s3,hdr.cfg", "header cells in a row's order")
+    eq(table.concat(order, ","), "hdr.on,hdr.name,hdr.ver,hdr.sc,hdr.s1,hdr.s2,hdr.s3,hdr.cfg", "header cells in a row's order")
+    local hsc = U.byId["hdr.sc"]
+    ok(hsc.kind == "image" and hsc.image == nil and hsc.size == Screen.ICON and hsc.place.fill == nil and hsc.tooltip == nil, "story 12 header: a spacer above the scope column")
     order = {}
     for _, c in ipairs(U.calls) do local o = c.args[1] if type(o) == "table" and o.place and o.place.row == U.byId.r1.handle and c.name:match("create") then order[#order + 1] = o.id end end
-    eq(table.concat(order, ","), "r1.on,r1.tg,r1.name,r1.ver,r1.s1,r1.s2,r1.s3,r1.cfg", "row cells: lock, checkbox, name, version, three status icons, gear")
+    eq(table.concat(order, ","), "r1.on,r1.tg,r1.name,r1.ver,r1.sc,r1.s1,r1.s2,r1.s3,r1.cfg", "row cells: lock, checkbox, name, version, scope, three status icons, gear")
     for n, r in ipairs(ROWS) do
         local p = "r" .. n
         ok(U.byId[p] and U.byId[p].place.list == l.handle and U.byId[p].visible, p .. " in the list, shown")
@@ -71,6 +76,10 @@ do -- First open: the window, the title, the header, the lists, one row per mod.
             local si = U.byId[p .. ".s" .. k]
             ok(si.kind == "image" and si.size == Screen.ICON and si.place.fill == nil and si.image == nil and si.tooltip == nil, p .. " status " .. k .. ": an empty fixed image")
         end
+        -- story 12: the scope icon, from the data, with its words as the tooltip
+        local sc = U.byId[p .. ".sc"]
+        ok(sc.kind == "image" and sc.size == Screen.ICON and sc.place.fill == nil and sc.image and sc.image.icon == "scope-" .. SCOPES[n], p .. " scope: scope-" .. SCOPES[n], sc.image and sc.image.icon)
+        ok(sc.dimmed == nil and sc.visible ~= false, p .. " scope: shown, never dimmed")
         local on, tg = U.byId[p .. ".on"], U.byId[p .. ".tg"]
         ok(on.kind == "image" and on.size == Screen.ICON and on.place.fill == nil and on.image.icon == "lock", p .. " lock: an image, fixed size, no fill")
         ok(tg.kind == "checkbox" and tg.size == Screen.ICON and tg.place.fill == nil and type(tg.onChange) == "function", p .. " toggle: core's checkbox, fixed size")
@@ -80,6 +89,11 @@ do -- First open: the window, the title, the header, the lists, one row per mod.
         eq(gear.tooltip, "CONFIGURE", p .. " gear tooltip")
         eq(gear.dimmed, not r.settings, p .. " gear dimmed without settings")
     end
+    eq(U.byId["r1.sc"].tooltip, "JUST YOU - WORKS ON ITS OWN, WHETHER YOU HOST OR JOIN", "story 12: client's tooltip (the locked Nucleus row)")
+    eq(U.byId["r2.sc"].tooltip, "JUST YOU - WORKS ON ITS OWN, WHETHER YOU HOST OR JOIN", "story 12: the locked Mod Manager row: client")
+    eq(U.byId["r3.sc"].tooltip, "HOST ONLY - ONLY THE HOST NEEDS IT; PLAYERS WHO JOIN DON'T", "story 12: host's tooltip")
+    eq(U.byId["r4.sc"].tooltip, "UNKNOWN - THIS MOD DOESN'T SAY WHERE IT RUNS", "story 12: no scope in the data: unknown")
+    eq(U.byId["r5.sc"].tooltip, "UNKNOWN - THIS MOD DOESN'T SAY WHERE IT RUNS", "story 12: a pak row: unknown")
     local function lock(n) return U.byId["r" .. n .. ".on"].visible end
     local function tg(n) return U.byId["r" .. n .. ".tg"] end
     ok(lock(1) and lock(2) and not lock(3) and not lock(4) and not lock(5), "the lock on Nucleus and the Mod Manager only (Nucleus's pak too)")
@@ -223,13 +237,16 @@ do -- The Configure window: heading and three lines; created once; Close is core
     eq(U.byId["cfg.ver"].text, "VERSION 9.9.9", "VERSION line")
     eq(U.byId["cfg.need"].text, "NUCLEUS >=0.1.0", "NUCLEUS line")
     eq(U.byId["cfg.build"].text, "GAME BUILD V0.0.0 1", "GAME BUILD line")
+    eq(U.byId["cfg.scope"].text, "RUNS ON: HOST ONLY - ONLY THE HOST NEEDS IT; PLAYERS WHO JOIN DON'T", "story 12: RUNS ON line")
     ok(U.byId["cfg.none"].visible and U.byId["cfg.none"].text == "NO SETTINGS" and not U.byId["cfg.list"].visible, "no settings: NO SETTINGS, the list hidden")
     local creates = U.count("text.create")
     v:openConfigure(1, {})
     eq(U.count("text.create"), creates, "a second Configure creates nothing")
     ok(U.byId["cfg.title"].text == "Nucleus" and U.byId["cfg.need"].text == "NUCLEUS -" and U.byId["cfg.build"].text == "GAME BUILD V8.2.3 26601774", "Nucleus: NUCLEUS -")
+    eq(U.byId["cfg.scope"].text, "RUNS ON: JUST YOU - WORKS ON ITS OWN, WHETHER YOU HOST OR JOIN", "story 12: Nucleus's RUNS ON line (client)")
     v:openConfigure(5, {})
     ok(U.byId["cfg.ver"].text == "VERSION UNMANAGED" and U.byId["cfg.need"].text == "NUCLEUS -" and U.byId["cfg.build"].text == "GAME BUILD -", "a pak-only mod: UNMANAGED, -, -")
+    eq(U.byId["cfg.scope"].text, "RUNS ON: UNKNOWN - THIS MOD DOESN'T SAY WHERE IT RUNS", "story 12: a pak-only mod's RUNS ON line")
     eq(v:openConfigure(99, {}), nil, "no such row: nothing opens")
     local opened = 0
     v.onGearClick = function(k) opened = k end
@@ -423,17 +440,56 @@ do -- 0.1.1 layout: the card's top-left corner stack, no fixed offsets; the list
     local cw = v:openConfigure(1, {})
     local probs = {}
     for k = 1, Screen.MAX_PROBLEM_LINES do probs[k] = "cfg.p" .. k end
-    eq(cornerOrder(U, cw), "cfg.title,cfg.ver,cfg.need,cfg.build," .. table.concat(probs, ",") .. ",cfg.none,cfg.list,cfg.msg",
+    eq(cornerOrder(U, cw), "cfg.title,cfg.ver,cfg.need,cfg.build,cfg.scope," .. table.concat(probs, ",") .. ",cfg.none,cfg.list,cfg.msg",
         "Configure's corner stack in order")
     ok(isCorner(U.byId["cfg.title"], "normal") and isCorner(U.byId["cfg.ver"], "normal") and isCorner(U.byId["cfg.need"], "normal") and isCorner(U.byId["cfg.build"], "normal")
+        and isCorner(U.byId["cfg.scope"], "normal")
         and isCorner(U.byId["cfg.list"], "normal") and isCorner(U.byId["cfg.msg"], "normal"),
         "Configure's elements: top-left corner, one gap (one left edge), no offset")
-    -- the Configure budget at 1080 with three problem lines: heading 60, 3 + 3 lines of 30 with gaps 16, the list, the
-    -- message 30 + 16, BACK 60 with gaps 16 + 16, the card's inset 16: under the clamp (968).
-    ok(16 + 60 + 6 * 46 + 16 + (1080 - Screen.CFG_RESERVE - 3 * Screen.PROBLEM_H) + 46 + 16 + 16 + 60 <= 968, "Configure's estimated hug under the clamp")
+    -- the Configure budget at 1080 with three problem lines: heading 60, 4 + 3 lines of 30 with gaps 16 (story 12's RUNS ON
+    -- is the fourth detail line), the list, the message 30 + 16, BACK 60 with gaps 16 + 16, the card's inset 16: under the
+    -- clamp (968).
+    ok(16 + 60 + 7 * 46 + 16 + (1080 - Screen.CFG_RESERVE - 3 * Screen.PROBLEM_H) + 46 + 16 + 16 + 60 <= 968, "Configure's estimated hug under the clamp")
     for _, el in pairs(U.byId) do
         if el.place and el.place.screen then ok(el.place.absolute == nil, "no absolute place: " .. el.id) end
     end
+end
+
+do -- Story 12: the scope icon follows the data; anything outside the vocabulary reads as unknown; only changes are set.
+    local U = FakeUi.new()
+    local v = Screen.new(U, S)
+    local rows = {
+        row{ folder = "A", name = "A", scope = "host-plus" },
+        row{ folder = "B", name = "B", scope = "both" },
+        row{ folder = "C", name = "C", scope = "all" },
+        row{ folder = "D", name = "D", scope = "Host" },
+        row{ folder = "E", name = "E", scope = 5 },
+    }
+    v:openMain(rows, "en", SIZE)
+    local function icon(n) local el = U.byId["r" .. n .. ".sc"] return el.image and el.image.icon end
+    eq(icon(1), "scope-host-plus", "host-plus: its icon")
+    eq(U.byId["r1.sc"].tooltip, "HOST, PLAYERS OPTIONAL - THE HOST NEEDS IT; PLAYERS WHO HAVE IT GET MORE", "host-plus: its words")
+    eq(icon(2), "scope-both", "both: its icon")
+    eq(U.byId["r2.sc"].tooltip, "HOST AND PLAYERS - THE HOST AND EVERY PLAYER NEED IT", "both: its words")
+    ok(icon(3) == "scope-unknown" and icon(4) == "scope-unknown" and icon(5) == "scope-unknown", "all, Host, 5 in the data: unknown")
+    for n = 3, 5 do ok(not tostring(U.byId["r" .. n .. ".sc"].tooltip):find("all") and not tostring(U.byId["r" .. n .. ".sc"].tooltip):find("Host"), "r" .. n .. ": the raw value is never shown") end
+    v:openConfigure(4, {})
+    eq(U.byId["cfg.scope"].text, "RUNS ON: UNKNOWN - THIS MOD DOESN'T SAY WHERE IT RUNS", "Configure: Host reads as unknown")
+    v:openConfigure(1, {})
+    eq(U.byId["cfg.scope"].text, "RUNS ON: HOST, PLAYERS OPTIONAL - THE HOST NEEDS IT; PLAYERS WHO HAVE IT GET MORE", "Configure: a second open sets the new row's line")
+    -- refresh: a changed scope sets the image and the tooltip of that row only
+    local before = #U.calls
+    rows[1] = row{ folder = "A", name = "A", scope = "client" }
+    v:refresh(rows)
+    eq(icon(1), "scope-client", "refresh: the new icon")
+    eq(U.byId["r1.sc"].tooltip, "JUST YOU - WORKS ON ITS OWN, WHETHER YOU HOST OR JOIN", "refresh: the new words")
+    local sets = 0
+    for _, c in ipairs(U.since(before)) do if (c.name == "image.set" or c.name == "image.setTooltip") then sets = sets + 1 end end
+    eq(sets, 2, "refresh: one image.set and one setTooltip, on the changed row only")
+    -- a new row made later (more mods): its icon from the data at once
+    rows[6] = row{ folder = "F", name = "F", scope = "host" }
+    v:refresh(rows)
+    eq(icon(6), "scope-host", "a row made on refresh: its icon from the data")
 end
 
 do -- A create inside build raises once: the next open builds again and works.

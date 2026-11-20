@@ -3,7 +3,7 @@
   "name": "ModManagerDep",
   "displayName": "Mod Manager Dep",
   "version": "1.0.0",
-  "scope": "client",
+  "scope": "both",
   "game": { "version": "V8.2.3", "build": "26601774" },
   "dependsOn": [ { "id": "nuclearnightmare-community.mod-manager-base", "version": ">=1.0.0" } ]
 }
