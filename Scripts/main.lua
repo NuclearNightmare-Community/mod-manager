@@ -1105,6 +1105,7 @@ local function start(core)
             ins.job, ins.polls, ins.name, ins.kind, ins.target = job, 0, a.name, "uninstall", a.id
             log.info("UNINSTALL stage job=%d", job)
             browse:setInstalling(true)
+            say(fmt("removing", a.name))
             jobLater()
             return
         end

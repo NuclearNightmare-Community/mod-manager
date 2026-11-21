@@ -2049,6 +2049,7 @@ do -- UNINSTALL from Details: the confirm, the unstage, PENDING RESTART; Nucleus
     ok(F.unstaged and F.unstaged.id == NNC .. "whistle-mute" and F.unstaged.version == "0.2.1", "UNINSTALL: core.catalog.unstage(id, version)")
     eq(#lines("^%[ModManager%] UNINSTALL stage job=201$"), 1, "UNINSTALL stage")
     eq(U.byId["dt.uninstall"].enabled, false, "UNINSTALL: disabled while it runs")
+    eq(U.byId["bw.status"].text, "REMOVING WHISTLE EMOTE MUTE...", "UNINSTALL: the message while it runs")
     tick()
     eq(#lines("UNINSTALL done"), 0, "UNINSTALL: polled, running")
     tick()
