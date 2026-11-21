@@ -12,6 +12,7 @@ All notable changes to the Mod Manager are recorded here. The format follows [Ke
 ### Changed
 
 - Needs Nucleus 0.24.0 or newer (`>=0.24.0`, was `>=0.21.0`), which has `core.apply`.
+
 ## [0.4.0] - 2026-11-20
 
 - Catalog listing: the display name "Mod Manager", a description and categories.
