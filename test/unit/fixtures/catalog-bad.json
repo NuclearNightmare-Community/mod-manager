@@ -1,0 +1,27 @@
+{
+ "source": "network",
+ "base": "https://nuclearnightmare-community.github.io/catalog/",
+ "index_issued": "2026-11-21T00:59:08Z",
+ "revoked_issued": "2026-10-30T23:11:49Z",
+ "details": [
+  "index serial 2 verified"
+ ],
+ "index": {
+  "schema": 2,
+  "serial": 2,
+  "issued": "2026-11-21T00:59:08Z",
+  "game_builds": [
+   {
+    "version": "V8.2.3",
+    "build": "26601774"
+   }
+  ],
+  "packages": "not an array"
+ },
+ "revoked": {
+  "schema": 1,
+  "serial": 1,
+  "issued": "2026-10-30T23:11:49Z",
+  "revoked": []
+ }
+}

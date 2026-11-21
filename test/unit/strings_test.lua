@@ -35,7 +35,27 @@ local want = { manage = "MANAGE MODS", title = "MOD MANAGER", name = "NAME", ver
     scopeClient = "JUST YOU", scopeClientMeans = "WORKS ON ITS OWN, WHETHER YOU HOST OR JOIN",
     scopeHostPlus = "HOST, PLAYERS OPTIONAL", scopeHostPlusMeans = "THE HOST NEEDS IT; PLAYERS WHO HAVE IT GET MORE",
     scopeBoth = "HOST AND PLAYERS", scopeBothMeans = "THE HOST AND EVERY PLAYER NEED IT",
-    scopeUnknown = "UNKNOWN", scopeUnknownMeans = "THIS MOD DOESN'T SAY WHERE IT RUNS" }
+    scopeUnknown = "UNKNOWN", scopeUnknownMeans = "THIS MOD DOESN'T SAY WHERE IT RUNS",
+    -- v2 story 4: Browse and Details
+    browse = "BROWSE", browseTitle = "BROWSE MODS", search = "SEARCH", searchHint = "TYPE TO SEARCH",
+    searchTip = "WORDS IN THE NAME OR DESCRIPTION", category = "CATEGORY", show = "SHOW", scopeFilter = "RUNS ON", forFilter = "FOR",
+    all = "ALL", showAll = "ALL", showInstalled = "INSTALLED", showNotInstalled = "NOT INSTALLED", showUpdate = "UPDATE AVAILABLE",
+    forGame = "THIS GAME", forReady = "READY TO RUN", forAll = "ALL BUILDS", stateHeader = "STATE",
+    stInstalled = "INSTALLED", stUpdate = "UPDATE AVAILABLE", stConflict = "FOLDER IN USE", stAvailable = "NOT INSTALLED",
+    stOtherBuild = "OTHER GAME BUILD", needsCore = "NEEDS NUCLEUS %s", details = "DETAILS", refresh = "REFRESH",
+    catalogUpdated = "CATALOG UPDATED %s", revocationsChecked = "REVOCATIONS CHECKED %s",
+    justNow = "JUST NOW", hoursAgo = "%d HOURS AGO", daysAgo = "%d DAYS AGO", offline = "OFFLINE: SAVED CATALOG",
+    checking = "CHECKING CATALOG...", unavailable = "CATALOG UNAVAILABLE. CHECK YOUR CONNECTION AND PRESS REFRESH.",
+    refused = "CATALOG REFUSED (%s)", tooNew = "CATALOG NEEDS A NEWER MOD MANAGER", catalogError = "CATALOG ERROR",
+    busy = "CATALOG BUSY", buildUnknown = "GAME BUILD UNKNOWN", noMatch = "NO MODS MATCH", count = "%d OF %d MODS",
+    capped = "SHOWING THE FIRST %d", categoriesLine = "CATEGORIES: %s", forGameLine = "FOR GAME %s (%s)",
+    needLine = "NEEDS %s %s: %s", needsNothing = "NEEDS NOTHING ELSE", andMoreNeeds = "AND %d MORE", met = "MET", notMet = "NOT MET",
+    installedLine = "INSTALLED %s", no = "NO", publisherLine = "PUBLISHER %s", licenseLine = "LICENSE %s",
+    ["cat.gameplay"] = "GAMEPLAY", ["cat.content"] = "CONTENT", ["cat.visuals"] = "VISUALS", ["cat.audio"] = "AUDIO",
+    ["cat.ui"] = "USER INTERFACE", ["cat.qol"] = "QUALITY OF LIFE", ["cat.tools"] = "UTILITIES & TOOLS",
+    ["cat.library"] = "LIBRARIES & FRAMEWORKS", ["cat.performance"] = "PERFORMANCE & OPTIMIZATION",
+    ["cat.multiplayer"] = "MULTIPLAYER & NETWORKING", ["cat.localization"] = "LOCALIZATION", ["cat.overhaul"] = "OVERHAULS",
+    ["cat.bug-fixes"] = "BUG FIXES", ["cat.maps"] = "MAPS" }
 for k, v in pairs(want) do eq(S.TABLES.en[k], v, "en." .. k) end
 for k, v in pairs(S.TABLES.en) do
     ok(want[k] ~= nil, "en." .. k .. " is a string the spec names")

@@ -17,7 +17,8 @@
 --   view:setControl(i, value)         sets setting i's control back without a callback
 --   view:setCfgMessage(text | nil)    Configure's message line
 -- Callbacks the caller sets (main.lua wraps each in pcall): onGearClick(n), onToggle(n, checked), onConfirm(),
--- onQuit(), onRestart() (story 8), onSetting(i, value).
+-- onQuit(), onRestart() (story 8), onSetting(i, value); v2 story 4: onBrowse() (set before the first open: the main
+-- window then has BROWSE at its top right).
 --
 -- Elements are created once per session and reused on every open: a window's elements stay created across closes and
 -- attach again on the next open of the same id (core's screen host). Rows are made as they are first needed; rows above
@@ -157,6 +158,12 @@ function Screen:build(size)
     local ui = self.ui
     self.title = ui.text.create{ id = "title", text = self:str("title"),
         place = { screen = self.main, corner = "top-left" }, style = { font = "title" } }
+    -- v2 story 4: BROWSE, top right beside the title, only when the caller set onBrowse (core.catalog exists)
+    if self.onBrowse then
+        self.browseSpec = { id = "browse", label = self:str("browse"), place = { screen = self.main, corner = "top-right" },
+            onClick = function() if self.onBrowse then self.onBrowse() end end }
+        self.browseBtn = ui.button.create(self.browseSpec)
+    end
     self:lists(size)
     local hdr = ui.row.create{ id = "hdr", place = { list = self.hdrList } }
     ui.image.create{ id = "hdr.on", place = { row = hdr }, size = Screen.ICON }
@@ -274,6 +281,10 @@ function Screen:fill()
     if self.quitSpec and self.quitSpec.label ~= self:str("quit") then
         self.quitSpec.label = self:str("quit")
         ui.button.create(self.quitSpec) -- the same id: core applies the new label
+    end
+    if self.browseSpec and self.browseSpec.label ~= self:str("browse") then
+        self.browseSpec.label = self:str("browse")
+        ui.button.create(self.browseSpec)
     end
     if self.restartSpec and self.restartSpec.label ~= self:str("restart") then
         self.restartSpec.label = self:str("restart")

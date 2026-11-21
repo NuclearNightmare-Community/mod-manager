@@ -45,6 +45,8 @@
   with "close" (WM_CLOSE, as Alt+F4) while A's main.lua is locked (C fails and is rolled back), session 4 checks the
   failure and ends at the driver's END line; the runner then stops the waiting helper and releases the lock. Like
   restart: -MarkOfTheWeb on the helper, -DefenderReport (with Controlled Folder Access) and the BUILDSCAN lines.
+  The browse scenario (Mod Manager v2 story 4; VM only) runs against the live catalog: the Mod Manager's startup refresh
+  and one REFRESH reach the catalog's endpoints through core's native part; it ends at the driver's END line.
   Keeps the log as <workspace>/dumps/<copy>/mod-manager/<scenario>[.vm].log (ignored by git) and runs check.ps1 on it.
   Refuses to start while another runner's test or driver mod is enabled in the copy (the workspace's tools/run-guard:
   the refusal names each and the command that clears it); -AllowOtherDrivers runs anyway.
@@ -55,15 +57,15 @@
 #>
 param(
     [Parameter(Mandatory)] [string] $Instance,
-    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply')]
+    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply', 'browse')]
     [string] $Scenario = 'screen',
-    [int] $TimeoutSec = 0, # 0: screen 1200 s (about 90 requests and two map loads), restart 600 s (two launches), apply 1200 s (four launches and three helper runs), others 420 s; x1.5 in the VM
+    [int] $TimeoutSec = 0, # 0: screen 1200 s (about 90 requests and two map loads), restart 600 s (two launches), apply 1200 s (four launches and three helper runs), browse 600 s (two live refreshes), others 420 s; x1.5 in the VM
     [ValidateSet('host', 'vm')] [string] $Target = 'vm',
     [switch] $AllowOtherDrivers # run even when another runner's test mod is enabled in the copy (tools/run-guard)
 )
 $ErrorActionPreference = 'Stop'
-$hostTimeout = switch ($Scenario) { 'screen' { 1200 } 'restart' { 600 } 'apply' { 1200 } default { 420 } }
-if ($Scenario -in 'restart', 'apply' -and $Target -ne 'vm') { throw "The $Scenario scenario runs only in the VM (-Target vm): the host runner does not follow a game that starts itself again." }
+$hostTimeout = switch ($Scenario) { 'screen' { 1200 } 'restart' { 600 } 'apply' { 1200 } 'browse' { 600 } default { 420 } }
+if ($Scenario -in 'restart', 'apply', 'browse' -and $Target -ne 'vm') { throw "The $Scenario scenario runs only in the VM (-Target vm): the host runner does not follow a game that starts itself again." }
 if ($TimeoutSec -le 0 -and $Target -eq 'host') { $TimeoutSec = $hostTimeout }
 $CoreName = 'Nucleus'
 $here     = $PSScriptRoot

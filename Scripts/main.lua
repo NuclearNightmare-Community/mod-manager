@@ -9,14 +9,23 @@
 -- Mods/ModManager/state.json. It writes only mods.txt, Mods/<Folder>/enabled.txt(.disabled) and its state.json (with
 -- their .mm-tmp/.mm-bak), never a pak, and settings only through core.settings.
 -- Runs on Nucleus (core) through the dependent bootstrap (core's api-contract.md) and uses only core's public API
--- (connect, core.ui, core.settings, core.restart, core.apply, core.log) and core's pure modules nucleus.modid and nucleus.semver. Holds no
--- UObject between calls: element handles, plain tables and strings only.
-local CORE, NEED, ME = "Nucleus", ">=0.24.0", "ModManager"
+-- (connect, core.ui, core.settings, core.restart, core.apply, core.catalog, core.log) and core's pure modules nucleus.modid,
+-- nucleus.semver and nucleus.json. Holds no UObject between calls: element handles, plain tables and strings only.
+-- v2 story 4: BROWSE (main window, top right) opens the Browse window: every mod the verified catalog offers for this
+-- game build. The catalog is refreshed once at onReady and when the player presses REFRESH, through core.catalog
+-- (core's native part fetches and verifies it); the job is polled from the game thread every 250 ms
+-- (ExecuteInGameThreadWithDelay, chained), one job at a time, never on a timer. The Mod Manager reads no catalog file
+-- and fetches nothing itself.
+local CORE, NEED, ME = "Nucleus", ">=0.25.0", "ModManager"
 local ENTRY = "manage"
 local MAX_WARN_KEYS = 64     -- distinct warnings logged per session; then one line says the rest are dropped
 local MAX_LOGGED_ROWS = 512  -- distinct mods whose data is logged per session
 local APPMANIFEST = "appmanifest_2909110.acf" -- Steam's record of the installed build (docs/mod-manager-research.md 8.6)
 local MAX_MANIFEST = 65536
+local POLL_MS = 250          -- v2 story 4: the catalog job's poll interval
+local MAX_POLLS = 2400       -- 10 minutes of polls: then the refresh counts as error
+local MAX_LOGGED_PKGS = 512  -- distinct packages whose BROWSE pkg line is logged per session
+local MAX_IDS_LOG = 2000     -- bytes of ids on a BROWSE filter line
 
 local source = debug.getinfo(1, "S").source:gsub("^@", "")
 local scriptDir = source:match("^(.*)[/\\]") or "."
@@ -34,6 +43,8 @@ local Status = require("status")
 local Mt = require("modstxt")
 local Files = require("files")
 local State = require("state")
+local Catalog = require("catalog")
+local Browse = require("browse")
 
 -- The viewport's size in layout units (the game scales UI by the shortest side, 1080 -> 1.0, so the height is 1080
 -- and a wider screen only widens the columns). 1920x1080 when it can't be read.
@@ -121,7 +132,7 @@ end
 local function start(core)
     local log = core.log
     local ui = type(core.ui) == "table" and core.ui or nil
-    local need = { "menu", "screen", "list", "row", "image", "text", "button", "checkbox", "choice", "slider" }
+    local need = { "menu", "screen", "list", "row", "image", "text", "button", "checkbox", "choice", "slider", "textbox" }
     local missing = {}
     for _, k in ipairs(need) do if not (ui and type(ui[k]) == "table") then missing[#missing + 1] = k end end
     if #missing > 0 then
@@ -134,6 +145,9 @@ local function start(core)
     -- v2 story 3: core.apply (Nucleus 0.24.0): a change staged for the next exit, applied by core's helper.
     local applyApi = type(core.apply) == "table" and type(core.apply.status) == "function" and type(core.apply.start) == "function"
         and type(core.apply.ack) == "function" and core.apply or nil
+    -- v2 story 4: core.catalog (Nucleus 0.23.0). Missing: no BROWSE button (one WARN).
+    local catalogApi = type(core.catalog) == "table" and type(core.catalog.refresh) == "function" and type(core.catalog.poll) == "function"
+        and core.catalog or nil
 
     -- Each warning once per session (by key), at most MAX_WARN_KEYS of them.
     local warned, nWarned = {}, 0
@@ -581,6 +595,155 @@ local function start(core)
             pcall(view.setControl, view, i, e.value)
             pcall(view.setCfgMessage, view, fmt("notSaved", "error"))
         end)
+    end
+
+    -- ---------------------------------------------------------------- v2 story 4: the catalog and Browse
+    local browse = Browse.new(ui, S)
+    -- cat.state: "checking" (a job runs) | "ok" | "copy" | "unavailable" | "refused" | "error" | "none" (no core.catalog)
+    local cat = { job = nil, polls = 0, state = catalogApi and "checking" or "none", outcome = nil, decoded = nil, rows = {},
+        build = nil, loggedBuild = nil }
+    local pkgLogged, nPkgLogged = {}, 0
+
+    -- The model again from the verified catalog: this game's build (the footer and the appmanifest, read fresh), the
+    -- installed mods (a scan), core's version. Logs BUILD when the build changed and one BROWSE pkg line per package
+    -- whose line changed (at most MAX_LOGGED_PKGS packages).
+    local function buildModel()
+        local d = cat.decoded
+        if not d then cat.rows = {} return end
+        local fs, paths = gameFs()
+        session.running = runningGame(fs, paths)
+        local build, from = Catalog.thisBuild(d.index, session.running)
+        cat.build = build
+        local b = (build or "-") .. " from=" .. from
+        if cat.loggedBuild ~= b then cat.loggedBuild = b; log.info("BUILD %s", b) end
+        local installed = fs and scan(fs, paths).rows or {}
+        local rows, warns = Catalog.model(d.index, d.revoked, installed, type(core.version) == "string" and core.version or nil, build)
+        for _, w in ipairs(warns) do warnOnce(w.key, "%s", w.msg) end
+        cat.rows = rows
+        for _, r in ipairs(rows) do
+            local line = string.format("%s v=%s cat=%s scope=%s state=%s core=%s", r.id, Catalog.token(r.version),
+                #r.categories > 0 and table.concat(r.categories, ",") or "-", r.scope, r.state, r.needsCore and "needs" or "ok")
+            if pkgLogged[r.id] ~= line and (pkgLogged[r.id] or nPkgLogged < MAX_LOGGED_PKGS) then
+                if not pkgLogged[r.id] then nPkgLogged = nPkgLogged + 1 end
+                pkgLogged[r.id] = line
+                log.info("BROWSE pkg %s", line)
+            end
+        end
+    end
+    local function browseData()
+        local d = cat.decoded
+        return { rows = cat.rows, total = #cat.rows, state = cat.state, outcome = cat.outcome, buildKnown = cat.build ~= nil,
+            indexIssued = d and d.indexIssued, revokedIssued = d and d.revokedIssued, now = os.time() }
+    end
+    local function stateLog()
+        local st = cat.state
+        if st == "none" then return "error" end
+        return st
+    end
+
+    -- A finished refresh (or a poll chain that gave up: error).
+    local function finish(res)
+        cat.job = nil
+        local outcome = Catalog.token(type(res.outcome) == "string" and res.outcome or "error")
+        local message = Catalog.clean(type(res.message) == "string" and res.message or "", 200)
+        cat.outcome, cat.decoded = outcome, nil
+        if outcome == "ok" then
+            local d, why = Catalog.decode(res.payload)
+            if d then
+                cat.decoded = d
+                cat.state = d.source == "copy" and "copy" or "ok"
+            else
+                cat.state = "error"
+                warnOnce("catalog-payload", "the catalog could not be read (%s); Browse shows CATALOG ERROR", Catalog.clean(tostring(why), 200))
+            end
+        elseif outcome == "error" and message:find("no endpoint reachable", 1, true) then
+            cat.state = "unavailable"
+        elseif outcome == "error" then
+            cat.state = "error"
+        else
+            cat.state = "refused" -- a rejection: never the saved copy (bad signed content may be an attack)
+        end
+        if outcome ~= "ok" then log.info("CATALOG message %s: %s", outcome, message ~= "" and message or "-") end
+        buildModel()
+        local d = cat.decoded
+        log.info("CATALOG done outcome=%s source=%s packages=%d index_issued=%s", outcome, d and d.source or "-", #cat.rows,
+            d and Catalog.token(d.indexIssued) or "-")
+        if browse:isOpen() then browse:update(browseData()) end
+    end
+
+    local pollOnce
+    local function pollLater()
+        if type(ExecuteInGameThreadWithDelay) == "function" and pcall(ExecuteInGameThreadWithDelay, POLL_MS, pollOnce) then return end
+        finish({ outcome = "error", message = "the game thread can't be scheduled" })
+    end
+    pollOnce = function()
+        guard("the catalog poll", function()
+            local job = cat.job
+            if not job then return end
+            cat.polls = cat.polls + 1
+            local okP, st, res = pcall(catalogApi.poll, job)
+            if okP and st == "done" and type(res) == "table" then finish(res) return end
+            if okP and st == nil and res == "unknown job" then finish({ outcome = "error", message = "unknown job" }) return end
+            if cat.polls >= MAX_POLLS then finish({ outcome = "error", message = "no answer in 10 minutes" }) return end
+            pollLater()
+        end)
+    end
+
+    -- A refresh: at onReady and on REFRESH. One job at a time: a second ask, or core's "busy", shows CATALOG BUSY and is
+    -- never retried by itself.
+    local function startRefresh()
+        if not catalogApi then return end
+        if cat.job then
+            log.info("CATALOG refresh busy")
+            browse:setMessage(fmt("busy"))
+            return
+        end
+        local okR, job, why = pcall(catalogApi.refresh)
+        if okR and math.type(job) == "integer" then
+            cat.job, cat.polls, cat.state = job, 0, "checking"
+            log.info("CATALOG refresh job=%d", job)
+            if browse:isOpen() then browse:update(browseData()) end
+            pollLater()
+        elseif okR and why == "busy" then
+            log.info("CATALOG refresh busy")
+            if cat.state == "checking" then cat.state = "error" end -- nothing of ours runs: no CHECKING forever
+            if browse:isOpen() then browse:update(browseData()) end
+            browse:setMessage(fmt("busy"))
+        else
+            local reason = Catalog.clean(tostring(okR and why or job), 64)
+            log.info("CATALOG refresh error %s", reason)
+            cat.state, cat.outcome, cat.decoded, cat.rows = "error", "error", nil, {}
+            if browse:isOpen() then browse:update(browseData()) end
+        end
+    end
+
+    local function openBrowse()
+        buildModel() -- the installed mods and the build as they are now (the menu's footer is up)
+        browse:open(browseData(), view.lang, layoutSize())
+        log.info("BROWSE open shown=%d total=%d state=%s", browse.matched, #cat.rows, stateLog())
+    end
+    browse.defer = function(what, fn) soon(what, fn) end
+    browse.onRefresh = function() startRefresh() end
+    browse.onFiltered = function(f, _, matched, all)
+        local ids, bytes = {}, 0
+        for _, r in ipairs(all or {}) do
+            if bytes + #r.id + 1 > MAX_IDS_LOG then ids[#ids + 1] = "..." break end
+            ids[#ids + 1] = r.id
+            bytes = bytes + #r.id + 1
+        end
+        log.info("BROWSE filter cat=%s show=%s scope=%s for=%s q=%s shown=%d ids=%s", f.cat or "all", f.show or "all", f.scope or "all",
+            f["for"] or "game", table.concat(Catalog.terms(f.q), " "), matched, #ids > 0 and table.concat(ids, ",") or "-")
+    end
+    browse.onDetails = function(n)
+        local r = browse.shown[n]
+        local lines = browse:openDetails(n)
+        if lines and r then log.info("DETAILS %s lines=%d", r.id, lines) end
+    end
+    if catalogApi then
+        view.onBrowse = function() soon("Browse", openBrowse) end
+        startRefresh()
+    else
+        warnOnce("no-catalog", "%s has no core.catalog: the main window has no BROWSE button", CORE)
     end
 
     local okE, err = pcall(ui.menu.entry, { id = ENTRY, label = S.byLanguage("manage"), style = "options",

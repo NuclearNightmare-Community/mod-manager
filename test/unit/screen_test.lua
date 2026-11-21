@@ -515,6 +515,24 @@ do -- A failing core call raises out of openMain (main.lua's guard catches it).
     ok(not okO and tostring(err):find("menu is not open", 1, true), "screen.open refused: an error for the caller")
 end
 
+do -- v2 story 4: BROWSE at the main window's top right, only when onBrowse is set; its click calls onBrowse.
+    local U = FakeUi.new()
+    local v = Screen.new(U, S)
+    v:openMain(ROWS, "en", SIZE)
+    eq(U.byId.browse, nil, "no onBrowse: no BROWSE")
+    local U2 = FakeUi.new()
+    local v2 = Screen.new(U2, S)
+    local clicks = 0
+    v2.onBrowse = function() clicks = clicks + 1 end
+    local w = v2:openMain(ROWS, "en", SIZE)
+    local b = U2.byId.browse
+    ok(b and b.kind == "button" and b.label == "BROWSE" and b.place.screen == w and b.place.corner == "top-right", "BROWSE: a button at the top right")
+    U2.click("browse")
+    eq(clicks, 1, "BROWSE calls onBrowse")
+    v2:openMain(ROWS, "en", SIZE)
+    eq(U2.byId.browse.updates, 0, "BROWSE: made once, the label unchanged")
+end
+
 do -- toggleKind and controlOf (pure).
     eq(Screen.toggleKind({ state = "locked", paks = { "x" } }), "lock", "locked: the lock")
     eq(Screen.toggleKind({ state = "on", pakOnly = true, paks = { "x" } }), "fixed", "pak-only: fixed")

@@ -39,7 +39,7 @@
 param(
     [Parameter(Mandatory)] [string] $Instance,
     [switch] $Test,
-    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply')]
+    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply', 'browse')]
     [string] $Scenario = 'screen',
     [switch] $Force,
     [switch] $Remove,

@@ -45,7 +45,7 @@ function F.new()
             U.els[el.handle] = el
         end
         for k, v in pairs(opts) do el[k] = v end
-        if opts.enabled == nil and (kind == "checkbox" or kind == "choice" or kind == "slider" or kind == "button") then el.enabled = true end
+        if opts.enabled == nil and (kind == "checkbox" or kind == "choice" or kind == "slider" or kind == "button" or kind == "textbox") then el.enabled = true end
         if kind == "text" then
             assert(opts.text == nil or #tostring(opts.text) <= 256, "text.create: over 256 characters (core would WARN)")
         end
@@ -108,6 +108,26 @@ function F.new()
         setEnabled = function(h, e) rec("slider.setEnabled", h, e) elOf(h).enabled = e end,
         setTooltip = function(h, t) rec("slider.setTooltip", h, t) elOf(h).tooltip = tip(t) end,
         setVisible = vis("slider"),
+    }
+    -- v2 story 4: core.ui.textbox (Nucleus 0.25.0): width 64-1024, maxChars 1-256, hint at most 64 bytes, text at most
+    -- maxChars characters; set never calls back. U.typeText / U.commit are the player's typing and Enter.
+    U.textbox = {
+        create = function(o)
+            assert(o.width == nil or (math.type(o.width) == "integer" and o.width >= 64 and o.width <= 1024), "textbox: width")
+            assert(o.maxChars == nil or (math.type(o.maxChars) == "integer" and o.maxChars >= 1 and o.maxChars <= 256), "textbox: maxChars")
+            assert(o.hint == nil or (type(o.hint) == "string" and #o.hint <= 64), "textbox: hint")
+            assert(o.onChange == nil or type(o.onChange) == "function", "textbox: onChange")
+            assert(o.onCommit == nil or type(o.onCommit) == "function", "textbox: onCommit")
+            assert(o.text == nil or (type(o.text) == "string" and utf8.len(o.text) <= (o.maxChars or 64)), "textbox: text")
+            local h = create("textbox", o)
+            U.els[h].text = o.text or ""
+            return h
+        end,
+        set = function(h, t) rec("textbox.set", h, t) assert(type(t) == "string" and utf8.len(t) <= (elOf(h).maxChars or 64), "textbox.set: text") elOf(h).text = t end,
+        get = function(h) return elOf(h).text end,
+        setEnabled = function(h, e) rec("textbox.setEnabled", h, e) elOf(h).enabled = e end,
+        setTooltip = function(h, t) rec("textbox.setTooltip", h, t) elOf(h).tooltip = tip(t) end,
+        setVisible = vis("textbox"),
     }
     U.row = { create = function(o) return create("row", o) end, setVisible = vis("row") }
     U.list = { create = function(o) return create("list", o) end, setVisible = vis("list") }
@@ -175,6 +195,21 @@ function F.new()
         if not el.enabled or value == el.value then return false end
         el.value = value
         inHook(el.onChange, el.handle, value)
+        return true
+    end
+    -- v2 story 4: typing into a textbox (onChange when the text differs, as core does) and its commit (Enter).
+    function U.typeText(id, text)
+        local el = U.byId[id]
+        assert(el and el.kind == "textbox", "no textbox " .. id)
+        if not el.enabled or not el.visible or text == el.text then return false end
+        el.text = text
+        if el.onChange then inHook(el.onChange, el.handle, text) end
+        return true
+    end
+    function U.commit(id)
+        local el = U.byId[id]
+        assert(el and el.kind == "textbox", "no textbox " .. id)
+        if el.onCommit then inHook(el.onCommit, el.handle, el.text) end
         return true
     end
     -- A click on a button (core's Nucleus_OnClicked post-hook): refused when hidden or disabled, as core does.

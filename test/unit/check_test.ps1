@@ -14,6 +14,11 @@ New-Item -ItemType Directory $tmp | Out-Null
 $coreManifest = Join-Path $tmp 'nucleus-mod.json'
 Set-Content $coreManifest '{ "id": "nuclearnightmare-community.nucleus", "name": "Nucleus", "version": "0.8.0", "scope": "client", "game": { "version": "V8.2.3", "build": "26601774" }, "dependsOn": [] }'
 
+# v2 story 4: a made-up catalog index naming the browse scenario's packages (check.ps1 -CatalogIndex)
+$catalogIndex = Join-Path $tmp 'index.json'
+Set-Content $catalogIndex ('{ "packages": [ ' + ((@('nucleus|Nucleus (Mod Core)|Nucleus', 'mod-manager|Mod Manager|ModManager', 'hud-clock|HUD Clock|HudClock', 'waypoints|Map Waypoints+|Waypoints', 'whistle-mute|Whistle Emote Mute|WhistleMute') |
+    ForEach-Object { $i, $n, $f = $_ -split '\|'; '{ "id": "nuclearnightmare-community.' + $i + '", "name": "' + $f + '", "displayName": "' + $n + '" }' }) -join ', ') + ' ] }')
+
 $script:t = 0
 function L([string] $tag, [string] $msg) { $script:t++; "[2026-11-14 01:00:{0:D2}.{1:D7}] [Lua] [$tag] $msg" -f [int]($script:t / 1000 % 60), $script:t }
 function U([string] $msg) { $script:t++; "[2026-11-14 01:00:00.{0:D7}] $msg" -f $script:t }
@@ -21,7 +26,7 @@ function U([string] $msg) { $script:t++; "[2026-11-14 01:00:00.{0:D7}] $msg" -f 
 function Run([string[]] $log, [string] $scenario, [string] $target = 'host') {
     $p = Join-Path $tmp "$scenario-$([guid]::NewGuid().ToString('N').Substring(0, 6)).log"
     Set-Content $p $log
-    $out = & pwsh -NoProfile -NonInteractive -File $check -Log $p -Scenario $scenario -Target $target -CoreManifest $coreManifest 2>&1 | Out-String
+    $out = & pwsh -NoProfile -NonInteractive -File $check -Log $p -Scenario $scenario -Target $target -CoreManifest $coreManifest -CatalogIndex $catalogIndex 2>&1 | Out-String
     return @{ Code = $LASTEXITCODE; Out = $out }
 }
 function Expect([string[]] $log, [string] $scenario, [int] $code, [string] $name, [string] $mustSay, [string] $target = 'host') {
@@ -47,7 +52,7 @@ $SW = @{
 function Sc([string] $s) { " | scope=$s | stip=$($SW[$s]) | runs=RUNS ON: $($SW[$s])" }
 $rowLines = @(
     ("ROW Nucleus | 0.8.0 | toggle=lock | box=none | gear=dim | status=0 | icons=- | need=- | build=V8.2.3 26601774" + (Sc 'client'))
-    ("ROW Mod Manager | $MV | toggle=lock | box=none | gear=dim | status=0 | icons=- | need=>=0.24.0 | build=V8.2.3 26601774" + (Sc 'client'))
+    ("ROW Mod Manager | $MV | toggle=lock | box=none | gear=dim | status=0 | icons=- | need=>=0.25.0 | build=V8.2.3 26601774" + (Sc 'client'))
     ("ROW Mod Manager Base | 1.0.0 | toggle=on | box=live | gear=dim | status=0 | icons=- | need=>=0.12.0 | build=V8.2.3 26601774" + (Sc 'host'))
     ("ROW Mod Manager Dep | 1.0.0 | toggle=on | box=live | gear=dim | status=0 | icons=- | need=- | build=V8.2.3 26601774" + (Sc 'both'))
     ("ROW ModManagerBare | - | toggle=off | box=live | gear=dim | status=0 | icons=- | need=- | build=-" + (Sc 'unknown'))
@@ -71,7 +76,7 @@ function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE n
     [string] $gearlook = 'OK GEARLOOK 1 Nucleus looks dim (offers dim)', [int[]] $popin = @(1, 2, 3, 4), [int[]] $hiddenFirst = @(2, 3, 4)) {
     $l = (Start-Log) + @(
         (L $D 'SCENARIO screen'), (L $D 'LOADED 7 steps'),
-        (L $M 'CONNECT ok Nucleus 0.8.0 (pong 0.8.0 boot=1)'), (L $M 'READY entry=manage need=>=0.24.0'),
+        (L $M 'CONNECT ok Nucleus 0.8.0 (pong 0.8.0 boot=1)'), (L $M 'READY entry=manage need=>=0.25.0'),
         (L $D 'ENTRY menu1 text=MANAGE MODS above=OPTIONS below=QUIT'),
         (L $D 'OK ENTRYPOS menu1 between OPTIONS (UI_Button_Master_2) and QUIT (UI_Button_Master_3)'), (L $D 'OK ENTRYLOOK menu1 style x / x font y / y (the options style)'),
         (L $M 'MOD 1 Nucleus | Nucleus | 0.8.0 | locked | settings=no | need=- | build=V8.2.3 26601774'))
@@ -263,7 +268,7 @@ Expect ($good | Where-Object { $_ -notmatch 'OK BLOCKEDGEAR' }) 'screen' 1 'scre
 Expect ($good | Where-Object { $_ -notmatch 'OK CFGDIMOPEN' }) 'screen' 1 'screen: no dimmed-gear Configure fails'
 Expect ($good | Where-Object { $_ -notmatch 'OK SAME' }) 'screen' 1 'screen: no SAME (DW-59) fails'
 Expect ($good | Where-Object { $_ -notmatch 'ENTRY menu1 text=' }) 'screen' 1 'screen: no entry text fails'
-Expect ($good + (L $M 'READY entry=manage need=>=0.24.0')) 'screen' 1 'screen: two READY lines fail'
+Expect ($good + (L $M 'READY entry=manage need=>=0.25.0')) 'screen' 1 'screen: two READY lines fail'
 Expect (($good | Where-Object { $_ -notmatch "\[$M\] OPEN rows" }) + (L $M 'OPEN rows=8 total=8 lang=en')) 'screen' 1 'screen: one OPEN fails' 'opened twice'
 $swapped = [Collections.Generic.List[string]]::new([string[]]$good)
 $ic = $swapped.FindIndex({ param($l) $l -match '\[ModManager\] CONNECT ok' }); $ir = $swapped.FindIndex({ param($l) $l -match '\[ModManager\] READY ' })
@@ -275,21 +280,21 @@ $noCore = @((U "Starting Lua mod '$D'"), (L $D 'SCENARIO no-core'), (U "Starting
     (L $M 'Nucleus is not installed. ModManager will not run.'), (L $D 'OK NOENTRY no MANAGE MODS entry in the menu for 15 s'),
     (L $D 'END result=PASS checks=2 failures=0'), '[run.ps1] FILES unchanged')
 Expect $noCore 'no-core' 0 'no-core: passes' 'All checks passed'
-Expect ($noCore + (L $M 'READY entry=manage need=>=0.24.0')) 'no-core' 1 'no-core: a second [ModManager] line fails'
+Expect ($noCore + (L $M 'READY entry=manage need=>=0.25.0')) 'no-core' 1 'no-core: a second [ModManager] line fails'
 Expect ($noCore | Where-Object { $_ -notmatch 'NOENTRY' }) 'no-core' 1 'no-core: no NOENTRY fails'
 $oldCore = (Start-Log) + @((L $D "OLDCORE published nucleus.version=0.1.0 (from Nucleus's installed mod.json)"),
-    (L $M 'ERROR Nucleus 0.1.0 is older than ModManager needs (>=0.24.0). Update Nucleus. ModManager will not run.'),
+    (L $M 'ERROR Nucleus 0.1.0 is older than ModManager needs (>=0.25.0). Update Nucleus. ModManager will not run.'),
     (L $D 'OK NOENTRY no MANAGE MODS entry in the menu for 15 s'), (L $D 'END result=PASS checks=2 failures=0'), '[run.ps1] FILES unchanged')
 Expect $oldCore 'old-core' 0 'old-core: passes' 'All checks passed'
 Expect ($oldCore + (L $M 'ERROR start failed: x')) 'old-core' 1 'old-core: a second [ModManager] line fails'
-Expect ($oldCore -replace 'needs \(>=0.24.0\)', 'needs (>=0.7.0)') 'old-core' 1 'old-core: the wrong need fails'
+Expect ($oldCore -replace 'needs \(>=0.25.0\)', 'needs (>=0.7.0)') 'old-core' 1 'old-core: the wrong need fails'
 
 # ---------------------------------------------------------------- restart (story 8): two sessions in one log
 $R = 'ModManagerRestart'
 function Session([int] $n) {
     (Start-Log) + @((L $R 'loaded') | Where-Object { $n -eq 1 }) + @(
         (L $D 'SCENARIO restart'), (L $D "RESTART session $n"), (L $D 'LOADED 20 steps'),
-        (L $M 'CONNECT ok Nucleus 0.21.0 (pong 0.21.0 boot=1)'), (L $M 'READY entry=manage need=>=0.24.0'),
+        (L $M 'CONNECT ok Nucleus 0.21.0 (pong 0.21.0 boot=1)'), (L $M 'READY entry=manage need=>=0.25.0'),
         (L $M 'OPEN rows=10 total=10 lang=en game=V8.2.3 build=- us=4000'), (L $M 'RESTARTMODE direct'))
 }
 $s1 = (Session 1) + @(
@@ -331,7 +336,7 @@ $lockRel = "NuclearNightmare\Binaries\Win64\ue4ss\Mods\$AA\Scripts\main.lua"
 function ApplySession([int] $n, [string] $status, [string[]] $loaded) {
     (Start-Log) + @($loaded | ForEach-Object { L $_ 'loaded' }) + @(
         (L $D 'SCENARIO apply'), (L $D "APPLY session $n"), (L $D 'LOADED 20 steps'),
-        (L $M 'CONNECT ok Nucleus 0.24.0 (pong 0.24.0 boot=1)'), (L $M 'READY entry=manage need=>=0.24.0'), (L $M "APPLY status $status"))
+        (L $M 'CONNECT ok Nucleus 0.24.0 (pong 0.24.0 boot=1)'), (L $M 'READY entry=manage need=>=0.25.0'), (L $M "APPLY status $status"))
 }
 $a1 = (ApplySession 1 'staged=pending result=none changes=3 attempts=0' @()) + @(
     (L $M 'APPLY start ok'), (L $D 'OK APWAIT1 x'), (L $D 'OK APRESULT1 x'), (L $D 'OK APNOTLOADED1 x'),
@@ -392,6 +397,51 @@ Expect ($agood -replace 'codeintegrity-blocks=0', 'codeintegrity-blocks=1') 'app
 Expect ($agood -replace 'behavior=True', 'behavior=False') 'apply' 1 'apply: behaviour monitoring off fails'
 Expect ($agood -replace 'NucleusRestart\.exe no threats found(.*)package=same', 'NucleusRestart.exe no threats found$1package=differs') 'apply' 1 'apply: a scan of another helper fails'
 Expect ($agood -replace 'FILES changed: mods\.txt.*', 'FILES changed: Paks added x_P.pak') 'apply' 1 'apply: a pak change fails'
+
+# ---------------------------------------------------------------- browse (Mod Manager v2 story 4)
+$NN = 'nuclearnightmare-community'
+function BrowseLog([string[]] $pkgs, [string[]] $filters, [string[]] $rows = @('ROW Nucleus | 0.25.0', 'ROW Mod Manager | 0.6.0', 'ROW ModManagerDriver | -'), [int] $dones = 2) {
+    $l = (Start-Log) + @((L $D 'SCENARIO browse'), (L $D 'LOADED 60 steps'),
+        (L $M 'CONNECT ok Nucleus 0.25.0 (pong 0.25.0 boot=1)'), (L $M 'CATALOG refresh job=1'), (L $M 'READY entry=manage need=>=0.25.0'),
+        (L $M 'BUILD 26601774 from=index'))
+    foreach ($p in $pkgs) { $l += L $M "BROWSE pkg $p" }
+    $l += L $M "CATALOG done outcome=ok source=network packages=$($pkgs.Count) index_issued=2026-11-21T00:59:08Z"
+    $l += L $D 'OK BWDONE startup 1 CATALOG done line(s) (want 1)'
+    $l += L $M 'OPEN rows=3 total=3 lang=en game=V8.2.3 build=- us=4000'
+    foreach ($r in $rows) { $l += L $D $r }
+    $l += L $D 'OK BWROWS 3 installed rows'
+    foreach ($f in $filters) { $l += L $M "BROWSE filter $f" }
+    $l += L $M "BROWSE open shown=5 total=5 state=ok"
+    foreach ($ok in 'BWOPEN x', 'BWLIST x', 'BWCAT x', 'BWSHOW x', 'BWRESET x', 'BWSEARCH x', 'BWDETAILS x') { $l += L $D "OK $ok" }
+    $l += L $M "DETAILS $NN.hud-clock lines=1"
+    if ($dones -ge 2) {
+        $l += L $M 'CATALOG refresh job=2'
+        $l += L $M "CATALOG done outcome=ok source=network packages=$($pkgs.Count) index_issued=2026-11-21T00:59:08Z"
+        $l += L $D 'OK BWDONE after REFRESH 2 CATALOG done line(s) (want 2)'
+    }
+    $l += L $D 'END result=PASS checks=12 failures=0'
+    $l += '[run.ps1] RUN finished'
+    $l += '[run.ps1] FILES unchanged'
+    return $l
+}
+$bPkgs = @("$NN.nucleus v=0.22.0 cat=library scope=client state=installed core=ok", "$NN.mod-manager v=0.4.0 cat=tools,ui scope=client state=installed core=ok",
+    "$NN.hud-clock v=0.3.0 cat=ui,qol scope=client state=available core=ok", "$NN.waypoints v=0.3.1 cat=qol,ui scope=client state=available core=ok",
+    "$NN.whistle-mute v=0.2.1 cat=audio,qol scope=client state=available core=ok")
+$all5 = "$NN.hud-clock,$NN.waypoints,$NN.mod-manager,$NN.nucleus,$NN.whistle-mute"
+$bFilters = @("cat=all show=all scope=all for=game q= shown=5 ids=$all5", "cat=audio show=all scope=all for=game q= shown=1 ids=$NN.whistle-mute",
+    'cat=audio show=installed scope=all for=game q= shown=0 ids=-', "cat=all show=all scope=all for=game q= shown=5 ids=$all5",
+    "cat=all show=all scope=all for=game q=c shown=1 ids=$NN.hud-clock", "cat=all show=all scope=all for=game q=clock shown=1 ids=$NN.hud-clock")
+$bgood = BrowseLog $bPkgs $bFilters
+Expect $bgood 'browse' 0 'browse: passes' 'All checks passed' 'vm'
+Expect (BrowseLog $bPkgs ($bFilters[0..2] + "cat=all show=installed scope=all for=game q= shown=1 ids=$NN.nucleus" + $bFilters[3..5])) 'browse' 1 'browse: a filter line that differs from the pkg lines fails' 'differ from the recomputation' 'vm'
+Expect (BrowseLog $bPkgs ($bFilters[0..4] + "cat=all show=all scope=all for=game q=clock shown=1 ids=$NN.base")) 'browse' 1 'browse: a search id outside the pkg lines fails' 'outside the recomputation' 'vm'
+Expect (BrowseLog $bPkgs ($bFilters[0..4] + "cat=all show=all scope=all for=game q=clock shown=2 ids=$NN.hud-clock,$NN.waypoints")) 'browse' 1 'browse: clock with two ids fails' 'clock' 'vm'
+Expect (BrowseLog ($bPkgs + "$NN.base v=0.6.0 cat=- scope=unknown state=available core=ok") $bFilters) 'browse' 1 'browse: a base package listed fails' 'base' 'vm'
+Expect (BrowseLog ($bPkgs -replace 'hud-clock v=0.3.0 cat=ui,qol scope=client state=available', 'hud-clock v=0.3.0 cat=ui,qol scope=client state=installed') ($bFilters -replace "show=installed scope=all for=game q= shown=0 ids=-", "show=installed scope=all for=game q= shown=0 ids=-")) 'browse' 1 'browse: a state that disagrees with the ROW lines fails' 'STATE .*hud-clock' 'vm'
+Expect (BrowseLog $bPkgs $bFilters -rows @('ROW Mod Manager | 0.6.0')) 'browse' 1 'browse: Nucleus installed without its ROW line fails' 'STATE .*nucleus' 'vm'
+Expect (BrowseLog $bPkgs $bFilters -dones 1) 'browse' 1 'browse: no second done fails' 'CATALOG done' 'vm'
+Expect (BrowseLog ($bPkgs | Where-Object { $_ -notmatch 'waypoints' }) ($bFilters -replace ",$NN.waypoints", '' -replace 'shown=5', 'shown=4')) 'browse' 1 'browse: one of the five missing fails' 'missing' 'vm'
+Expect ($bgood + (L $M 'WARN catalog package 3 skipped: no name')) 'browse' 1 'browse: a WARN fails' '' 'vm'
 
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ("check_test: {0} passed, {1} failed" -f $script:passed, $script:failed)
