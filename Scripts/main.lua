@@ -367,6 +367,9 @@ local function start(core)
         return #Catalog.revokedInstalled(cat.rows, ins.staged), nUp
     end
 
+    -- v2 story 6: the catalog model again (buildModel, below): the startup refresh may finish before the menu's footer
+    -- says this game's build, and offered versions (updates, a revoked version's fix) need it.
+    local rebuildModel
     local function openMain()
         local micros = type(core.clock) == "table" and core.clock.micros or nil
         local t0 = micros and micros()
@@ -374,6 +377,7 @@ local function start(core)
         view.lang = lang -- this open's language for the MOD and STATUS lines too
         local fs0, paths0 = gameFs()
         session.running = runningGame(fs0, paths0)
+        if rebuildModel then rebuildModel() end
         local result, fs, paths = loadRows(true, fs0, paths0)
         logRows(result.rows)
         view.message = nil
@@ -783,6 +787,8 @@ local function start(core)
         end
     end
 
+    rebuildModel = buildModel
+
     local function openBrowse(show)
         buildModel() -- the installed mods and the build as they are now (the menu's footer is up)
         browse:open(browseData(), view.lang, layoutSize(), show)
@@ -834,6 +840,7 @@ local function start(core)
     -- The revoked window (id "revoked", on top: over the main window, or straight over the title-screen menu).
     local function openRevokedWin()
         view.lang = S.language()
+        buildModel() -- this game's build now (the fix needs it), as Browse does
         local list = Catalog.revokedInstalled(cat.rows, ins.staged)
         view:openRevoked(list)
         log.info("REVIEW open n=%d", #list)
