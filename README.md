@@ -120,3 +120,7 @@ Fixtures (`deploy.ps1 -Test`, never shipped): `Mods/ModManagerFixture` (mod.json
 | `check.ps1`, `run.ps1`, `test.ps1` | Judge a log, run a scenario, run the unit tests |
 | `test/ModManagerDriver/`, `test/ModManager{Fixture,Long,Base,Dep,Restart}/` | The driver and the fixtures (never shipped; `ModManagerRestart` only for the restart scenario) |
 | `test/unit/` | Unit tests (`fakeui.lua`: a fake `core.ui` and `core.settings`; `memfs.lua`: an in-memory file system) |
+
+## Feedback
+
+Bug reports, ideas and questions go to [NuclearNightmare-Community/feedback](https://github.com/NuclearNightmare-Community/feedback). For a security problem, please report it privately: see its [SECURITY.md](https://github.com/NuclearNightmare-Community/feedback/blob/main/SECURITY.md).
