@@ -1842,6 +1842,8 @@ local function buildUpdate()
         settle(1)
     end
     local UPD_DONE = "[" .. MOD .. "] UPDATE done "
+    -- The core version the fixture catalog offers (deploy.ps1 made it one patch above core's build): its index.json.
+    local CORE_NEW = (readFile(ME .. "\\fixture\\index.json") or ""):match('"id":%s*"nuclearnightmare%-community%.' .. CORE:lower() .. '".-"versions":%s*%[%s*{%s*"version":%s*"([^"]+)"') or "?"
     local ARROW = "\u{2192}"
 
     waitWorld("menu" .. n, "NewMainMenu", 120)
@@ -1924,7 +1926,7 @@ local function buildUpdate()
         settle(2)
         step("update: the Nucleus confirm", function()
             local t = textOf(winEl("install", "in.title")) or ""
-            check(t:find("UPDATE NUCLEUS (MOD CORE) ", 1, true) == 1 and t:find(ARROW .. " 0.27.1?", 1, true) ~= nil, "UPCORETITLE the confirm reads %s", t)
+            check(t:find("UPDATE NUCLEUS (MOD CORE) ", 1, true) == 1 and t:find(ARROW .. " " .. CORE_NEW .. "?", 1, true) ~= nil, "UPCORETITLE the confirm reads %s", t)
         end)
         clickOn("the Nucleus confirm's UPDATE", function() return winEl("install", "in.ok") end)
         waitLogN(UPD_DONE, 2, "UPDATE done (Nucleus)", 300)
@@ -1992,7 +1994,11 @@ local function buildUpdate()
         step("update: session 2", function()
             local s, why = applyStatus()
             check(s ~= nil and s.staged == "none", "UPAPPLIED nothing staged any more (%s)", s and string.format("staged=%s result=%s reason=%s", tostring(s.staged), tostring(s.result), tostring(s.reason)) or tostring(why))
-            check((logCount("[" .. CORE .. "] READY version=0.27.1 ") or 0) >= 1, "UPCORE %s 0.27.1 runs (READY version=0.27.1)", CORE)
+            -- The fixture's core is the normal build with its mod.json version patched (READY reports the version built
+            -- into its files): its mod.json, a READY line, and no test main.dll (check.ps1: no catalog-test.json read).
+            local cj = readFile(CORE .. "\\mod.json") or ""
+            check(cj:find('"version"%s*:%s*"' .. CORE_NEW:gsub("%.", "%%.") .. '"') ~= nil and (logCount("[" .. CORE .. "] READY version=") or 0) >= 1,
+                "UPCORE %s %s installed and running", CORE, CORE_NEW)
             check((logCount("[HudClock]") or 0) >= 1, "UPLOADED [HudClock] logs: HUD Clock runs")
             local j = readFile("HudClock\\mod.json") or ""
             check(j:find('"version"%s*:%s*"0%.3%.1"') ~= nil, "UPJSON Mods/HudClock/mod.json is 0.3.1")

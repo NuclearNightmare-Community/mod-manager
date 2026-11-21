@@ -80,7 +80,7 @@
   0.3.1, core to its fixture version) each with "UPDATE stage job=<n>" and "UPDATE done outcome=ok", "UNINSTALL ask
   nuclearnightmare-community.whistle-mute", "UNINSTALL done outcome=ok ... files=3 kept=0", core's stage and unstage job
   lines, the driver's UP* checks, "RESTART mode=direct", no END line. Session 2: "APPLY status staged=none
-  result=applied", "APPLY result applied", "APPLY ack ok", core's READY at the fixture version, no test main.dll, a
+  result=applied", "APPLY result applied", "APPLY ack ok", core's READY (the driver's UPCORE: its mod.json at the fixture version), no test main.dll, a
   "[HudClock]" line, no NOTICE shown, the driver's UP* checks, END result=PASS; soft: "UPOLD absent" (the helper's
   renamed copy bin\<Core>Restart.<txn>.old is deleted only by a later helper start).
   Exit code 1 when any check fails; otherwise prints "All checks passed."
