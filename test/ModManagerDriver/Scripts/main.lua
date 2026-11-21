@@ -36,6 +36,18 @@
 --             Session 2 (the facts file there): the facts logged and judged; ModManagerRestart not loaded; its row
 --             off with nothing pending (no banner, QUIT GAME or RESTART NOW), mods.txt ': 0'; the box clicked back on
 --             (pending again, both buttons shown); END; then QUIT GAME.
+--   apply:    Mod Manager v2 story 3, four sessions (VM only; the runner follows the game across exits: -RepeatUntilEnd),
+--             counted in apply-session.txt next to this file. Plan A (ModManagerApplyA) is staged by deploy.ps1; core's
+--             own nucleus.apply in this state reads the status and starts the helper (never acks: the Mod Manager does).
+--             Session 1: the Mod Manager started the helper at onReady (status waiting), no result yet, A not loaded;
+--             the window shows the banner, QUIT GAME and RESTART NOW; a real click on RESTART NOW (the helper applies
+--             A, then relaunches the game). Session 2: A loaded, the result applied; opening the window lets the Mod
+--             Manager show and ack it; "stage B" (pending), start() true (waiting), then "kill". Session 3: A and B
+--             loaded, the result applied; "stage C", "lock <A's Scripts\main.lua>" (a write open of it fails), start()
+--             true (waiting), then "close" (WM_CLOSE, as Alt+F4). Session 4: the result failed, reason locked, that
+--             path, attempts 1; A's files byte-identical to the copy deploy.ps1 put in Scripts\apply-expect\; none of
+--             C's files; C not loaded and not in mods.txt; C still staged; the window shows the buttons; END (no QUIT
+--             GAME: the runner ends at END and stops the waiting helper before closing the game).
 --   no-core:  (run.ps1 moves core aside) the menu has no MANAGE MODS entry.
 --   old-core: (run.ps1 sets core's installed mod.json to 0.1.0) publishes that version as <core>.version before the
 --             Mod Manager connects, as an old core would; the menu has no MANAGE MODS entry.
@@ -1287,6 +1299,164 @@ local function buildRestart()
     end)
 end
 
+-- ---------------------------------------------------------------- apply (Mod Manager v2 story 3): four sessions
+local function buildApply()
+    local A, B, C = MOD .. "ApplyA", MOD .. "ApplyB", MOD .. "ApplyC"
+    local LOCK_REL = "NuclearNightmare\\Binaries\\Win64\\ue4ss\\Mods\\" .. A .. "\\Scripts\\main.lua" -- relative to the game folder
+    local A_FILES = { "mod.json", "Scripts\\main.lua" }
+    local SESSION = scriptDir .. "\\apply-session.txt"
+    local n = 1
+    do
+        local f = io.open(SESSION, "r")
+        if f then n = (tonumber((f:read("a") or ""):match("%d+")) or 0) + 1; f:close() end
+        local g = io.open(SESSION, "w")
+        if g then g:write(tostring(n)); g:close() end
+    end
+    say("APPLY session %d", n)
+    -- Core's own nucleus.apply in this state (as the restart scenario's nucleus.restart): the natives are core's.
+    local function core()
+        local mods = scriptDir:match("^(.*)[/\\][^/\\]+[/\\][Ss]cripts$") or "."
+        local add = mods .. "\\" .. CORE .. "\\Scripts\\?.lua"
+        if not package.path:find(add, 1, true) then package.path = package.path .. ";" .. add end
+        local okM, M = pcall(require, CORE:lower() .. ".apply")
+        if okM and type(M) == "table" then return M end
+        return nil, okM and type(M) or firstLine(M)
+    end
+    local function st()
+        local M, why = core()
+        if not M then return nil, "no " .. CORE:lower() .. ".apply: " .. tostring(why) end
+        return M.status()
+    end
+    local function show(s, why)
+        if not s then return "nil, " .. tostring(why) end
+        return string.format("staged=%s result=%s reason=%s path=%s attempts=%s changes=%s", tostring(s.staged), tostring(s.result),
+            tostring(s.reason), tostring(s.path), tostring(s.attempts), tostring(s.changes))
+    end
+    local function loaded(m) return ModRef:GetSharedVariable(m:lower() .. ".loaded") == true end
+    local function pendingShown() return shownW(mainEl("banner")) and shownW(mainEl("quit")) and shownW(mainEl("restart")) end
+    local function startWaiting(id)
+        step("apply: start the helper", function()
+            local s, why = st()
+            check(s ~= nil and s.staged == "pending", "APSTAGED%d the staged change is pending (%s)", id, show(s, why))
+            local M = core()
+            local r, rwhy
+            if M then r, rwhy = M.start() end
+            check(r == true, "APSTART%d core.apply.start() is true (%s, %s)", id, tostring(r), tostring(rwhy))
+            s, why = st()
+            check(s ~= nil and s.staged == "waiting", "APWAIT%d the helper waits (%s)", id, show(s, why))
+        end)
+    end
+    -- Asks the runner to end this session ("kill" or "close"); a session with a failed check ends the run instead.
+    local function endSession(how, label)
+        step("apply: " .. how, function()
+            if S.failures > 0 then
+                say("APPLY not ended by %s: %d check(s) failed in session %d", how, S.failures, n)
+                finish()
+                return
+            end
+            say("%s requested", label)
+            request(how)
+            return after(60), 70, "the game to exit after " .. how
+        end)
+        step("apply: still running", function() check(false, "APEXIT the game did not exit within 60 s of %s", how) end)
+    end
+    local function menuUp(phase)
+        waitWorld(phase, "NewMainMenu", 120)
+        pastStartup()
+        waitFor("the entry", function() return menu() ~= nil and entryOf(menu()) ~= nil end, 60)
+        settle(3)
+    end
+
+    menuUp("menu" .. n)
+    if n == 1 then
+        waitFor("the apply helper waiting", function() local s = st() return s ~= nil and s.staged == "waiting" end, 30)
+        step("apply: session 1", function()
+            local s, why = st()
+            check(s ~= nil and s.staged == "waiting", "APWAIT1 the Mod Manager started the helper at launch: staged is waiting (%s)", show(s, why))
+            check(s ~= nil and s.result == "none" and (s.changes or 0) > 0, "APRESULT1 no result yet, plan A staged (%s)", show(s, why))
+            check(not loaded(A), "APNOTLOADED1 %s is not loaded yet", A)
+        end)
+        openMain("first")
+        step("apply: pending", function()
+            check(pendingShown(), "APSHOWN1 the staged change is pending: the banner, QUIT GAME and RESTART NOW are shown")
+        end)
+        step("cursor away", function() return request("move 5 5"), 30, "cursor away" end)
+        shot("mm-apply-pending")
+        step("apply: click RESTART NOW", function()
+            if S.failures > 0 then
+                say("RESTART not clicked: %d check(s) failed in session 1", S.failures)
+                finish()
+                return
+            end
+            local r = absR(mainEl("restart"))
+            if not check(r ~= nil, "APPOINT RESTART NOW has a point to click") then finish() return end
+            local x, y = center(r)
+            say("CLICK RESTART NOW at (%d,%d)", x, y)
+            request(string.format("click %d %d", x, y))
+            -- The game closes, the helper applies A and starts the game again; this session ends without an END line.
+            return after(120), 130, "the game to close after RESTART NOW"
+        end)
+        step("apply: still running", function() check(false, "APQUIT the game did not close within 120 s of the RESTART NOW click") end)
+    elseif n == 2 then
+        step("apply: session 2", function()
+            check(loaded(A), "APLOADED2 %s loaded: plan A was applied before the relaunch", A)
+            local s, why = st()
+            check(s ~= nil and s.result == "applied" and s.staged == "none", "APRESULT2 the result is applied, nothing staged (%s)", show(s, why))
+        end)
+        openMain("session 2")
+        waitFor("the Mod Manager acks the result", function() local s = st() return s ~= nil and s.result == "none" end, 10)
+        step("apply: acked", function()
+            local s, why = st()
+            check(s ~= nil and s.result == "none", "APACKED2 the Mod Manager acked the result when its window opened (%s)", show(s, why))
+        end)
+        shot("mm-apply-applied")
+        step("apply: stage B", function() return request("stage B"), 60, "stage B" end)
+        startWaiting(2)
+        endSession("kill", "KILL")
+    elseif n == 3 then
+        step("apply: session 3", function()
+            check(loaded(A) and loaded(B), "APLOADED3 %s and %s loaded: plan B was applied after the kill", A, B)
+            local s, why = st()
+            check(s ~= nil and s.result == "applied" and s.staged == "none", "APRESULT3 the result is applied, nothing staged (%s)", show(s, why))
+        end)
+        step("apply: stage C", function() return request("stage C"), 60, "stage C" end)
+        step("apply: lock", function() return request("lock " .. LOCK_REL), 30, "lock" end)
+        step("apply: locked", function()
+            local f = io.open(MODS_DIR .. "\\" .. A .. "\\Scripts\\main.lua", "r+b")
+            if f then f:close() end
+            check(f == nil, "APLOCK3 %s's Scripts\\main.lua can't be opened for writing (the runner holds it)", A)
+        end)
+        startWaiting(3)
+        endSession("close", "CLOSE")
+    else
+        step("apply: session 4", function()
+            local s, why = st()
+            check(s ~= nil and s.result == "failed" and s.reason == "locked" and s.path == LOCK_REL and s.attempts == 1,
+                "APRESULT4 the result is failed, locked, %s, attempt 1 (%s)", LOCK_REL, show(s, why))
+            check(s ~= nil and s.staged ~= "none", "APPENDING4 plan C is still staged (%s)", show(s, why))
+            local same, what = true, {}
+            for _, rel in ipairs(A_FILES) do
+                local got, want = readFile(A .. "\\" .. rel), readFile(ME .. "\\Scripts\\apply-expect\\" .. A .. "\\" .. rel)
+                if got == nil or want == nil or got ~= want then same = false; what[#what + 1] = rel .. (got == nil and " missing" or (want == nil and " (no expected copy)" or " differs")) end
+            end
+            check(same, "APSAME4 %s's files are byte-identical to the fixture's after the rollback (%s)", A, #what > 0 and table.concat(what, ", ") or "all same")
+            local cf = {}
+            for _, rel in ipairs(A_FILES) do if readFile(C .. "\\" .. rel) ~= nil then cf[#cf + 1] = rel end end
+            check(#cf == 0, "APNOC4 none of %s's files exist (%s)", C, #cf > 0 and table.concat(cf, ", ") or "none")
+            local t = readFile("mods.txt")
+            check(not loaded(C) and t ~= nil and not t:find(C, 1, true), "APNOTLOADED4 %s not loaded and not in mods.txt", C)
+        end)
+        openMain("session 4")
+        step("apply: still pending", function()
+            check(pendingShown(), "APSHOWN4 plan C is still pending: the banner, QUIT GAME and RESTART NOW are shown")
+        end)
+        step("cursor away", function() return request("move 5 5"), 30, "cursor away" end)
+        shot("mm-apply-failed")
+        -- END only: the runner ends at END, stops the helper waiting to try plan C again, then closes the game.
+        step("apply: end", function() finish() end)
+    end
+end
+
 -- ---------------------------------------------------------------- no-core and old-core: no entry
 local function buildNoEntry()
     waitWorld("menu1", "NewMainMenu", 120)
@@ -1333,7 +1503,7 @@ local function tick()
     busy = false
 end
 
-local build = ({ screen = buildScreen, restart = buildRestart, ["no-core"] = buildNoEntry, ["old-core"] = buildNoEntry })[SCENARIO]
+local build = ({ screen = buildScreen, restart = buildRestart, apply = buildApply, ["no-core"] = buildNoEntry, ["old-core"] = buildNoEntry })[SCENARIO]
 if not build then
     say("END result=FAIL checks=0 failures=1 reason=unknown-scenario %s", SCENARIO)
     return

@@ -47,7 +47,7 @@ $SW = @{
 function Sc([string] $s) { " | scope=$s | stip=$($SW[$s]) | runs=RUNS ON: $($SW[$s])" }
 $rowLines = @(
     ("ROW Nucleus | 0.8.0 | toggle=lock | box=none | gear=dim | status=0 | icons=- | need=- | build=V8.2.3 26601774" + (Sc 'client'))
-    ("ROW Mod Manager | $MV | toggle=lock | box=none | gear=dim | status=0 | icons=- | need=>=0.21.0 | build=V8.2.3 26601774" + (Sc 'client'))
+    ("ROW Mod Manager | $MV | toggle=lock | box=none | gear=dim | status=0 | icons=- | need=>=0.24.0 | build=V8.2.3 26601774" + (Sc 'client'))
     ("ROW Mod Manager Base | 1.0.0 | toggle=on | box=live | gear=dim | status=0 | icons=- | need=>=0.12.0 | build=V8.2.3 26601774" + (Sc 'host'))
     ("ROW Mod Manager Dep | 1.0.0 | toggle=on | box=live | gear=dim | status=0 | icons=- | need=- | build=V8.2.3 26601774" + (Sc 'both'))
     ("ROW ModManagerBare | - | toggle=off | box=live | gear=dim | status=0 | icons=- | need=- | build=-" + (Sc 'unknown'))
@@ -71,7 +71,7 @@ function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE n
     [string] $gearlook = 'OK GEARLOOK 1 Nucleus looks dim (offers dim)', [int[]] $popin = @(1, 2, 3, 4), [int[]] $hiddenFirst = @(2, 3, 4)) {
     $l = (Start-Log) + @(
         (L $D 'SCENARIO screen'), (L $D 'LOADED 7 steps'),
-        (L $M 'CONNECT ok Nucleus 0.8.0 (pong 0.8.0 boot=1)'), (L $M 'READY entry=manage need=>=0.21.0'),
+        (L $M 'CONNECT ok Nucleus 0.8.0 (pong 0.8.0 boot=1)'), (L $M 'READY entry=manage need=>=0.24.0'),
         (L $D 'ENTRY menu1 text=MANAGE MODS above=OPTIONS below=QUIT'),
         (L $D 'OK ENTRYPOS menu1 between OPTIONS (UI_Button_Master_2) and QUIT (UI_Button_Master_3)'), (L $D 'OK ENTRYLOOK menu1 style x / x font y / y (the options style)'),
         (L $M 'MOD 1 Nucleus | Nucleus | 0.8.0 | locked | settings=no | need=- | build=V8.2.3 26601774'))
@@ -263,7 +263,7 @@ Expect ($good | Where-Object { $_ -notmatch 'OK BLOCKEDGEAR' }) 'screen' 1 'scre
 Expect ($good | Where-Object { $_ -notmatch 'OK CFGDIMOPEN' }) 'screen' 1 'screen: no dimmed-gear Configure fails'
 Expect ($good | Where-Object { $_ -notmatch 'OK SAME' }) 'screen' 1 'screen: no SAME (DW-59) fails'
 Expect ($good | Where-Object { $_ -notmatch 'ENTRY menu1 text=' }) 'screen' 1 'screen: no entry text fails'
-Expect ($good + (L $M 'READY entry=manage need=>=0.21.0')) 'screen' 1 'screen: two READY lines fail'
+Expect ($good + (L $M 'READY entry=manage need=>=0.24.0')) 'screen' 1 'screen: two READY lines fail'
 Expect (($good | Where-Object { $_ -notmatch "\[$M\] OPEN rows" }) + (L $M 'OPEN rows=8 total=8 lang=en')) 'screen' 1 'screen: one OPEN fails' 'opened twice'
 $swapped = [Collections.Generic.List[string]]::new([string[]]$good)
 $ic = $swapped.FindIndex({ param($l) $l -match '\[ModManager\] CONNECT ok' }); $ir = $swapped.FindIndex({ param($l) $l -match '\[ModManager\] READY ' })
@@ -275,21 +275,21 @@ $noCore = @((U "Starting Lua mod '$D'"), (L $D 'SCENARIO no-core'), (U "Starting
     (L $M 'Nucleus is not installed. ModManager will not run.'), (L $D 'OK NOENTRY no MANAGE MODS entry in the menu for 15 s'),
     (L $D 'END result=PASS checks=2 failures=0'), '[run.ps1] FILES unchanged')
 Expect $noCore 'no-core' 0 'no-core: passes' 'All checks passed'
-Expect ($noCore + (L $M 'READY entry=manage need=>=0.21.0')) 'no-core' 1 'no-core: a second [ModManager] line fails'
+Expect ($noCore + (L $M 'READY entry=manage need=>=0.24.0')) 'no-core' 1 'no-core: a second [ModManager] line fails'
 Expect ($noCore | Where-Object { $_ -notmatch 'NOENTRY' }) 'no-core' 1 'no-core: no NOENTRY fails'
 $oldCore = (Start-Log) + @((L $D "OLDCORE published nucleus.version=0.1.0 (from Nucleus's installed mod.json)"),
-    (L $M 'ERROR Nucleus 0.1.0 is older than ModManager needs (>=0.21.0). Update Nucleus. ModManager will not run.'),
+    (L $M 'ERROR Nucleus 0.1.0 is older than ModManager needs (>=0.24.0). Update Nucleus. ModManager will not run.'),
     (L $D 'OK NOENTRY no MANAGE MODS entry in the menu for 15 s'), (L $D 'END result=PASS checks=2 failures=0'), '[run.ps1] FILES unchanged')
 Expect $oldCore 'old-core' 0 'old-core: passes' 'All checks passed'
 Expect ($oldCore + (L $M 'ERROR start failed: x')) 'old-core' 1 'old-core: a second [ModManager] line fails'
-Expect ($oldCore -replace 'needs \(>=0\.21\.0\)', 'needs (>=0.7.0)') 'old-core' 1 'old-core: the wrong need fails'
+Expect ($oldCore -replace 'needs \(>=0.24.0\)', 'needs (>=0.7.0)') 'old-core' 1 'old-core: the wrong need fails'
 
 # ---------------------------------------------------------------- restart (story 8): two sessions in one log
 $R = 'ModManagerRestart'
 function Session([int] $n) {
     (Start-Log) + @((L $R 'loaded') | Where-Object { $n -eq 1 }) + @(
         (L $D 'SCENARIO restart'), (L $D "RESTART session $n"), (L $D 'LOADED 20 steps'),
-        (L $M 'CONNECT ok Nucleus 0.21.0 (pong 0.21.0 boot=1)'), (L $M 'READY entry=manage need=>=0.21.0'),
+        (L $M 'CONNECT ok Nucleus 0.21.0 (pong 0.21.0 boot=1)'), (L $M 'READY entry=manage need=>=0.24.0'),
         (L $M 'OPEN rows=10 total=10 lang=en game=V8.2.3 build=- us=4000'), (L $M 'RESTARTMODE direct'))
 }
 $s1 = (Session 1) + @(
@@ -324,6 +324,74 @@ Expect ($s1 + @('[run.ps1] SESSION 2 (relaunched by the game)') + (($s2 | Where-
 Expect (($s1 | Where-Object { $_ -notmatch 'RESTART mode=' }) + @('[run.ps1] SESSION 2 (relaunched by the game)') + $s2 + $tail) 'restart' 1 'restart: no RESTART line in session 1 fails' 'session 1: '
 Expect ($s1 + (L $D 'END result=FAIL checks=3 failures=1') + @('[run.ps1] SESSION 2 (relaunched by the game)') + $s2 + $tail) 'restart' 1 'restart: an END line in session 1 fails'
 Expect ($s1 + @('[run.ps1] SESSION 2 (relaunched by the game)') + $s2 + (L 'Nucleus' 'native: restart: helper started (mode=direct, pid=5)') + $tail) 'restart' 1 'restart: a helper started in session 2 fails'
+
+# ---------------------------------------------------------------- apply (Mod Manager v2 story 3): four sessions in one log
+$AA = 'ModManagerApplyA'; $AB = 'ModManagerApplyB'; $AC = 'ModManagerApplyC'
+$lockRel = "NuclearNightmare\Binaries\Win64\ue4ss\Mods\$AA\Scripts\main.lua"
+function ApplySession([int] $n, [string] $status, [string[]] $loaded) {
+    (Start-Log) + @($loaded | ForEach-Object { L $_ 'loaded' }) + @(
+        (L $D 'SCENARIO apply'), (L $D "APPLY session $n"), (L $D 'LOADED 20 steps'),
+        (L $M 'CONNECT ok Nucleus 0.24.0 (pong 0.24.0 boot=1)'), (L $M 'READY entry=manage need=>=0.24.0'), (L $M "APPLY status $status"))
+}
+$a1 = (ApplySession 1 'staged=pending result=none changes=3 attempts=0' @()) + @(
+    (L $M 'APPLY start ok'), (L $D 'OK APWAIT1 x'), (L $D 'OK APRESULT1 x'), (L $D 'OK APNOTLOADED1 x'),
+    (L $M 'OPEN rows=10 total=10 lang=en game=V8.2.3 build=- us=4000'), (L $M 'RESTARTMODE direct'), (L $D 'OK APSHOWN1 x'),
+    (L $D 'CLICK RESTART NOW at (900,700)'), (L $M 'RESTART mode=direct pending=1'))
+$a2 = (ApplySession 2 'staged=none result=applied changes=0 attempts=0' @($AA)) + @(
+    (L $D 'OK APLOADED2 x'), (L $D 'OK APRESULT2 x'), (L $M 'OPEN rows=11 total=11 lang=en game=V8.2.3 build=- us=4000'),
+    (L $M 'APPLY result applied reason=- path=- attempts=0'), (L $M 'APPLY ack ok'), (L $D 'OK APACKED2 x'),
+    (L $D 'OK APSTAGED2 x'), (L $D 'OK APSTART2 x'), (L $D 'OK APWAIT2 x'), (L $D 'KILL requested'))
+$a3 = (ApplySession 3 'staged=none result=applied changes=0 attempts=0' @($AA, $AB)) + @(
+    (L $D 'OK APLOADED3 x'), (L $D 'OK APRESULT3 x'), (L $D 'OK APSTAGED3 x'), (L $D 'OK APLOCK3 x'), (L $D 'OK APSTART3 x'), (L $D 'OK APWAIT3 x'),
+    (L $D 'CLOSE requested'))
+$a4 = (ApplySession 4 'staged=pending result=failed changes=4 attempts=1' @($AA, $AB)) + @(
+    (L $M 'APPLY start ok'), (L $D 'OK APRESULT4 x'), (L $D 'OK APPENDING4 x'), (L $D 'OK APSAME4 x'), (L $D 'OK APNOC4 x'), (L $D 'OK APNOTLOADED4 x'),
+    (L $M 'OPEN rows=12 total=12 lang=en game=V8.2.3 build=- us=4000'), (L $M "APPLY result failed reason=locked path=$lockRel attempts=1"),
+    (L $M 'APPLY ack ok'), (L $D 'OK APSHOWN4 x'), (L $D 'END result=PASS checks=30 failures=0'))
+$atail = @('[run.ps1] RELAUNCH old=100 new=200 cmdline=same userdir=yes',
+    '[run.ps1] MOTW NuclearNightmare/Binaries/Win64/ue4ss/Mods/Nucleus/bin/NucleusRestart.exe ZoneId=3',
+    '[run.ps1] DEFENDER status realtime=True behavior=True smartappcontrol=Off signatures=1.463.380.0 since=2026-11-20T01:00:00',
+    '[run.ps1] DEFENDER detections=0', '[run.ps1] DEFENDER events=0', '[run.ps1] DEFENDER cfa=off', '[run.ps1] DEFENDER cfa-events=0',
+    '[run.ps1] DEFENDER codeintegrity-blocks=0', '[run.ps1] DEFENDER samples-submitted=0',
+    '[run.ps1] RUN finished', '[run.ps1] FILES changed: mods.txt sha256 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA -> BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+    "[run.ps1] BUILDSCAN main.dll no threats found signatures=1.463.380.0 package=same",
+    "[run.ps1] BUILDSCAN bin/NucleusRestart.exe no threats found signatures=1.463.380.0 package=same")
+$S2 = '[run.ps1] SESSION 2 (relaunched by the game)'; $S3 = '[run.ps1] SESSION 3 (relaunched by the runner after kill)'; $S4 = '[run.ps1] SESSION 4 (relaunched by the runner after close)'
+function ApplyLog($p1 = $a1, $p2 = $a2, $p3 = $a3, $p4 = $a4, $tl = $atail) { @($p1) + $S2 + @($p2) + $S3 + @($p3) + $S4 + @($p4) + @($tl) }
+$agood = ApplyLog
+Expect $agood 'apply' 0 'apply: passes' 'All checks passed'
+Expect ($agood | Where-Object { $_ -ne $S3 }) 'apply' 1 'apply: a missing session fails'
+Expect ($agood -replace 'SESSION 2 \(relaunched by the game\)', 'SESSION 2 (relaunched by the runner after exit)') 'apply' 1 'apply: RESTART NOW not relaunched by the game fails'
+Expect ($agood -replace 'after kill\)', 'after exit)') 'apply' 1 'apply: session 3 not after a kill fails'
+Expect ($agood -replace 'after close\)', 'after exit)') 'apply' 1 'apply: session 4 not after a close fails'
+Expect (ApplyLog -p1 ($a1 | Where-Object { $_ -notmatch 'APPLY start ok' })) 'apply' 1 'apply: no helper started at launch in session 1 fails' 'session 1: '
+Expect (ApplyLog -p1 ($a1 | Where-Object { $_ -notmatch 'OK APWAIT1' })) 'apply' 1 'apply: the helper not waiting in session 1 fails' 'session 1: '
+Expect (ApplyLog -p1 ($a1 | Where-Object { $_ -notmatch 'RESTART mode=' })) 'apply' 1 'apply: no RESTART NOW in session 1 fails' 'session 1: '
+Expect (ApplyLog -p2 ($a2 | Where-Object { $_ -notmatch "\[$AA\] loaded" })) 'apply' 1 'apply: A not loaded after the restart fails' 'session 2: '
+Expect (ApplyLog -p2 ($a2 | Where-Object { $_ -notmatch 'APPLY result applied' })) 'apply' 1 'apply: no applied result in session 2 fails' 'session 2: '
+Expect (ApplyLog -p2 ($a2 | Where-Object { $_ -notmatch 'APPLY ack ok' })) 'apply' 1 'apply: no ack in session 2 fails' 'session 2: '
+Expect (ApplyLog -p2 ($a2 -replace 'OK APWAIT2', 'FAIL APWAIT2')) 'apply' 1 'apply: a driver FAIL fails'
+Expect (ApplyLog -p3 ($a3 | Where-Object { $_ -notmatch "\[$AB\] loaded" })) 'apply' 1 'apply: B not loaded after the kill fails' 'session 3: '
+Expect (ApplyLog -p3 ($a3 | Where-Object { $_ -notmatch 'OK APLOCK3' })) 'apply' 1 'apply: no lock check in session 3 fails' 'session 3: '
+Expect (ApplyLog -p4 ($a4 -replace 'reason=locked', 'reason=io-error')) 'apply' 1 'apply: another failure reason fails' 'session 4: '
+Expect (ApplyLog -p4 ($a4 -replace 'attempts=1$', 'attempts=2')) 'apply' 1 'apply: a second attempt fails' 'session 4: '
+Expect (ApplyLog -p4 ($a4 -replace [regex]::Escape("$AA\Scripts\main.lua"), "$AA\mod.json")) 'apply' 1 'apply: another path fails' 'session 4: '
+Expect (ApplyLog -p4 ($a4 | Where-Object { $_ -notmatch 'OK APSAME4' })) 'apply' 1 'apply: A not checked byte-identical fails' 'session 4: '
+Expect (ApplyLog -p4 ($a4 + (L $AC 'loaded'))) 'apply' 1 'apply: C loading fails'
+Expect (ApplyLog -p4 ($a4 -replace 'END result=PASS', 'END result=FAIL')) 'apply' 1 'apply: END result=FAIL fails'
+Expect (ApplyLog -p4 ($a4 + (L $M 'QUIT pending=1'))) 'apply' 1 'apply: a QUIT GAME in session 4 fails' 'session 4: '
+Expect ($agood -replace 'RUN finished', 'RUN timeout (hang?)') 'apply' 1 'apply: a run that did not reach END fails'
+Expect ($agood -replace 'cmdline=same', 'cmdline=differs') 'apply' 1 'apply: a different command line fails'
+Expect ($agood -replace 'ZoneId=3', 'not set (read back: )') 'apply' 1 'apply: no Mark of the Web fails'
+Expect ($agood -replace 'DEFENDER detections=0', 'DEFENDER detections=1') 'apply' 1 'apply: a Defender detection fails, saying blocked' 'stop the story as blocked'
+Expect ($agood + '[run.ps1] DEFENDER event id=1116 at=x Microsoft Defender Antivirus has detected malware') 'apply' 1 'apply: a Defender event fails, saying blocked' 'stop the story as blocked'
+Expect ($agood -replace 'cfa-events=0', 'cfa-events=1') 'apply' 1 'apply: a Controlled Folder Access event fails, saying blocked' 'stop the story as blocked'
+Expect ($agood + '[run.ps1] DEFENDER cfa-event id=1123 at=x Controlled Folder Access blocked NucleusRestart.exe') 'apply' 1 'apply: a CFA event line fails' 'stop the story as blocked'
+Expect ($agood | Where-Object { $_ -notmatch 'DEFENDER cfa=' }) 'apply' 1 'apply: no CFA state fails'
+Expect ($agood -replace 'codeintegrity-blocks=0', 'codeintegrity-blocks=1') 'apply' 1 'apply: a Code Integrity block fails, saying blocked' 'stop the story as blocked'
+Expect ($agood -replace 'behavior=True', 'behavior=False') 'apply' 1 'apply: behaviour monitoring off fails'
+Expect ($agood -replace 'NucleusRestart\.exe no threats found(.*)package=same', 'NucleusRestart.exe no threats found$1package=differs') 'apply' 1 'apply: a scan of another helper fails'
+Expect ($agood -replace 'FILES changed: mods\.txt.*', 'FILES changed: Paks added x_P.pak') 'apply' 1 'apply: a pak change fails'
 
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ("check_test: {0} passed, {1} failed" -f $script:passed, $script:failed)

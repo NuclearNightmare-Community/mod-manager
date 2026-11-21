@@ -38,6 +38,10 @@ S.TABLES = {
         -- story 8: Restart now (shown beside QUIT GAME when the game can be started again the way it was launched)
         restart = "RESTART NOW",
         cantRestart = "CAN'T RESTART: USE QUIT GAME AND START THE GAME AGAIN.", -- the message line when the helper can't start
+        -- v2 story 3: the result of the last staged change (the message line, on the first open after it)
+        applied = "THE STAGED CHANGE WAS APPLIED.",
+        applyFailed = "A STAGED CHANGE COULD NOT BE APPLIED (%s). IT IS TRIED AGAIN AT THE NEXT RESTART.",
+        applyDropped = "A STAGED CHANGE COULD NOT BE APPLIED AND WAS DROPPED.",
         alert = "NUCLEUS %s WAS MADE FOR GAME %s. THIS GAME IS %s. MODS MAY NOT WORK UNTIL NUCLEUS IS UPDATED.",
         gameAt = "%s (BUILD %s)",                    -- a game in the alert
         appliesAfterRestart = "APPLIES AFTER A RESTART", -- a restart setting's mark

@@ -20,8 +20,14 @@
                              built by build.ps1 -Fixtures, which this runs when the file is missing)
     Mods/ModManagerRestart   story 8, only with -Scenario restart: mod.json and a Scripts/main.lua that logs
                              "[ModManagerRestart] loaded", "ModManagerRestart : 1"
+  Mod Manager v2 story 3, only with -Scenario apply: no fixture mod of its own. test/ModManagerApplyA is staged as a
+  change (plan A, written by Nucleus's native/test/New-StagedPlan.ps1 from the workspace that holds the instance) into
+  ue4ss/NucleusData/staged/, for core's relaunch helper to install; a copy of its files goes to the driver's
+  Scripts/apply-expect/ModManagerApplyA/ (what session 4 compares A's installed files with). It refuses when a change
+  that is not the scenario's is already staged there. ModManagerApplyB and C are staged by the run ("stage B|C").
   A deploy without -Test removes the driver and the fixtures. -Remove deletes all of it and their mods.txt lines;
-  nothing else changes (mods.txt keeps its bytes when it had none of these lines).
+  nothing else changes (mods.txt keeps its bytes when it had none of these lines). Both also delete the apply
+  fixtures' folders (core's helper installs them) and a staged change of only those fixtures (NucleusData/staged/).
   -Staged: $Instance is the host-side staging folder of a VM run (run.ps1 -Target vm, tools/vm/vm-sp.ps1), not a game
   copy; only the running-game check is skipped.
   Pass the main checkout's instance path when running from a worktree.
@@ -33,7 +39,7 @@
 param(
     [Parameter(Mandatory)] [string] $Instance,
     [switch] $Test,
-    [ValidateSet('screen', 'no-core', 'old-core', 'restart')]
+    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply')]
     [string] $Scenario = 'screen',
     [switch] $Force,
     [switch] $Remove,
@@ -49,12 +55,14 @@ $name     = $manifest.name
 $driver   = "${name}Driver"
 $fixtures = @("${name}Fixture", "${name}Bare", "${name}Long", "${name}Base", "${name}Dep", "${name}Restart") # Restart: story 8, restart scenario only
 $fixturePaks = @("${name}Pak_P.pak", "${name}PakOff_P.pak.disabled")
+$applyFixtures = @(Get-ApplyFixtures $name) # Mod Manager v2 story 3: installed only by core's helper, from staged changes
 $inst     = (Resolve-Path $Instance).Path
 $win64    = Join-Path $inst 'NuclearNightmare\Binaries\Win64'
 $ue4ss    = Join-Path $win64 'ue4ss'
 $modsDir  = Join-Path $ue4ss 'Mods'
 $modsTxt  = Join-Path $modsDir 'mods.txt'
 $paksDir  = Join-Path $inst 'NuclearNightmare\Content\Paks'
+$coreData = Join-Path $ue4ss "${CoreName}Data"   # core's data folder (staged changes: staged\)
 
 function Stop-Deploy([string] $why) { Write-Host "$name not deployed: $why"; exit 1 }
 
@@ -64,12 +72,18 @@ if (-not (Test-Path $modsTxt)) { Stop-Deploy "no mods.txt in $modsDir" }
 if (-not $Staged -and (Get-Process -Name 'NuclearNightmare*' -ErrorAction SilentlyContinue)) { Stop-Deploy 'Nuclear Nightmare is running; close it first.' }
 
 $file  = Read-ModsTxt $modsTxt
-$mine  = @($name, $driver) + $fixtures
+$mine  = @($name, $driver) + $fixtures + $applyFixtures
 $clean = Edit-ModsTxt -Lines $file.Lines -Remove $mine
 
+# Story 3 (v2): a staged change of the apply scenario's fixtures only; any other staged change is left alone.
+function Remove-ApplyStaged {
+    $staged = Join-Path $coreData 'staged'
+    if (Test-ApplyPlanOurs -Plan (Join-Path $staged 'plan.txt') -Name $name) { Remove-Item $staged -Recurse -Force }
+}
 function Remove-Test {
-    foreach ($d in @($driver) + $fixtures) { Remove-Item (Join-Path $modsDir $d) -Recurse -Force -ErrorAction SilentlyContinue }
+    foreach ($d in @($driver) + $fixtures + $applyFixtures) { Remove-Item (Join-Path $modsDir $d) -Recurse -Force -ErrorAction SilentlyContinue }
     foreach ($p in $fixturePaks) { Remove-Item (Join-Path $paksDir $p) -Force -ErrorAction SilentlyContinue }
+    Remove-ApplyStaged
 }
 
 if ($Remove) {
@@ -109,6 +123,15 @@ if ($problem) {
     Write-Warning "forced: $problem"
 }
 
+# Story 3 (v2): the apply scenario stages plan A with core's plan writer, from the workspace holding the instance (the
+# stage of a VM run is <workspace>\game-instances\_vmstage). Checked before anything is written.
+$planWriter = Join-Path (Split-Path (Split-Path $inst)) "mods\$CoreName\native\test\New-StagedPlan.ps1"
+if ($Test -and $Scenario -eq 'apply') {
+    if (-not (Test-Path -LiteralPath $planWriter)) { Stop-Deploy "the apply scenario needs core's plan writer, missing at $planWriter (Nucleus 0.24.0 or newer, its native/test/New-StagedPlan.ps1)." }
+    $plan = Join-Path $coreData 'staged\plan.txt'
+    if ((Test-Path -LiteralPath $plan) -and -not (Test-ApplyPlanOurs -Plan $plan -Name $name)) { Stop-Deploy "a change is already staged in $(Split-Path $plan) that is not the apply scenario's; leave it to core, or remove it by hand." }
+}
+
 # The fixture pak (screen scenario): built once by build.ps1 -Fixtures.
 $fixturePak = Join-Path $here "build\fixtures\${name}Pak_P.pak"
 if ($Test -and -not (Test-Path $fixturePak)) {
@@ -130,7 +153,7 @@ $add = @($name)
 $off = @()
 if ($Test) {
     Copy-Item (Join-Path $here "test\$driver") (Join-Path $modsDir $driver) -Recurse -Force
-    foreach ($f in 'scenario.txt', 'request.txt', 'done.txt', 'restart-facts.txt') { Remove-Item (Join-Path $modsDir "$driver\Scripts\$f") -ErrorAction SilentlyContinue }
+    foreach ($f in 'scenario.txt', 'request.txt', 'done.txt', 'restart-facts.txt', 'apply-session.txt') { Remove-Item (Join-Path $modsDir "$driver\Scripts\$f") -ErrorAction SilentlyContinue }
     [IO.File]::WriteAllText((Join-Path $modsDir "$driver\Scripts\scenario.txt"), $Scenario)
     New-Item -ItemType Directory -Force (Join-Path $modsDir "${name}Fixture"), (Join-Path $modsDir "${name}Bare\Scripts"), (Join-Path $modsDir "${name}Long") | Out-Null
     Copy-Item (Join-Path $here "test\${name}Fixture\mod.json") (Join-Path $modsDir "${name}Fixture") -Force
@@ -148,6 +171,15 @@ if ($Test) {
         # Story 8: the mod the scenario turns off before RESTART NOW (the relaunched game must not load it).
         Copy-Item (Join-Path $here "test\${name}Restart") (Join-Path $modsDir "${name}Restart") -Recurse -Force
         $add += "${name}Restart"
+    }
+    if ($Scenario -eq 'apply') {
+        # Story 3 (v2): plan A staged for core's helper (the Mod Manager starts it at launch), and the driver's copy of A's
+        # files to compare the installed ones with after plan C's rollback.
+        $expect = Join-Path $modsDir "$driver\Scripts\apply-expect"
+        New-Item -ItemType Directory -Force $expect | Out-Null
+        Copy-Item (Join-Path $here "test\$($applyFixtures[0])") (Join-Path $expect $applyFixtures[0]) -Recurse -Force
+        $txn = New-ApplyPlan -Writer $planWriter -Data $coreData -Repo $here -Name $name -Plan A
+        Write-Host "Staged plan A (txn $txn) in $(Join-Path $coreData 'staged')"
     }
 }
 $lines = Edit-ModsTxt -Lines $clean -Add $add -Disabled $off -After $CoreName

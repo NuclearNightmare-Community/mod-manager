@@ -228,24 +228,24 @@ do -- Nucleus missing: exactly one [ModManager] line, the bootstrap's own.
     eq(#W.connects, 0, "no core: no connect")
     restore()
 end
-do -- Nucleus present: connect{ mod = "ModManager", need = ">=0.21.0" }, nothing logged before it answers.
+do -- Nucleus present: connect{ mod = "ModManager", need = ">=0.24.0" }, nothing logged before it answers.
     boot()
     eq(#W.connects, 1, "connect called once")
     local c = W.connects[1]
-    ok(c.mod == "ModManager" and c.need == ">=0.21.0", "connect{ mod = 'ModManager', need = '>=0.21.0' }", tostring(c.mod) .. " " .. tostring(c.need))
+    ok(c.mod == "ModManager" and c.need == ">=0.24.0", "connect{ mod = 'ModManager', need = '>=0.24.0' }", tostring(c.mod) .. " " .. tostring(c.need))
     eq(#W.printed, 0, "nothing printed during main.lua")
-    c.onFail("Nucleus 0.20.0 is older than ModManager needs (>=0.21.0). Update Nucleus.")
+    c.onFail("Nucleus 0.20.0 is older than ModManager needs (>=0.24.0). Update Nucleus.")
     eq(#W.printed, 0, "onFail adds no line (connect's is the only one)")
     eq(W.iterations, 0, "onFail scans nothing")
     eq(#W.writes, 0, "onFail writes nothing")
     restore()
 end
-do -- mod.json and main.lua agree on the need; 0.4.0 (story 12: the scope icons need Nucleus 0.21.0).
+do -- mod.json and main.lua agree on the need; 0.5.0 (v2 story 3: core.apply needs Nucleus 0.24.0).
     local mj = assert(realOpen(ROOT .. "/mod.json", "rb")):read("a")
-    ok(mj:find('"version": ">=0.21.0"', 1, true) and mj:find('"id": "nuclearnightmare-community.nucleus"', 1, true), "mod.json dependsOn nuclearnightmare-community.nucleus >=0.21.0")
-    ok(mj:find('"version": "0.4.0"', 1, true), "mod.json version 0.4.0")
+    ok(mj:find('"version": ">=0.24.0"', 1, true) and mj:find('"id": "nuclearnightmare-community.nucleus"', 1, true), "mod.json dependsOn nuclearnightmare-community.nucleus >=0.24.0")
+    ok(mj:find('"version": "0.5.0"', 1, true), "mod.json version 0.5.0")
     local src = assert(realOpen(MAIN, "rb")):read("a")
-    ok(src:find('local CORE, NEED, ME = "Nucleus", ">=0.21.0", "ModManager"', 1, true), "main.lua NEED = dependsOn")
+    ok(src:find('local CORE, NEED, ME = "Nucleus", ">=0.24.0", "ModManager"', 1, true), "main.lua NEED = dependsOn")
 end
 
 -- ---------------------------------------------------------------- start
@@ -274,7 +274,7 @@ do -- The entry, READY, a click, the window, the gear, warnings once, faults onc
     eq(#U.entries, 1, "one menu entry")
     local e = U.entries[1]
     ok(e.id == "manage" and e.style == "options" and e.label.en == "MANAGE MODS" and type(e.onClick) == "function", "entry{ id = 'manage', label = { en = 'MANAGE MODS' }, style = 'options' }")
-    eq(#lines("^%[ModManager%] READY entry=manage need=>=0%.21%.0$"), 1, "one READY line after onReady")
+    eq(#lines("^%[ModManager%] READY entry=manage need=>=0%.24%.0$"), 1, "one READY line after onReady")
     eq(W.iterations, 1, "onReady scans once (the session baseline)")
     eq(U.count("screen.open"), 0, "no window before a click")
     eq(#W.writes, 0, "onReady writes nothing")
@@ -982,6 +982,144 @@ do -- mode() raising: treated as none.
     U.toggle("r" .. rowOf(U, "Mod Manager Dep") .. ".tg")
     ok(not U.byId.restart.visible, "mode raising: RESTART NOW absent")
     eq(#lines("^%[ModManager%] RESTARTMODE none %(.*boom mode"), 1, "mode raising: RESTARTMODE none (...)")
+    restore()
+end
+
+-- ---------------------------------------------------------------- staged changes (v2 story 3)
+-- core.apply: o.status is what status() answers (staged/result/...; a start() that succeeds turns pending or interrupted
+-- into waiting); o.start: start()'s answer ({ true } by default, { false, why }, { "raise" }); o.statusRaises.
+local TXN = "0123456789abcdef0123456789abcdef"
+local function fakeApply(core, o)
+    o = o or {}
+    local A = { calls = { status = 0, start = 0, ack = 0 }, acked = {}, st = { staged = "none", result = "none", txn = "", reason = "", path = "", attempts = 0, changes = 0 } }
+    for k, v in pairs(o.status or {}) do A.st[k] = v end
+    core.apply = {
+        status = function()
+            A.calls.status = A.calls.status + 1
+            if o.statusRaises then error("boom status") end
+            local c = {} for k, v in pairs(A.st) do c[k] = v end
+            return c
+        end,
+        start = function()
+            A.calls.start = A.calls.start + 1
+            local a = o.start or { true }
+            if a[1] == "raise" then error("boom apply") end
+            if a[1] == true then A.st.staged = "waiting" return true end
+            return nil, a[2]
+        end,
+        ack = function(txn)
+            A.calls.ack = A.calls.ack + 1
+            A.acked[#A.acked + 1] = txn
+            if txn ~= A.st.txn then return nil, "txn mismatch" end
+            A.st.result = "none"
+            return true
+        end,
+    }
+    return A
+end
+local function applySession(o, restart)
+    boot()
+    local core = newCore()
+    fakeRestart(core, restart)
+    local A = o ~= false and fakeApply(core, o) or nil
+    connect(core)
+    return core, core.ui, A
+end
+local function reopen(core) core.ui.open.main = nil core.ui.entries[1].onClick() end
+
+do -- A change staged at launch, no helper: start() at onReady; one pending change: QUIT GAME, RESTART NOW, the banner (AC 3).
+    local core, U, A = applySession{ status = { staged = "pending", txn = TXN, changes = 2 } }
+    eq(A.calls.start, 1, "pending: start() once at onReady")
+    eq(#lines("^%[ModManager%] APPLY status staged=pending result=none changes=2 attempts=0$"), 1, "APPLY status line")
+    eq(#lines("^%[ModManager%] APPLY start ok$"), 1, "APPLY start ok")
+    core.ui.entries[1].onClick()
+    ok(U.byId.quit.visible and U.byId.restart.visible and U.byId.banner.visible, "staged: QUIT GAME, RESTART NOW and the banner show")
+    eq(#lines("^%[ModManager%] APPLY staged waiting$"), 1, "the status re-read at the open: waiting")
+    ok(not U.byId.msg.visible, "no result: no message")
+    eq(A.calls.ack, 0, "no result: no ack")
+    U.byId.restart.onClick()
+    eq(#lines("^%[ModManager%] RESTART mode=direct pending=1$"), 1, "RESTART NOW: pending=1 (the staged change)")
+    eq(#W.quits, 1, "RESTART NOW quits")
+    eq(#badWrites(), 0, "nothing written outside the allowed paths")
+    restore()
+end
+do -- Interrupted: start() too. waiting (a helper of this session already waits) and applying: no start, still pending.
+    local core, U, A = applySession{ status = { staged = "interrupted", txn = TXN, changes = 1 } }
+    eq(A.calls.start, 1, "interrupted: start() at onReady")
+    restore()
+    for _, st in ipairs({ "waiting", "applying" }) do
+        core, U, A = applySession{ status = { staged = st, txn = TXN, changes = 1 } }
+        eq(A.calls.start, 0, st .. ": no start()")
+        core.ui.entries[1].onClick()
+        ok(U.byId.quit.visible and U.byId.banner.visible, st .. ": pending (QUIT GAME, the banner)")
+        restore()
+    end
+end
+do -- start() refused or raising: logged, the change still counts as pending.
+    for _, a in ipairs({ { { false, "helper missing" }, "helper missing" }, { { "raise" }, ".*boom apply" } }) do
+        local core, U, A = applySession{ status = { staged = "pending", txn = TXN, changes = 1 }, start = a[1] }
+        eq(#lines("^%[ModManager%] APPLY start " .. a[2]), 1, "APPLY start " .. a[2])
+        core.ui.entries[1].onClick()
+        ok(U.byId.quit.visible and U.byId.banner.visible, a[2] .. ": still pending")
+        restore()
+    end
+end
+do -- Nothing staged, no result: no start, nothing pending, no message.
+    local core, U, A = applySession{}
+    eq(A.calls.start, 0, "none: no start()")
+    eq(#lines("^%[ModManager%] APPLY status staged=none result=none changes=0 attempts=0$"), 1, "none: the APPLY status line")
+    core.ui.entries[1].onClick()
+    ok(not U.byId.quit.visible and not U.byId.restart.visible and not U.byId.banner.visible and not U.byId.msg.visible, "none: no button, banner or message")
+    restore()
+end
+for _, c in ipairs({
+    { result = "applied", reason = "", path = "", staged = "none", msg = "THE STAGED CHANGE WAS APPLIED.", line = "APPLY result applied reason=%- path=%- attempts=1$" },
+    { result = "failed", reason = "locked", path = "NuclearNightmare\\Content\\Paks\\A_P.pak", staged = "pending",
+        msg = "A STAGED CHANGE COULD NOT BE APPLIED (NuclearNightmare\\Content\\Paks\\A_P.pak). IT IS TRIED AGAIN AT THE NEXT RESTART.",
+        line = "APPLY result failed reason=locked path=NuclearNightmare\\Content\\Paks\\A_P%.pak attempts=1$" },
+    { result = "failed", reason = "game-running", path = "", staged = "pending",
+        msg = "A STAGED CHANGE COULD NOT BE APPLIED (game-running). IT IS TRIED AGAIN AT THE NEXT RESTART.", line = "APPLY result failed reason=game%-running path=%- attempts=1$" },
+    { result = "discarded", reason = "staged-file-mismatch", path = "x", staged = "none", msg = "A STAGED CHANGE COULD NOT BE APPLIED AND WAS DROPPED.",
+        line = "APPLY result discarded reason=staged%-file%-mismatch path=x attempts=1$" },
+}) do -- A result: the message line on the first open only, then acked once with its txn (AC 3: the message appears once).
+    local core, U, A = applySession{ status = { staged = c.staged, result = c.result, reason = c.reason, path = c.path, txn = TXN, attempts = 1, changes = c.staged == "none" and 0 or 1 } }
+    eq(A.calls.ack, 0, c.result .. ": nothing acked before the window opens")
+    core.ui.entries[1].onClick()
+    ok(U.byId.msg.visible and U.byId.msg.text == c.msg, c.result .. ": the message line", U.byId.msg.text)
+    eq(#lines("^%[ModManager%] " .. c.line), 1, c.result .. ": the APPLY result line")
+    eq(A.calls.ack, 1, c.result .. ": acked once")
+    eq(A.acked[1], TXN, c.result .. ": acked with its txn")
+    eq(#lines("^%[ModManager%] APPLY ack ok$"), 1, c.result .. ": APPLY ack ok")
+    ok((U.byId.quit.visible and U.byId.banner.visible) == (c.staged ~= "none"), c.result .. ": pending only while staged")
+    reopen(core)
+    ok(not U.byId.msg.visible, c.result .. ": no message on the next open")
+    eq(A.calls.ack, 1, c.result .. ": not acked again")
+    eq(#lines("APPLY result"), 1, c.result .. ": one APPLY result line")
+    restore()
+end
+do -- An ack refused (another result came in between): logged; the message still showed once.
+    local core, U, A = applySession{ status = { result = "applied", txn = TXN, attempts = 1 } }
+    A.st.txn = ("f"):rep(32)
+    core.ui.entries[1].onClick()
+    eq(#lines("^%[ModManager%] APPLY ack txn mismatch$"), 1, "APPLY ack txn mismatch")
+    reopen(core)
+    eq(A.calls.ack, 1, "a refused ack is not retried in the session")
+    restore()
+end
+do -- An older core without core.apply: one line, the rest as before.
+    local core, U = applySession(false)
+    eq(#lines("^%[ModManager%] APPLY none %(Nucleus has no core%.apply%)$"), 1, "no core.apply: APPLY none")
+    core.ui.entries[1].onClick()
+    ok(not U.byId.quit.visible and not U.byId.msg.visible, "no core.apply: nothing pending, no message")
+    eq(#lines("WARN"), 0, "no core.apply: no WARN")
+    restore()
+end
+do -- status() raising: one WARN per reason, nothing pending.
+    local core, U, A = applySession{ statusRaises = true }
+    core.ui.entries[1].onClick()
+    reopen(core)
+    eq(#lines("^%[ModManager%] WARN the staged change's status could not be read %(.*boom status.*%)$"), 1, "status raising: one WARN")
+    ok(not U.byId.quit.visible, "status raising: nothing pending")
     restore()
 end
 
