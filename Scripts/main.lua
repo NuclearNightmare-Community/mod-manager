@@ -9,7 +9,7 @@
 -- Mods/ModManager/state.json. It writes only mods.txt, Mods/<Folder>/enabled.txt(.disabled) and its state.json (with
 -- their .mm-tmp/.mm-bak), never a pak, and settings only through core.settings.
 -- Runs on Nucleus (core) through the dependent bootstrap (core's api-contract.md) and uses only core's public API
--- (connect, core.ui, core.settings, core.restart, core.log) and core's pure modules nucleus.modid and nucleus.semver. Holds no
+-- (connect, core.ui, core.settings, core.restart, core.apply, core.log) and core's pure modules nucleus.modid and nucleus.semver. Holds no
 -- UObject between calls: element handles, plain tables and strings only.
 local CORE, NEED, ME = "Nucleus", ">=0.24.0", "ModManager"
 local ENTRY = "manage"
