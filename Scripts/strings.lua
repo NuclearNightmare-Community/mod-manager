@@ -150,6 +150,7 @@ S.TABLES = {
         removedOnRestart = "%s IS REMOVED WHEN THE GAME RESTARTS",
         uninstallRefused = "UNINSTALL REFUSED (%s)",
         uninstallFailed = "UNINSTALL FAILED",
+        removing = "REMOVING %s...",                   -- the message line while the unstage job runs
         -- the 14 categories (spec-mod-manager-v2/categories.md), cat.<id>
         ["cat.gameplay"] = "GAMEPLAY", ["cat.content"] = "CONTENT", ["cat.visuals"] = "VISUALS", ["cat.audio"] = "AUDIO",
         ["cat.ui"] = "USER INTERFACE", ["cat.qol"] = "QUALITY OF LIFE", ["cat.tools"] = "UTILITIES & TOOLS",

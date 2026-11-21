@@ -71,7 +71,7 @@ local want = { manage = "MANAGE MODS", title = "MOD MANAGER", name = "NAME", ver
     updateTo = "UPDATE TO %s", noReason = "NO REASON GIVEN", uninstall = "UNINSTALL", uninstallTitle = "UNINSTALL %s %s?",
     uninstallLine = "REMOVES ITS FILES AND ITS MODS.TXT LINE", cantUninstall = "CAN'T UNINSTALL %s: NEEDED BY %s",
     andMoreNames = "%s AND %d MORE", removedOnRestart = "%s IS REMOVED WHEN THE GAME RESTARTS",
-    uninstallRefused = "UNINSTALL REFUSED (%s)", uninstallFailed = "UNINSTALL FAILED" }
+    uninstallRefused = "UNINSTALL REFUSED (%s)", uninstallFailed = "UNINSTALL FAILED", removing = "REMOVING %s..." }
 for k, v in pairs(want) do eq(S.TABLES.en[k], v, "en." .. k) end
 for k, v in pairs(S.TABLES.en) do
     ok(want[k] ~= nil, "en." .. k .. " is a string the spec names")
