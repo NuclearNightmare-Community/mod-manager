@@ -38,6 +38,9 @@ function F.new()
         if el then
             assert(el.kind == kind, kind .. ".create: id '" .. id .. "' is already a " .. el.kind)
             el.updates = el.updates + 1
+            -- an image's create again sets its source, style, dimmed and tooltip as given (nil clears), as core does
+            if kind == "image" then el.image, el.style, el.dimmed, el.tooltip = nil, nil, nil, nil end
+            if el.removed then el.removed, el.visible = nil, true end -- removed, then made again: a new element
         else
             el = { kind = kind, id = id, visible = true, updates = 0, enabled = true }
             el.handle = handle(kind, id)
@@ -60,6 +63,7 @@ function F.new()
         set = function(h, t) rec("text.set", h, t) assert(#tostring(t) <= 256, "text.set: over 256 characters") elOf(h).text = t end,
         setVisible = vis("text"),
         setTooltip = function(h, t) rec("text.setTooltip", h, t) elOf(h).tooltip = tip(t) end,
+        remove = function(h) rec("text.remove", h) local el = elOf(h) el.removed, el.visible = true, false end,
     }
     U.image = {
         create = function(o) return create("image", o) end,
@@ -74,6 +78,7 @@ function F.new()
         setLabel = function(h, l) rec("button.setLabel", h, l) elOf(h).label = l end,
         -- v2 story 5: INSTALL is disabled while a stage runs
         setEnabled = function(h, e) rec("button.setEnabled", h, e) assert(type(e) == "boolean") elOf(h).enabled = e end,
+        remove = function(h) rec("button.remove", h) local el = elOf(h) el.removed, el.visible = true, false end,
     }
     U.checkbox = {
         create = function(o) assert(type(o.onChange) == "function", "checkbox: onChange") return create("checkbox", o) end,

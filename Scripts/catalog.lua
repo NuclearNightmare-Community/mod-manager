@@ -34,6 +34,14 @@
 --       needs it>, dep = <the dependency's name>, need = <the need> } (dep and need for unsatisfiable and downgrade).
 --   Catalog.sizeText(bytes) -> { key = "sizeKB" | "sizeMB", n }   the download size: KB (rounded up) under 1 MB, else
 --       MB with one decimal (n a string, "1.5"; strings.lua)
+--   v2 story 6:
+--   rows gain revoked = { reason, action, fix = <offered version | nil> } when the installed version is revoked: a
+--       verified entry with the same id (normalized) and version whose sha256 is the index's for that version, or the
+--       index no longer lists that version (Catalog.revokedMatch). Both actions only flag; nothing is turned off.
+--   Catalog.installSet also takes an update target, and a revoked one whose fix is older (the only downgrade).
+--   Catalog.action(row, pending) -> "install" | "update" | nil;  Catalog.canUninstall(row, pending) -> boolean
+--   Catalog.revokedInstalled(rows, pending) -> { { id, name, version, reason, action, fix }, ... }
+--   Catalog.dependents(installedRows, staged, id) -> names, ids   who still needs id (installed rows, staged owners)
 local CORE = "Nucleus"
 local J = require(CORE:lower() .. ".json")
 local SV = require(CORE:lower() .. ".semver")
@@ -55,6 +63,8 @@ Catalog.MAX_DESCRIPTION_KEPT = 360 -- what Details and search see (a valid descr
 Catalog.MAX_FIELD = 64         -- a version, a scope, a publisher, a license, a game version or build, in the UI
 Catalog.CORE_ID = "nuclearnightmare-community.nucleus"
 Catalog.MAX_SET = 16           -- v2 story 5: core.catalog.stage takes at most 16 pairs
+Catalog.MAX_REASON = 256       -- v2 story 6: a revocation's reason kept (the revoked window shows 120 characters)
+Catalog.MM_ID = "nuclearnightmare-community.mod-manager"
 -- The fixed category list (spec-mod-manager-v2/categories.md), in its order; strings.lua has cat.<id> for each.
 Catalog.CATEGORIES = { "gameplay", "content", "visuals", "audio", "ui", "qol", "tools", "library", "performance",
     "multiplayer", "localization", "overhaul", "bug-fixes", "maps" }
@@ -191,27 +201,51 @@ local function readVersion(v)
         sha256 = str(v.sha256), size = (math.type(v.size) == "integer" and v.size >= 0) and v.size or nil }
 end
 
--- Revocation: id (normalized), version and sha256 (without case), whatever the action.
+-- Revocation: id (normalized), version and sha256 (without case), whatever the action. set: the offered-version rule
+-- (story 4); byVer: id .. "\0" .. version -> { { sha, reason, action }, ... } for the installed-version rule (story 6).
 local function revokedSet(revoked)
-    local set = {}
+    local set, byVer = {}, {}
     local list = type(revoked) == "table" and revoked.revoked
-    if type(list) ~= "table" or list == J.null then return set end
+    if type(list) ~= "table" or list == J.null then return set, byVer end
     for i, e in ipairs(list) do
         if i > 4096 then break end
         if type(e) == "table" then
             local id = MID.normalize(e.id)
             if id and type(e.version) == "string" and type(e.sha256) == "string" then
                 set[id .. "\0" .. e.version .. "\0" .. e.sha256:lower()] = true
+                local k = id .. "\0" .. e.version
+                byVer[k] = byVer[k] or {}
+                local l = byVer[k]
+                if #l < 16 then
+                    l[#l + 1] = { sha = e.sha256:lower(), reason = clean(str(e.reason) or "", Catalog.MAX_REASON),
+                        action = (e.action == "disable" or e.action == "block") and e.action or "-" }
+                end
             end
         end
     end
-    return set
+    return set, byVer
+end
+
+-- v2 story 6: whether the installed version v of package id is revoked: a verified entry with the same id (normalized)
+-- and version, and either its sha256 equals the index's sha256 for that version (without case), or the index no longer
+-- lists that version. versions: the package's version entries ({ version, sha256 }). Returns the entry or nil.
+function Catalog.revokedMatch(byVer, id, v, versions)
+    if type(v) ~= "string" or v == "" then return nil end
+    local l = byVer[id .. "\0" .. v]
+    if not l then return nil end
+    local listed
+    for _, e in ipairs(versions or {}) do if e.version == v then listed = e break end end
+    for _, r in ipairs(l) do
+        if not listed then return r end
+        if type(listed.sha256) == "string" and listed.sha256:lower() == r.sha then return r end
+    end
+    return nil
 end
 
 function Catalog.model(index, revoked, installedRows, coreVersion, build)
     local warns, rows, byId = {}, {}, {}
     local function warn(key, fmt, ...) warns[#warns + 1] = { key = key, msg = string.format(fmt, ...) } end
-    local rset = revokedSet(revoked)
+    local rset, rver = revokedSet(revoked)
     local pkgs = type(index) == "table" and index.packages or {}
     if type(pkgs) ~= "table" or pkgs == J.null then pkgs = {} end
     local total = 0
@@ -322,6 +356,11 @@ function Catalog.model(index, revoked, installedRows, coreVersion, build)
         row.gameVersion, row.gameBuild = v.gameVersion, v.build
         local inst = installedOf(row)
         row.installedVersion = inst and (type(inst.version) == "string" and inst.version or "") or nil
+        -- v2 story 6: the installed version revoked (only flagged, whatever the action); its fix is the offered version
+        local rv = inst and Catalog.revokedMatch(rver, row.id, row.installedVersion, row.versions) or nil
+        if rv then
+            row.revoked = { reason = rv.reason, action = rv.action, fix = (o and o.version ~= row.installedVersion) and o.version or nil }
+        end
         if not o then row.state = "other-build"
         elseif inst then
             local c = SV.parse(inst.version) and SV.compare(inst.version, o.version) or nil
@@ -359,7 +398,8 @@ function Catalog.installSet(rows, targetId)
         return type(v) == "string" and v ~= "" and v or nil
     end
     local ti = installed(target)
-    if ti and (SV.compare(target.offered.version, ti) or 0) < 0 then return nil, "downgrade", { name = target.name } end
+    -- v2 story 6: a downgrade only away from a revoked installed version (core checks that again against its own list)
+    if ti and (SV.compare(target.offered.version, ti) or 0) < 0 and not target.revoked then return nil, "downgrade", { name = target.name } end
     local set, chosen, visiting = {}, {}, {}
     local metByInstalled = {} -- { by, dep, need }: needs the installed version met; re-checked if that dep is chosen later
     local fail
@@ -412,6 +452,78 @@ function Catalog.installSet(rows, targetId)
     end
     if #set > Catalog.MAX_SET then return nil, "too-many", { name = target.name } end
     return set
+end
+
+-- ---------------------------------------------------------------- v2 story 6: updates, revocations, uninstall
+-- What a package's button does now: "install" (available), "update" (an update, or a revoked installed version with a
+-- fix), or nil (anything else, or pending: staged this session).
+function Catalog.action(r, pending)
+    if type(r) ~= "table" or not r.offered or (pending and pending[r.id]) then return nil end
+    if r.state == "available" then return "install" end
+    if r.state == "update" then return "update" end
+    if r.revoked and r.revoked.fix and r.installedVersion and r.installedVersion ~= "" then return "update" end
+    return nil
+end
+
+-- Whether a package offers UNINSTALL: installed (a version on disk), not Nucleus or the Mod Manager (the installer
+-- removes those), not pending.
+function Catalog.canUninstall(r, pending)
+    if type(r) ~= "table" or r.installedVersion == nil or r.installedVersion == "" then return false end
+    if r.id == Catalog.CORE_ID or r.id == Catalog.MM_ID then return false end
+    return not (pending and pending[r.id])
+end
+
+-- Every installed revoked version not staged this session (a staged owner counts as resolved), sorted by name:
+-- { { id, name, version, reason, action, fix = <version | nil> }, ... }.
+function Catalog.revokedInstalled(rows, pending)
+    local out = {}
+    for _, r in ipairs(rows or {}) do
+        if type(r) == "table" and r.revoked and not (pending and pending[r.id]) then
+            out[#out + 1] = { id = r.id, name = r.name, version = r.installedVersion, reason = r.revoked.reason,
+                action = r.revoked.action, fix = r.revoked.fix }
+        end
+    end
+    table.sort(out, function(a, b)
+        local la, lb = lowerAscii(a.name), lowerAscii(b.name)
+        if la ~= lb then return la < lb end
+        return a.id < b.id
+    end)
+    return out
+end
+
+-- Who still needs package id: the display names (and ids) of the installed rows (inventory.lua's folder rows: name, id,
+-- deps) and of this session's staged owners (staged = { [id] = { name, deps = { { id }, ... }, removal = bool } })
+-- whose dependsOn names id (normalized). An owner staged for removal needs nothing any more; id itself is skipped.
+function Catalog.dependents(rows, staged, id)
+    id = MID.normalize(id) or id
+    staged = staged or {}
+    local names, ids, seen = {}, {}, {}
+    local function needs(deps)
+        for _, d in ipairs(type(deps) == "table" and deps or {}) do
+            if type(d) == "table" and type(d.id) == "string" and (MID.normalize(d.id) or d.id) == id then return true end
+        end
+        return false
+    end
+    local function add(oid, name)
+        if seen[oid] then return end
+        seen[oid] = true
+        names[#names + 1] = name
+        ids[#ids + 1] = oid
+    end
+    for _, r in ipairs(rows or {}) do
+        local rid = type(r) == "table" and type(r.id) == "string" and (MID.normalize(r.id) or r.id) or nil
+        if rid and rid ~= id and r.folder and not (type(staged[rid]) == "table" and staged[rid].removal) and needs(r.deps) then
+            add(rid, clean(r.name or r.folder, Catalog.MAX_NAME))
+        end
+    end
+    local sids = {}
+    for sid in pairs(staged) do if type(sid) == "string" then sids[#sids + 1] = sid end end
+    table.sort(sids)
+    for _, sid in ipairs(sids) do
+        local e = staged[sid]
+        if sid ~= id and type(e) == "table" and not e.removal and needs(e.deps) then add(sid, clean(e.name or sid, Catalog.MAX_NAME)) end
+    end
+    return names, ids
 end
 
 function Catalog.sizeText(bytes)

@@ -75,11 +75,11 @@ $m = Get-Content (Join-Path $repo 'mod.json') -Raw | ConvertFrom-Json
 Ok ($m.id -eq 'nuclearnightmare-community.mod-manager' -and $m.name -eq 'ModManager' -and $m.displayName -eq 'Mod Manager' -and $m.scope -eq 'client') 'mod.json: id, name, displayName, scope'
 Ok ($m.version -match '^\d+\.\d+\.\d+$') 'mod.json: semver version'
 Ok ($m.name -cmatch '^[A-Za-z0-9][A-Za-z0-9_-]*$') 'mod.json: name is a folder name (no space: UE4SS removes spaces from mods.txt lines)'
-Ok ($m.dependsOn.Count -eq 1 -and $m.dependsOn[0].id -eq 'nuclearnightmare-community.nucleus' -and $m.dependsOn[0].version -eq '>=0.26.0') 'mod.json: dependsOn nuclearnightmare-community.nucleus >=0.26.0'
+Ok ($m.dependsOn.Count -eq 1 -and $m.dependsOn[0].id -eq 'nuclearnightmare-community.nucleus' -and $m.dependsOn[0].version -eq '>=0.27.0') 'mod.json: dependsOn nuclearnightmare-community.nucleus >=0.27.0'
 Ok ($m.ue4ss -eq 'v3.0.1-1181-g83330635' -and $m.game.version -eq 'V8.2.3' -and $m.game.build -eq '26601774') 'mod.json: ue4ss and game build'
 Ok ($null -eq $m.settings) 'mod.json: no settings (the gear is dimmed)'
 $mainLua = Get-Content (Join-Path $repo 'Scripts\main.lua') -Raw
-Ok ($mainLua -match 'local CORE, NEED, ME = "Nucleus", ">=0.26.0", "ModManager"') 'main.lua: NEED = dependsOn (>=0.26.0)'
+Ok ($mainLua -match 'local CORE, NEED, ME = "Nucleus", ">=0.27.0", "ModManager"') 'main.lua: NEED = dependsOn (>=0.27.0)'
 foreach ($f in $ModScripts) { Ok (Test-Path (Join-Path $repo "Scripts\$f")) "Scripts/$f exists" }
 $long = Get-Content (Join-Path $repo 'test\ModManagerLong\mod.json') -Raw | ConvertFrom-Json
 Ok ($long.displayName.Length -eq 64 -and $long.displayName.StartsWith('ModManagerLong') -and $long.dependsOn[0].id -eq 'nuclearnightmare-community.nucleus' -and $long.dependsOn[0].version -eq '>=0.2.0') 'fixture Long: 64-character displayName, nuclearnightmare-community.nucleus >=0.2.0'
@@ -183,26 +183,26 @@ try {
     [IO.File]::WriteAllText($modsTxt, $coreTxt)
     Set-Core '0.20.0'
     $d = Deploy @()
-    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.20\.0 is installed, but ModManager needs >=0.26.0; update Nucleus\.') 'deploy: core 0.20.0 -> refused, naming both versions' $d.Out
-    Set-Core '0.27.0' '0.27.0'
+    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.20\.0 is installed, but ModManager needs >=0.27.0; update Nucleus\.') 'deploy: core 0.20.0 -> refused, naming both versions' $d.Out
+    Set-Core '0.28.0' '0.28.0'
     $d = Deploy @()
-    Ok ($d.Code -eq 1 -and $d.Out -match 'ModManager was made for Nucleus >=0.26.0, which this Nucleus 0.27.0 no longer supports') 'deploy: floor above the need -> refused' $d.Out
-    Set-Core '0.26.0' $null 'other.nucleus'
+    Ok ($d.Code -eq 1 -and $d.Out -match 'ModManager was made for Nucleus >=0.27.0, which this Nucleus 0.28.0 no longer supports') 'deploy: floor above the need -> refused' $d.Out
+    Set-Core '0.27.0' $null 'other.nucleus'
     $d = Deploy @()
     Ok ($d.Code -eq 1 -and $d.Out -match "is not Nucleus's manifest") 'deploy: a manifest with another id -> refused' $d.Out
-    Set-Core '0.26.0' $null 'nucleus'
+    Set-Core '0.27.0' $null 'nucleus'
     $d = Deploy @()
     Ok ($d.Code -eq 1 -and $d.Out -match "is not Nucleus's manifest") 'deploy: the old bare id nucleus -> refused (no legacy alias)' $d.Out
-    Set-Core '0.26.0' $null 'nuclearnightmare-community.nucleus'
+    Set-Core '0.27.0' $null 'nuclearnightmare-community.nucleus'
     [IO.File]::WriteAllText($modsTxt, "Nucleus : 0`r`n" + $stockTxt)
     $d = Deploy @()
     Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus is installed but disabled in mods\.txt') 'deploy: core disabled -> refused' $d.Out
 
     # Good core: installed below Nucleus, above Keybinds.
-    Set-Core '0.26.0'
+    Set-Core '0.27.0'
     [IO.File]::WriteAllText($modsTxt, "ModManager : 1`r`n" + $coreTxt)
     $d = Deploy @()
-    Ok ($d.Code -eq 0) 'deploy: core 0.26.0 -> installed' $d.Out
+    Ok ($d.Code -eq 0) 'deploy: core 0.27.0 -> installed' $d.Out
     Eq (Txt) ("Nucleus : 1`r`nModManager : 1`r`n" + $stockTxt) 'deploy: ModManager below Nucleus, above Keybinds'
     $files = @(Get-ChildItem (Join-Path $mods 'ModManager') -Recurse -File | ForEach-Object { $_.FullName.Substring((Join-Path $mods 'ModManager').Length + 1) } | Sort-Object)
     Eq ($files -join ',') ((@('mod.json') + @($ModScripts | ForEach-Object { "Scripts\$_" }) | Sort-Object) -join ',') 'deploy: exactly the Mod Manager files'

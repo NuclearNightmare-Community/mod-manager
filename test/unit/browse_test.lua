@@ -187,7 +187,7 @@ do -- Details: the wrapped description, the facts, the NEEDS lines; nothing clic
     eq(U.byId["dt.inst"].text, "INSTALLED NO", "Details: INSTALLED NO")
     eq(U.byId["dt.pub"].text, "PUBLISHER Pub", "Details: PUBLISHER")
     eq(U.byId["dt.lic"].text, "LICENSE MIT", "Details: LICENSE")
-    eq(U.count("button.create"), buttons + 1, "Details: one button of its own, v2 story 5's INSTALL (BACK is core's)")
+    eq(U.count("button.create"), buttons + 2, "Details: two buttons of its own, v2 story 5's INSTALL and v2 story 6's UNINSTALL (BACK is core's)")
     eq(U.byId["dt.install"].visible, false, "Details: no INSTALL for an other-build package")
     -- Deep is other-build (its needs are not met): ALL BUILDS shows it; Short is installed by folder
     U.back("details")
@@ -300,6 +300,62 @@ do -- v2 story 5: INSTALL on available rows only, PENDING RESTART, disabled whil
     b:setInstalling(true)
     eq(U.byId["in.ok"].enabled, false, "confirm: disabled while a stage runs")
     b:setInstalling(false)
+end
+
+do -- v2 story 6: UPDATE in the INSTALL slot, REVOKED with the red icon, Details' UPDATE and UNINSTALL, SHOW preset.
+    local U = FakeUi.new()
+    local b = Browse.new(U, S)
+    local A, Bs = string.rep("a", 64), string.rep("b", 64)
+    local function v(ver, sha) return { version = ver, game = { version = "V8.2.3", build = B }, scope = "client", dependsOn = {}, sha256 = sha } end
+    local rows = Catalog.model({ packages = {
+        pkg(1, { displayName = "Upd", versions = { v("2.0.0", A) } }),
+        pkg(2, { displayName = "Rev", versions = { v("0.3.1", A), v("0.3.0", Bs) } }),
+        pkg(3, { id = "nuclearnightmare-community.nucleus", displayName = "Core", versions = { v("1.0.0", A) } }),
+        pkg(4, { displayName = "Same", versions = { v("1.0.0", A) } }),
+    } }, { revoked = { { id = "x.m002", version = "0.3.0", sha256 = Bs, reason = "boom", action = "block" } } },
+        { { folder = "Mod 001", id = "x.m001", version = "1.0.0" }, { folder = "Mod 002", id = "x.m002", version = "0.3.0" },
+          { folder = "Nucleus", id = "nuclearnightmare-community.nucleus", version = "1.0.0" }, { folder = "Mod 004", id = "x.m004", version = "1.0.0" } }, "1.0.0", B)
+    b:open(data(rows), "en", SIZE)
+    local function rowN(name) for n = 1, 10 do local el = U.byId["bw.r" .. n .. ".name"] if el and el.text == name then return n end end end
+    local u, r, c, s = rowN("Upd"), rowN("Rev"), rowN("Core"), rowN("Same")
+    ok(U.byId["bw.r" .. u .. ".inst"].visible and U.byId["bw.r" .. u .. ".inst"].label == "UPDATE", "update row: UPDATE in the INSTALL slot")
+    eq(U.byId["bw.r" .. r .. ".st"].text, "REVOKED", "revoked row: REVOKED")
+    local w = U.byId["bw.r" .. r .. ".w"]
+    ok(w.image and w.image.icon == "warning" and w.style and w.style.tint.r == 0.85 and w.tooltip == "REVOKED: boom", "revoked row: the red warning icon, REVOKED: <reason>")
+    ok(U.byId["bw.r" .. r .. ".inst"].visible and U.byId["bw.r" .. r .. ".inst"].label == "UPDATE", "revoked row with a fix: UPDATE")
+    eq(U.byId["bw.r" .. s .. ".inst"].visible, false, "installed, current: nothing in the slot")
+    b:openDetails(r)
+    ok(U.byId["dt.install"].visible and U.byId["dt.install"].label == "UPDATE", "Details: UPDATE")
+    ok(U.byId["dt.uninstall"].visible, "Details: UNINSTALL for an installed package")
+    b:openDetails(c)
+    eq(U.byId["dt.uninstall"].visible, false, "Details: no UNINSTALL for Nucleus")
+    b:setPending({ ["x.m002"] = true })
+    eq(U.byId["bw.r" .. r .. ".st"].text, "PENDING RESTART", "pending: PENDING RESTART")
+    eq(U.byId["bw.r" .. r .. ".inst"].visible, false, "pending: no UPDATE")
+    eq(U.byId["bw.r" .. r .. ".w"].style, nil, "pending: no red badge")
+    b:openDetails(r)
+    ok(not U.byId["dt.install"].visible and not U.byId["dt.uninstall"].visible, "pending: Details has neither")
+    b:setPending({})
+    b:openDetails(s)
+    b:setInstalling(true)
+    eq(U.byId["dt.uninstall"].enabled, false, "a job running: UNINSTALL disabled")
+    b:setInstalling(false)
+    eq(U.byId["dt.uninstall"].enabled, true, "done: UNINSTALL enabled")
+    local asked
+    b.onUninstall = function(id) asked = id end
+    U.click("dt.uninstall")
+    eq(asked, "x.m004", "Details' UNINSTALL gives the package id")
+    b:openUninstall{ title = "UNINSTALL SAME 1.0.0?" }
+    ok(U.open.uninstall and U.byId["un.title"].text == "UNINSTALL SAME 1.0.0?" and U.byId["un.line"].text == "REMOVES ITS FILES AND ITS MODS.TXT LINE", "the uninstall confirm")
+    b:openInstall{ title = "UPDATE X 1 → 2?", size = "DOWNLOAD 1 KB", okLabel = "UPDATE" }
+    eq(U.byId["in.ok"].label, "UPDATE", "the install window's button reads UPDATE")
+    b:openInstall{ title = "INSTALL X 1?", size = "DOWNLOAD 1 KB" }
+    eq(U.byId["in.ok"].label, "INSTALL", "and INSTALL again")
+    b:open(data(rows), "en", SIZE, "update")
+    eq(U.byId["bw.show"].index, 4, "open with show=update: SHOW is UPDATE AVAILABLE")
+    eq(b.filters.show, "update", "open with show=update: the filter")
+    b:open(data(rows), "en", SIZE)
+    eq(U.byId["bw.show"].index, 1, "a plain open resets SHOW")
 end
 
 io.stdout:write(("browse_test: %d passed, %d failed\n"):format(passed, failed))

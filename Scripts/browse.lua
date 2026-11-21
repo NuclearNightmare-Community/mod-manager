@@ -14,7 +14,14 @@
 --   b:setInstalling(on)           while a stage runs every INSTALL button is disabled
 --   b:openInstall(spec)           the confirm window (id "install") on top; spec = { title, also = { line, ... } | nil,
 --                                 more = n | nil, size = text }; INSTALL and core's BACK. b:closeInstall()
---   b:installShown(id) -> bool    whether package id offers INSTALL now (state available, not pending)
+--   b:installShown(id) -> bool    whether package id's INSTALL slot shows now (v2 story 6: INSTALL or UPDATE)
+--   v2 story 6:
+--   b:open(data, lang, size, show)  show = "update" opens with SHOW: UPDATE AVAILABLE (the main window's UPDATES)
+--   rows: the INSTALL slot reads UPDATE on an update or a revoked mod with a fix (Catalog.action); a revoked installed
+--   version reads REVOKED with core's warning icon tinted red (tooltip REVOKED: <reason>); Details has UPDATE and
+--   UNINSTALL (installed, not Nucleus or the Mod Manager, not pending). b:openInstall's spec.okLabel names the confirm's
+--   button (UPDATE). b:openUninstall{ title } / b:closeUninstall(): the confirm window (id "uninstall").
+--   Callbacks: onUninstall(id) (Details' UNINSTALL), onUninstallConfirm() (the confirm's UNINSTALL).
 -- data = { rows = Catalog.model's rows, total, state = "checking" | "ok" | "copy" | "unavailable" | "refused" |
 --          "error" | "none", outcome, buildKnown, indexIssued, revokedIssued, now = <UTC seconds> }
 -- Callbacks the caller sets: onFiltered(filters, shown, matched, all) after every fill (open, a filter, a search change,
@@ -168,7 +175,8 @@ function Browse:makeRow(n)
     c.scopeTip = self:scopeTip("unknown")
     c.sc = ui.image.create{ id = p .. ".sc", place = { row = row }, image = { icon = "scope-unknown" }, size = Browse.ICON, tooltip = c.scopeTip }
     c.stH = txt("st", Browse.FILL.st)
-    c.w = ui.image.create{ id = p .. ".w", place = { row = row }, size = Browse.ICON }
+    c.wSpec = { id = p .. ".w", place = { row = row }, size = Browse.ICON }
+    c.w = ui.image.create(c.wSpec)
     c.det = ui.button.create{ id = p .. ".det", place = { row = row }, icon = Browse.DETAILS_ICON, iconSize = Browse.ICON,
         tooltip = self:str("details"), onClick = function()
             -- the row's package now, at the click: a refill before the deferred run must not open another mod's Details
@@ -179,12 +187,13 @@ function Browse:makeRow(n)
     local d = "bw.d" .. n
     c.drow = ui.row.create{ id = d, place = { list = self.list } }
     c.descH = ui.text.create{ id = d .. ".text", text = "", place = { row = c.drow, fill = 1 }, style = { font = "small", overflow = "ellipsis" } }
-    -- v2 story 5: INSTALL, hidden until the row offers it
-    c.inst = ui.button.create{ id = p .. ".inst", label = self:str("install"), place = { row = c.drow }, onClick = function()
+    -- v2 story 5: INSTALL, hidden until the row offers it; v2 story 6: UPDATE in the same slot and style
+    c.instSpec = { id = p .. ".inst", label = self:str("install"), place = { row = c.drow }, onClick = function()
         local r = self.shown[n]
         local id = r and r.id
         if id then later(self, "INSTALL", function() self:onInstallClick(id) end) end
     end }
+    c.inst = ui.button.create(c.instSpec)
     ui.button.setVisible(c.inst, false)
     c.instShown, c.instEnabled = false, true
     self.cells[n] = c
@@ -252,7 +261,8 @@ function Browse:fill()
         local c, r = self.cells[n], self.shown[n]
         if r then
             local cat = r.primary and self:str("cat." .. r.primary) or self:str("unknown")
-            local st = self.pending[r.id] and self:str("pendingRestart") or self:str(STATE_KEY[r.state] or "stAvailable")
+            local st = self.pending[r.id] and self:str("pendingRestart") or (r.revoked and self:str("stRevoked"))
+                or self:str(STATE_KEY[r.state] or "stAvailable")
             if c.name ~= r.name then ui.text.set(c.nameH, r.name ~= "" and r.name or "-"); c.name = r.name end
             if c.cat ~= cat then ui.text.set(c.catH, cat); c.cat = cat end
             local ver = Catalog.clean(r.version, Catalog.MAX_FIELD)
@@ -262,13 +272,24 @@ function Browse:fill()
             local tip = self:scopeTip(sc)
             if c.scopeTip ~= tip then ui.image.setTooltip(c.sc, tip); c.scopeTip = tip end
             if c.st ~= st then ui.text.set(c.stH, st); c.st = st end
-            local warn = r.needsCore == true
+            -- v2 story 6: a revoked installed version (not staged): core's warning icon tinted red, REVOKED: <reason>
+            local revoked = r.revoked ~= nil and not self.pending[r.id]
+            local warn = revoked or r.needsCore == true
+            local wtip = revoked and self:fmt("revokedTip", cut(r.revoked.reason ~= "" and r.revoked.reason or self:str("noReason"), 480))
+                or (warn and self:fmt("needsCore", r.coreNeed or self:str("unknown")) or nil)
+            if (c.red == true) ~= revoked then
+                c.wSpec.image, c.wSpec.style, c.wSpec.tooltip = warn and { icon = "warning" } or nil, revoked and { tint = Screen.RED } or nil, wtip
+                ui.image.create(c.wSpec) -- a tint is a style: the same id again (core updates it in place)
+                c.red, c.warn, c.warnTip = revoked, warn, wtip
+            end
             if c.warn ~= warn then ui.image.set(c.w, { image = warn and { icon = "warning" } or false }); c.warn = warn end
-            local wtip = warn and self:fmt("needsCore", r.coreNeed or self:str("unknown")) or nil
             if c.warnTip ~= wtip then ui.image.setTooltip(c.w, wtip); c.warnTip = wtip end
             local desc = cut(r.description, Catalog.MAX_DESCRIPTION)
             if c.desc ~= desc then ui.text.set(c.descH, desc); c.desc = desc end
-            local inst = self:installShown(r.id)
+            local act = Catalog.action(r, self.pending)
+            local inst = act ~= nil
+            local label = self:str(act == "update" and "update" or "install")
+            if inst and c.instSpec.label ~= label then c.instSpec.label = label; ui.button.create(c.instSpec) end
             if c.instShown ~= inst then ui.button.setVisible(c.inst, inst); c.instShown = inst end
             if inst and c.instEnabled == self.installing then ui.button.setEnabled(c.inst, not self.installing); c.instEnabled = not self.installing end
             if not c.visible then ui.row.setVisible(c.row, true); ui.row.setVisible(c.drow, true); c.visible = true end
@@ -333,9 +354,9 @@ function Browse:rowOf(id)
     for _, r in ipairs(self.data.rows or {}) do if r.id == id then return r end end
     return nil
 end
+-- Whether package id's INSTALL slot shows now (v2 story 6: INSTALL or UPDATE, Catalog.action).
 function Browse:installShown(id)
-    local r = self:rowOf(id)
-    return r ~= nil and r.state == "available" and r.offered ~= nil and not self.pending[id]
+    return Catalog.action(self:rowOf(id), self.pending) ~= nil
 end
 function Browse:setPending(set)
     self.pending = set or {}
@@ -347,14 +368,25 @@ function Browse:setInstalling(on)
     if self.built and self:isOpen() then self:fill() end
     self:applyDetailsInstall()
     if self.inOk and self.inOkEnabled == self.installing then self.ui.button.setEnabled(self.inOk, not self.installing); self.inOkEnabled = not self.installing end
+    if self.unOk and self.unOkEnabled == self.installing then self.ui.button.setEnabled(self.unOk, not self.installing); self.unOkEnabled = not self.installing end
 end
--- Details' INSTALL: shown for an available package not staged yet, disabled while a stage runs.
+-- Details' INSTALL (UPDATE for an update, v2 story 6): shown for a package that offers it and isn't staged yet; its
+-- UNINSTALL for an installed package (not Nucleus or the Mod Manager) not staged yet. Both disabled while a job runs.
 function Browse:applyDetailsInstall()
     local dt = self.dt
     if not (dt and dt.install) then return end
-    local show = self.detId ~= nil and self:installShown(self.detId)
-    if dt.installShown ~= show then self.ui.button.setVisible(dt.install, show); dt.installShown = show end
-    if show and dt.installEnabled == self.installing then self.ui.button.setEnabled(dt.install, not self.installing); dt.installEnabled = not self.installing end
+    local ui = self.ui
+    local r = self.detId and self:rowOf(self.detId)
+    local act = Catalog.action(r, self.pending)
+    local show = act ~= nil
+    local label = self:str(act == "update" and "update" or "install")
+    if show and dt.installSpec.label ~= label then dt.installSpec.label = label; ui.button.create(dt.installSpec) end
+    if dt.installShown ~= show then ui.button.setVisible(dt.install, show); dt.installShown = show end
+    if show and dt.installEnabled == self.installing then ui.button.setEnabled(dt.install, not self.installing); dt.installEnabled = not self.installing end
+    local un = Catalog.canUninstall(r, self.pending)
+    if un and dt.uninstallSpec.label ~= self:str("uninstall") then dt.uninstallSpec.label = self:str("uninstall"); ui.button.create(dt.uninstallSpec) end
+    if dt.uninstallShown ~= un then ui.button.setVisible(dt.uninstall, un); dt.uninstallShown = un end
+    if un and dt.uninstallEnabled == self.installing then ui.button.setEnabled(dt.uninstall, not self.installing); dt.uninstallEnabled = not self.installing end
 end
 
 -- The confirm window (id "install"), on top.
@@ -379,8 +411,10 @@ function Browse:openInstall(spec)
         w.shown = { also = true, more = true }
         for k = 1, Browse.INSTALL_LINES do w.shown[k] = true end
         self.inW = w
-    elseif self.inOkSpec.label ~= self:str("install") then
-        self.inOkSpec.label = self:str("install")
+    end
+    local okLabel = spec.okLabel or self:str("install") -- v2 story 6: UPDATE for an update
+    if self.inOkSpec.label ~= okLabel then
+        self.inOkSpec.label = okLabel
         ui.button.create(self.inOkSpec)
     end
     local function show(key, el, on)
@@ -405,6 +439,39 @@ function Browse:closeInstall()
     if self.inWin and self.ui.screen.isOpen(self.inWin) then self.ui.screen.close(self.inWin) end
 end
 
+-- ---------------------------------------------------------------- v2 story 6: UNINSTALL
+function Browse:onUninstallClick(id)
+    if self.installing then return end
+    if self.onUninstall then self.onUninstall(id) end
+end
+-- The confirm window (id "uninstall"), on top: its title, REMOVES ITS FILES AND ITS MODS.TXT LINE, UNINSTALL; BACK is
+-- core's. spec = { title }.
+function Browse:openUninstall(spec)
+    local ui = self.ui
+    self.unWin = ui.screen.open{ id = "uninstall" }
+    local w = self.unW
+    if not w then
+        w = {}
+        local function at() return { screen = self.unWin, corner = "top-left", gap = "normal" } end
+        w.title = ui.text.create{ id = "un.title", text = "", place = at(), style = { font = "title" } }
+        w.line = ui.text.create{ id = "un.line", text = self:str("uninstallLine"), place = at(), style = { font = "body" } }
+        self.unOkSpec = { id = "un.ok", label = self:str("uninstall"), place = at(),
+            onClick = function() later(self, "the uninstall confirm", function() if self.onUninstallConfirm then self.onUninstallConfirm() end end) end }
+        self.unOk = ui.button.create(self.unOkSpec)
+        self.unOkEnabled = true
+        self.unW = w
+    else
+        ui.text.set(w.line, self:str("uninstallLine"))
+        if self.unOkSpec.label ~= self:str("uninstall") then self.unOkSpec.label = self:str("uninstall"); ui.button.create(self.unOkSpec) end
+    end
+    ui.text.set(w.title, cut(spec.title or "", Screen.MAX_TEXT))
+    if self.unOkEnabled == self.installing then ui.button.setEnabled(self.unOk, not self.installing); self.unOkEnabled = not self.installing end
+    return self.unWin
+end
+function Browse:closeUninstall()
+    if self.unWin and self.ui.screen.isOpen(self.unWin) then self.ui.screen.close(self.unWin) end
+end
+
 -- ---------------------------------------------------------------- open, update
 function Browse:resetFilters()
     local ui = self.ui
@@ -413,7 +480,7 @@ function Browse:resetFilters()
     ui.textbox.set(self.q, "")
 end
 
-function Browse:open(data, lang, size)
+function Browse:open(data, lang, size, show)
     local ui = self.ui
     self.lang = lang or "en"
     self.data = data or self.data
@@ -435,6 +502,10 @@ function Browse:open(data, lang, size)
         self:relabel()
     end
     self:resetFilters()
+    -- v2 story 6: the main window's UPDATES opens Browse showing UPDATE AVAILABLE
+    for i, v in ipairs(Catalog.SHOW) do
+        if show ~= nil and v == show and i > 1 then self.filters.show = v; ui.choice.set(self.show, i) end
+    end
     self:fill()
     return self.win
 end
@@ -512,11 +583,19 @@ function Browse:openDetails(n)
         for k = 1, Browse.DEP_LINES do dt.deps[k] = body("dt.n" .. k); dt.depShown[k] = true end
         dt.inst, dt.pub, dt.lic = body("dt.inst"), body("dt.pub"), body("dt.lic")
         -- v2 story 5: INSTALL for an available package (the id at the click: Details may show another mod by then)
-        dt.install = ui.button.create{ id = "dt.install", label = self:str("install"), place = at("normal"), onClick = function()
+        dt.installSpec = { id = "dt.install", label = self:str("install"), place = at("normal"), onClick = function()
             local id = self.detId
             if id then later(self, "INSTALL", function() self:onInstallClick(id) end) end
         end }
+        dt.install = ui.button.create(dt.installSpec)
         dt.installShown, dt.installEnabled = true, true
+        -- v2 story 6: UNINSTALL for an installed package (not Nucleus or the Mod Manager)
+        dt.uninstallSpec = { id = "dt.uninstall", label = self:str("uninstall"), place = at("normal"), onClick = function()
+            local id = self.detId
+            if id then later(self, "UNINSTALL", function() self:onUninstallClick(id) end) end
+        end }
+        dt.uninstall = ui.button.create(dt.uninstallSpec)
+        dt.uninstallShown, dt.uninstallEnabled = true, true
         self.dt = dt
     end
     ui.text.set(dt.title, cut(l.title, Screen.MAX_TEXT))

@@ -52,7 +52,7 @@ $SW = @{
 function Sc([string] $s) { " | scope=$s | stip=$($SW[$s]) | runs=RUNS ON: $($SW[$s])" }
 $rowLines = @(
     ("ROW Nucleus | 0.8.0 | toggle=lock | box=none | gear=dim | status=0 | icons=- | need=- | build=V8.2.3 26601774" + (Sc 'client'))
-    ("ROW Mod Manager | $MV | toggle=lock | box=none | gear=dim | status=0 | icons=- | need=>=0.26.0 | build=V8.2.3 26601774" + (Sc 'client'))
+    ("ROW Mod Manager | $MV | toggle=lock | box=none | gear=dim | status=0 | icons=- | need=>=0.27.0 | build=V8.2.3 26601774" + (Sc 'client'))
     ("ROW Mod Manager Base | 1.0.0 | toggle=on | box=live | gear=dim | status=0 | icons=- | need=>=0.12.0 | build=V8.2.3 26601774" + (Sc 'host'))
     ("ROW Mod Manager Dep | 1.0.0 | toggle=on | box=live | gear=dim | status=0 | icons=- | need=- | build=V8.2.3 26601774" + (Sc 'both'))
     ("ROW ModManagerBare | - | toggle=off | box=live | gear=dim | status=0 | icons=- | need=- | build=-" + (Sc 'unknown'))
@@ -76,7 +76,7 @@ function Screen-Log([string[]] $rows = $rowLines, [string] $measure = 'MEASURE n
     [string] $gearlook = 'OK GEARLOOK 1 Nucleus looks dim (offers dim)', [int[]] $popin = @(1, 2, 3, 4), [int[]] $hiddenFirst = @(2, 3, 4)) {
     $l = (Start-Log) + @(
         (L $D 'SCENARIO screen'), (L $D 'LOADED 7 steps'),
-        (L $M 'CONNECT ok Nucleus 0.8.0 (pong 0.8.0 boot=1)'), (L $M 'READY entry=manage need=>=0.26.0'),
+        (L $M 'CONNECT ok Nucleus 0.8.0 (pong 0.8.0 boot=1)'), (L $M 'READY entry=manage need=>=0.27.0'),
         (L $D 'ENTRY menu1 text=MANAGE MODS above=OPTIONS below=QUIT'),
         (L $D 'OK ENTRYPOS menu1 between OPTIONS (UI_Button_Master_2) and QUIT (UI_Button_Master_3)'), (L $D 'OK ENTRYLOOK menu1 style x / x font y / y (the options style)'),
         (L $M 'MOD 1 Nucleus | Nucleus | 0.8.0 | locked | settings=no | need=- | build=V8.2.3 26601774'))
@@ -268,7 +268,7 @@ Expect ($good | Where-Object { $_ -notmatch 'OK BLOCKEDGEAR' }) 'screen' 1 'scre
 Expect ($good | Where-Object { $_ -notmatch 'OK CFGDIMOPEN' }) 'screen' 1 'screen: no dimmed-gear Configure fails'
 Expect ($good | Where-Object { $_ -notmatch 'OK SAME' }) 'screen' 1 'screen: no SAME (DW-59) fails'
 Expect ($good | Where-Object { $_ -notmatch 'ENTRY menu1 text=' }) 'screen' 1 'screen: no entry text fails'
-Expect ($good + (L $M 'READY entry=manage need=>=0.26.0')) 'screen' 1 'screen: two READY lines fail'
+Expect ($good + (L $M 'READY entry=manage need=>=0.27.0')) 'screen' 1 'screen: two READY lines fail'
 Expect (($good | Where-Object { $_ -notmatch "\[$M\] OPEN rows" }) + (L $M 'OPEN rows=8 total=8 lang=en')) 'screen' 1 'screen: one OPEN fails' 'opened twice'
 $swapped = [Collections.Generic.List[string]]::new([string[]]$good)
 $ic = $swapped.FindIndex({ param($l) $l -match '\[ModManager\] CONNECT ok' }); $ir = $swapped.FindIndex({ param($l) $l -match '\[ModManager\] READY ' })
@@ -280,21 +280,21 @@ $noCore = @((U "Starting Lua mod '$D'"), (L $D 'SCENARIO no-core'), (U "Starting
     (L $M 'Nucleus is not installed. ModManager will not run.'), (L $D 'OK NOENTRY no MANAGE MODS entry in the menu for 15 s'),
     (L $D 'END result=PASS checks=2 failures=0'), '[run.ps1] FILES unchanged')
 Expect $noCore 'no-core' 0 'no-core: passes' 'All checks passed'
-Expect ($noCore + (L $M 'READY entry=manage need=>=0.26.0')) 'no-core' 1 'no-core: a second [ModManager] line fails'
+Expect ($noCore + (L $M 'READY entry=manage need=>=0.27.0')) 'no-core' 1 'no-core: a second [ModManager] line fails'
 Expect ($noCore | Where-Object { $_ -notmatch 'NOENTRY' }) 'no-core' 1 'no-core: no NOENTRY fails'
 $oldCore = (Start-Log) + @((L $D "OLDCORE published nucleus.version=0.1.0 (from Nucleus's installed mod.json)"),
-    (L $M 'ERROR Nucleus 0.1.0 is older than ModManager needs (>=0.26.0). Update Nucleus. ModManager will not run.'),
+    (L $M 'ERROR Nucleus 0.1.0 is older than ModManager needs (>=0.27.0). Update Nucleus. ModManager will not run.'),
     (L $D 'OK NOENTRY no MANAGE MODS entry in the menu for 15 s'), (L $D 'END result=PASS checks=2 failures=0'), '[run.ps1] FILES unchanged')
 Expect $oldCore 'old-core' 0 'old-core: passes' 'All checks passed'
 Expect ($oldCore + (L $M 'ERROR start failed: x')) 'old-core' 1 'old-core: a second [ModManager] line fails'
-Expect ($oldCore -replace 'needs \(>=0.26.0\)', 'needs (>=0.7.0)') 'old-core' 1 'old-core: the wrong need fails'
+Expect ($oldCore -replace 'needs \(>=0.27.0\)', 'needs (>=0.7.0)') 'old-core' 1 'old-core: the wrong need fails'
 
 # ---------------------------------------------------------------- restart (story 8): two sessions in one log
 $R = 'ModManagerRestart'
 function Session([int] $n) {
     (Start-Log) + @((L $R 'loaded') | Where-Object { $n -eq 1 }) + @(
         (L $D 'SCENARIO restart'), (L $D "RESTART session $n"), (L $D 'LOADED 20 steps'),
-        (L $M 'CONNECT ok Nucleus 0.21.0 (pong 0.21.0 boot=1)'), (L $M 'READY entry=manage need=>=0.26.0'),
+        (L $M 'CONNECT ok Nucleus 0.21.0 (pong 0.21.0 boot=1)'), (L $M 'READY entry=manage need=>=0.27.0'),
         (L $M 'OPEN rows=10 total=10 lang=en game=V8.2.3 build=- us=4000'), (L $M 'RESTARTMODE direct'))
 }
 $s1 = (Session 1) + @(
@@ -336,7 +336,7 @@ $lockRel = "NuclearNightmare\Binaries\Win64\ue4ss\Mods\$AA\Scripts\main.lua"
 function ApplySession([int] $n, [string] $status, [string[]] $loaded) {
     (Start-Log) + @($loaded | ForEach-Object { L $_ 'loaded' }) + @(
         (L $D 'SCENARIO apply'), (L $D "APPLY session $n"), (L $D 'LOADED 20 steps'),
-        (L $M 'CONNECT ok Nucleus 0.24.0 (pong 0.24.0 boot=1)'), (L $M 'READY entry=manage need=>=0.26.0'), (L $M "APPLY status $status"))
+        (L $M 'CONNECT ok Nucleus 0.24.0 (pong 0.24.0 boot=1)'), (L $M 'READY entry=manage need=>=0.27.0'), (L $M "APPLY status $status"))
 }
 $a1 = (ApplySession 1 'staged=pending result=none changes=3 attempts=0' @()) + @(
     (L $M 'APPLY start ok'), (L $D 'OK APWAIT1 x'), (L $D 'OK APRESULT1 x'), (L $D 'OK APNOTLOADED1 x'),
@@ -402,7 +402,7 @@ Expect ($agood -replace 'FILES changed: mods\.txt.*', 'FILES changed: Paks added
 $NN = 'nuclearnightmare-community'
 function BrowseLog([string[]] $pkgs, [string[]] $filters, [string[]] $rows = @('ROW Nucleus | 0.25.0', 'ROW Mod Manager | 0.6.0', 'ROW ModManagerDriver | -'), [int] $dones = 2) {
     $l = (Start-Log) + @((L $D 'SCENARIO browse'), (L $D 'LOADED 60 steps'),
-        (L $M 'CONNECT ok Nucleus 0.25.0 (pong 0.25.0 boot=1)'), (L $M 'CATALOG refresh job=1'), (L $M 'READY entry=manage need=>=0.26.0'),
+        (L $M 'CONNECT ok Nucleus 0.25.0 (pong 0.25.0 boot=1)'), (L $M 'CATALOG refresh job=1'), (L $M 'READY entry=manage need=>=0.27.0'),
         (L $M 'BUILD 26601774 from=index'))
     foreach ($p in $pkgs) { $l += L $M "BROWSE pkg $p" }
     $l += L $M "CATALOG done outcome=ok source=network packages=$($pkgs.Count) index_issued=2026-11-21T00:59:08Z"

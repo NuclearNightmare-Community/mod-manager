@@ -137,5 +137,19 @@ end
 eq(Status.cut("ab\226\130\172cd", 4), "ab", "cut never splits a character")
 eq(Status.cut("abc", 5), "abc", "short: unchanged")
 
+do -- v2 story 6: a revoked installed version is the kind revoked, last, with its reason; it only flags.
+    local rs = rows()
+    rs[3].revoked = { reason = "crash on map load" }
+    rs[4].revoked = { reason = "" }
+    local st = Status.compute(rs, { baseline = Status.baseline(rs), running = { version = "V8.2.3", build = "26601774" }, fmt = fmt })
+    local s3 = st[rs[3].key]
+    eq(table.concat(s3.kinds, ","), "revoked", "revoked: the kind")
+    eq(s3.tips.revoked, "REVOKED: crash on map load", "revoked: its tooltip")
+    eq(s3.lines[#s3.lines], "REVOKED: crash on map load", "revoked: a problem line")
+    eq(st[rs[4].key].tips.revoked, "REVOKED: NO REASON GIVEN", "revoked: no reason")
+    eq(s3.pending, nil, "revoked: nothing pending (only flagged)")
+    eq(rs[3].state, "on", "revoked: the row stays on")
+end
+
 io.stdout:write(("status_test: %d passed, %d failed\n"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

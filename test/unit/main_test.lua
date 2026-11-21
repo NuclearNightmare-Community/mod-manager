@@ -164,6 +164,7 @@ local function boot(opts)
         paks = { "NuclearNightmare-Windows.pak", "ModManagerPak_P.pak" }, logicMods = { "Nucleus.pak" },
         files = { [TXT] = TXT0 } }
     for f, j in pairs(MJ) do W.files[MODS .. "\\" .. f .. "\\mod.json"] = j end
+    for f, j in pairs(opts.mods or {}) do W.folders[f] = { "mod.json" }; W.files[MODS .. "\\" .. f .. "\\mod.json"] = j end -- v2 story 6
     for k, v in pairs(opts.files or {}) do W.files[k] = v or nil end
     for _, m in ipairs({ "nucleus.client", "json", "nucleus.modid", "nucleus.semver", "nucleus.json", "inventory", "strings", "screen", "status", "modstxt", "files", "state", "catalog", "browse" }) do package.loaded[m] = nil end
     package.preload["nucleus.client"] = nil
@@ -194,7 +195,7 @@ local function newCore(o)
     -- v2 story 4: a core.catalog that is always busy (no job, no scan, nothing logged but one INFO line), so the
     -- earlier stories' tests see what they saw before; o.catalog = false: none; the Browse tests set their own.
     if o.catalog ~= false then core.catalog = o.catalog or { refresh = function() return nil, "busy" end, poll = function() return nil, "unknown job" end,
-        stage = function() return nil, "busy" end } end
+        stage = function() return nil, "busy" end, unstage = function() return nil, "busy" end } end
     return core
 end
 -- Story 8: core.restart. o.mode: what mode() answers ("direct" by default; false: nil, "unsupported launch");
@@ -232,24 +233,24 @@ do -- Nucleus missing: exactly one [ModManager] line, the bootstrap's own.
     eq(#W.connects, 0, "no core: no connect")
     restore()
 end
-do -- Nucleus present: connect{ mod = "ModManager", need = ">=0.26.0" }, nothing logged before it answers.
+do -- Nucleus present: connect{ mod = "ModManager", need = ">=0.27.0" }, nothing logged before it answers.
     boot()
     eq(#W.connects, 1, "connect called once")
     local c = W.connects[1]
-    ok(c.mod == "ModManager" and c.need == ">=0.26.0", "connect{ mod = 'ModManager', need = '>=0.26.0' }", tostring(c.mod) .. " " .. tostring(c.need))
+    ok(c.mod == "ModManager" and c.need == ">=0.27.0", "connect{ mod = 'ModManager', need = '>=0.27.0' }", tostring(c.mod) .. " " .. tostring(c.need))
     eq(#W.printed, 0, "nothing printed during main.lua")
-    c.onFail("Nucleus 0.20.0 is older than ModManager needs (>=0.26.0). Update Nucleus.")
+    c.onFail("Nucleus 0.20.0 is older than ModManager needs (>=0.27.0). Update Nucleus.")
     eq(#W.printed, 0, "onFail adds no line (connect's is the only one)")
     eq(W.iterations, 0, "onFail scans nothing")
     eq(#W.writes, 0, "onFail writes nothing")
     restore()
 end
-do -- mod.json and main.lua agree on the need; 0.7.0 (v2 story 5: core.catalog.stage needs Nucleus 0.26.0).
+do -- mod.json and main.lua agree on the need; 0.8.0 (v2 story 6: core.catalog.unstage needs Nucleus 0.27.0).
     local mj = assert(realOpen(ROOT .. "/mod.json", "rb")):read("a")
-    ok(mj:find('"version": ">=0.26.0"', 1, true) and mj:find('"id": "nuclearnightmare-community.nucleus"', 1, true), "mod.json dependsOn nuclearnightmare-community.nucleus >=0.26.0")
-    ok(mj:find('"version": "0.7.0"', 1, true), "mod.json version 0.7.0")
+    ok(mj:find('"version": ">=0.27.0"', 1, true) and mj:find('"id": "nuclearnightmare-community.nucleus"', 1, true), "mod.json dependsOn nuclearnightmare-community.nucleus >=0.27.0")
+    ok(mj:find('"version": "0.8.0"', 1, true), "mod.json version 0.8.0")
     local src = assert(realOpen(MAIN, "rb")):read("a")
-    ok(src:find('local CORE, NEED, ME = "Nucleus", ">=0.26.0", "ModManager"', 1, true), "main.lua NEED = dependsOn")
+    ok(src:find('local CORE, NEED, ME = "Nucleus", ">=0.27.0", "ModManager"', 1, true), "main.lua NEED = dependsOn")
 end
 
 -- ---------------------------------------------------------------- start
@@ -278,7 +279,7 @@ do -- The entry, READY, a click, the window, the gear, warnings once, faults onc
     eq(#U.entries, 1, "one menu entry")
     local e = U.entries[1]
     ok(e.id == "manage" and e.style == "options" and e.label.en == "MANAGE MODS" and type(e.onClick) == "function", "entry{ id = 'manage', label = { en = 'MANAGE MODS' }, style = 'options' }")
-    eq(#lines("^%[ModManager%] READY entry=manage need=>=0%.26%.0$"), 1, "one READY line after onReady")
+    eq(#lines("^%[ModManager%] READY entry=manage need=>=0%.27%.0$"), 1, "one READY line after onReady")
     eq(W.iterations, 1, "onReady scans once (the session baseline)")
     eq(U.count("screen.open"), 0, "no window before a click")
     eq(#W.writes, 0, "onReady writes nothing")
@@ -1197,6 +1198,13 @@ local function fakeCatalog(o)
         poll = function(job) F.polls = F.polls + 1 return o.poll(F.polls, job) end,
         -- v2 story 5: stage(list) answers o.stage(n, list) (a job 101, 102, ... by default)
         stage = function(list) F.stages = (F.stages or 0) + 1 F.staged = list if o.stage then return o.stage(F.stages, list) end return 100 + F.stages end,
+        -- v2 story 6: unstage(id, version) answers o.unstage(n, id, version) (a job 201, 202, ... by default)
+        unstage = function(id, version, ...)
+            assert(select("#", ...) == 0 and type(id) == "string" and type(version) == "string", "unstage(id, version)")
+            F.unstages = (F.unstages or 0) + 1 F.unstaged = { id = id, version = version }
+            if o.unstage then return o.unstage(F.unstages, id, version) end
+            return 200 + F.unstages
+        end,
     }
     return F
 end
@@ -1556,9 +1564,7 @@ do -- A plain install: HUD Clock (the installed Nucleus 0.12.1 meets >=0.9.0): t
     local n = rowNamed(U, "HUD Clock")
     ok(n and U.byId["bw.r" .. n .. ".inst"].visible and U.byId["bw.r" .. n .. ".inst"].label == "INSTALL", "plain: an available row has INSTALL")
     local m = rowNamed(U, "Mod Manager")
-    eq(U.byId["bw.r" .. m .. ".inst"].visible, false, "plain: an update row has no INSTALL (story 6)")
-    eq(U.byId["bw.r" .. rowNamed(U, "Nucleus (Mod Core)") .. ".inst"].visible, false, "plain: an installed row has no INSTALL")
-    local h0 = #U.hookCalls
+    eq(U.byId["bw.r" .. m .. ".inst"].label, "UPDATE", "plain: an update row's slot reads UPDATE (story 6)")    local h0 = #U.hookCalls
     ok(U.click("bw.r" .. n .. ".inst"), "plain: INSTALL clicked")
     eq(#U.hookCalls, h0, "plain: INSTALL does no ui work inside core's hook")
     tick()
@@ -1747,6 +1753,378 @@ do -- APPLY start "already started" counts as fine; core without core.catalog.st
     connect(c2)
     eq(#lines("^%[ModManager%] WARN Nucleus has no core%.catalog%.stage: Browse has no INSTALL$"), 1, "no stage: one WARN")
     restore()
+end
+
+-- ---------------------------------------------------------------- v2 story 6: updates, revocations, uninstall
+local A64, B64 = string.rep("a", 64), string.rep("b", 64)
+local function modJson(id, v, deps)
+    local d = {}
+    for i, x in ipairs(deps or {}) do d[i] = '{"id":"' .. x .. '","version":">=0.1.0"}' end
+    return '{"id":"' .. id .. '","version":"' .. v .. '","game":{"version":"V8.2.3","build":"26601774"},"dependsOn":[' .. table.concat(d, ",") .. ']}'
+end
+-- The ok fixture with HUD Clock's versions replaced (o.hud = { { version, sha }, ... }, newest first) and a revoked list
+-- (o.revoked, default: HUD Clock 0.3.0 with the index's sha, "crash on map load", disable); o.extra: more packages.
+local function revPayload(o)
+    o = o or {}
+    local p = fixture("catalog-ok.json")
+    for _, pk in ipairs(p.index.packages) do
+        if pk.id == NNC .. "hud-clock" then
+            local base = pk.versions[1]
+            pk.versions = {}
+            for i, h in ipairs(o.hud or { { "0.3.1", B64 }, { "0.3.0", A64 } }) do
+                local v = {}
+                for k, x in pairs(base) do v[k] = x end
+                v.version, v.sha256 = h[1], h[2]
+                pk.versions[i] = v
+            end
+        end
+    end
+    for _, pk in ipairs(o.extra or {}) do table.insert(p.index.packages, pk) end
+    p.revoked.revoked = o.revoked or { { id = NNC .. "hud-clock", version = "0.3.0", sha256 = A64, reason = "crash on map load", action = "disable" } }
+    return p
+end
+-- A session with HUD Clock (o.hudVersion, default 0.3.0) and Whistle Emote Mute 0.2.1 installed (o.mods adds more),
+-- core.restart and core.apply, W.queue on. o.stagePoll(n, job), o.unstagePoll(n, job): the jobs' polls; o.unstage(n,
+-- id, version): core.catalog.unstage's answer; o.refreshPoll(n): the n-th refresh's done (default: the payload).
+local function revSession(o)
+    o = o or {}
+    local mods2 = { HudClock = modJson(NNC .. "hud-clock", o.hudVersion or "0.3.0", { NNC .. "nucleus" }), WhistleMute = modJson(NNC .. "whistle-mute", "0.2.1") }
+    for k, v in pairs(o.mods or {}) do mods2[k] = v end
+    boot{ mods = mods2 }
+    W.queue = {}
+    os.time = function() return NOW end
+    local sp, up, rp = 0, 0, 0
+    local payload = o.payload or revPayload()
+    local F = fakeCatalog{
+        stage = o.stage, unstage = o.unstage,
+        poll = function(_, job)
+            if job < 100 then
+                rp = rp + 1
+                if o.refreshPoll then return o.refreshPoll(rp) end
+                return done("ok", payload)()
+            end
+            if job > 200 then up = up + 1 return o.unstagePoll(up, job) end
+            sp = sp + 1
+            return o.stagePoll(sp, job)
+        end,
+    }
+    local core = newCore{ catalog = F.api }
+    fakeRestart(core)
+    local A = fakeApply(core, o.apply)
+    connect(core)
+    tick() -- the refresh's done
+    return core, core.ui, F, A
+end
+local function unstageOk(files, kept)
+    return function()
+        return "done", { outcome = "ok", message = "staged", payload = { txn = "fedcba9876543210fedcba9876543210",
+            owners = { { id = NNC .. "whistle-mute", version = "0.2.1", name = "WhistleMute", files = files or 3, kept = kept or 0 } }, ops = 4 } }
+    end
+end
+local function openMainWin(core)
+    local U = core.ui
+    U.open.main = nil
+    U.entries[1].onClick()
+    return U
+end
+local function mainRow(U, name) return rowOf(U, name) end
+
+do -- Revoked, newer fix: the title-screen notice, REVIEW, LATER stages nothing; the main window's badge and notice line.
+    local core, U, F, A = revSession{ stagePoll = function(n) if n == 1 then return "running" end return stageOk({ NNC .. "hud-clock" })() end }
+    eq(#lines("^%[ModManager%] REVOKED nuclearnightmare%-community%.hud%-clock v=0%.3%.0 action=disable fix=0%.3%.1$"), 1, "revoked: REVOKED logged with its action and fix")
+    local tt, tb = U.byId["tn.text"], U.byId["tn.review"]
+    ok(tt and tt.visible and tt.place.host == "menu" and tt.place.corner == "top-right", "notice: a text on core's menu host, top right")
+    eq(tt and tt.text, "HUD CLOCK 0.3.0 WAS REVOKED", "notice: one mod's text")
+    ok(tb and tb.kind == "button" and tb.visible and tb.label == "REVIEW" and tb.place.host == "menu" and tb.place.corner == "top-right", "notice: REVIEW on the menu host, top right")
+    eq(#lines("^%[ModManager%] NOTICE shown n=1$"), 1, "notice: NOTICE shown n=1")
+    eq(W.delayed > 0 and #lines("NOTICE removed"), 0, "notice: not removed")
+    -- REVIEW from the title screen (inside core's hook: nothing then; the window after it)
+    local h0 = #U.hookCalls
+    ok(U.click("tn.review"), "notice: REVIEW clicked")
+    eq(#U.hookCalls, h0, "notice: REVIEW does no ui work inside core's hook")
+    tick()
+    ok(U.open.revoked, "REVIEW: the revoked window (id revoked) opens")
+    eq(U.byId["rv.title"].text, "REVOKED MODS", "REVIEW: its title")
+    eq(U.byId["rv.r1.name"].text, "HUD Clock", "REVIEW: the mod's name")
+    eq(U.byId["rv.r1.ver"].text, "0.3.0", "REVIEW: its version")
+    eq(U.byId["rv.d1.why"].text, "crash on map load", "REVIEW: its reason")
+    local upd, un = U.byId["rv.r1.upd"], U.byId["rv.r1.un"]
+    ok(upd.kind == "button" and upd.visible and upd.enabled and upd.label == "UPDATE TO 0.3.1", "REVIEW: UPDATE TO 0.3.1, one of core's buttons (the keys and a gamepad reach it)")
+    ok(un.kind == "button" and un.visible and un.enabled and un.label == "UNINSTALL", "REVIEW: UNINSTALL, one of core's buttons")
+    eq(#lines("^%[ModManager%] REVIEW open n=1$"), 1, "REVIEW: logged")
+    -- LATER (core's BACK, or Escape): nothing staged
+    U.back("revoked") tick()
+    ok(not U.open.revoked, "LATER: the window closes")
+    ok(F.stages == nil and F.unstages == nil, "LATER: nothing staged")
+    eq(#lines("^%[ModManager%] REVIEW closed %(close%)$"), 1, "LATER: logged")
+    ok(U.byId["tn.text"].visible, "LATER: the notice stays")
+    -- the main window: the version cell, the red badge, the notice line
+    openMainWin(core)
+    local n = mainRow(U, "HudClock")
+    eq(U.byId["r" .. n .. ".ver"].text, "0.3.0 → 0.3.1", "main: the version cell shows the update")
+    local s4 = U.byId["r" .. n .. ".s4"]
+    local found
+    for k = 1, 4 do local el = U.byId["r" .. n .. ".s" .. k] if el.image and el.style and el.style.tint then found = el end end
+    ok(found and found.image.icon == "warning" and found.style.tint.r == 0.85 and found.style.tint.g == 0.1 and found.style.tint.b == 0.1 and found.style.tint.a == 1,
+        "main: the revoked badge is core's warning icon tinted red", s4 and tostring(s4.image))
+    eq(found and found.tooltip, "REVOKED: crash on map load", "main: the badge's tooltip")
+    eq(U.byId["notice.text"].text, "1 REVOKED - 3 UPDATES AVAILABLE", "main: the notice line")
+    ok(U.byId["notice.list"].visible and U.byId["notice.review"].visible and U.byId["notice.updates"].visible, "main: the notice line with REVIEW and UPDATES")
+    eq(U.byId["list"].size.h, 1080 - 540 - 80, "main: the list is shorter while the notice line shows")
+    -- REVIEW from the main window, then UPDATE TO, then confirm
+    U.click("notice.review") tick()
+    ok(U.open.revoked, "main REVIEW: the revoked window opens")
+    U.click("rv.r1.upd") tick()
+    ok(U.open.install, "UPDATE TO: the confirm window (id install) opens")
+    eq(U.byId["in.title"].text, "UPDATE HUD CLOCK 0.3.0 → 0.3.1?", "UPDATE: the title")
+    eq(U.byId["in.ok"].label, "UPDATE", "UPDATE: its button reads UPDATE")
+    eq(U.byId["in.also"].visible, false, "UPDATE: no ALSO INSTALLS")
+    eq(U.byId["in.size"].text, "DOWNLOAD 1 KB", "UPDATE: the download size")
+    eq(#lines("^%[ModManager%] UPDATE ask nuclearnightmare%-community%.hud%-clock set=nuclearnightmare%-community%.hud%-clock@0%.3%.1$"), 1, "UPDATE ask")
+    eq(F.stages, nil, "UPDATE: nothing staged before the confirm")
+    U.click("in.ok") tick()
+    ok(F.staged and #F.staged == 1 and F.staged[1].version == "0.3.1", "UPDATE: core.catalog.stage({ { hud-clock, 0.3.1 } })")
+    eq(#lines("^%[ModManager%] UPDATE stage job=101$"), 1, "UPDATE stage")
+    eq(U.byId["rv.msg"].text, "DOWNLOADING HUD CLOCK...", "UPDATE: the revoked window's message while it runs")
+    tick() tick()
+    eq(#lines("^%[ModManager%] UPDATE done outcome=ok txn=0123456789abcdef0123456789abcdef owners=1 ops=4$"), 1, "UPDATE done")
+    eq(A.calls.start, 1, "UPDATE: core.apply.start()")
+    eq(U.byId["rv.msg"].text, "HUD CLOCK UPDATES WHEN THE GAME RESTARTS", "UPDATE: the result message")
+    eq(#lines("^%[ModManager%] NOTICE removed$"), 1, "UPDATE: the staged owner resolves the notice: NOTICE removed")
+    ok(U.byId["tn.text"].removed and U.byId["tn.review"].removed, "UPDATE: the title-screen notice is gone")
+    eq(U.byId["rv.r1"].visible, false, "UPDATE: the mod leaves the revoked window")
+    eq(U.byId["notice.text"].text, "2 UPDATES AVAILABLE", "UPDATE: the notice line counts the rest")
+    eq(U.byId["notice.review"].visible, false, "UPDATE: no REVIEW without a revoked mod")
+    ok(U.byId.restart.visible, "UPDATE: RESTART NOW shows")
+    n = mainRow(U, "HudClock")
+    eq(U.byId["r" .. n .. ".ver"].text, "0.3.0", "UPDATE: a staged row shows no update")
+    -- UPDATES: Browse showing UPDATE AVAILABLE; the staged row PENDING RESTART without UPDATE
+    U.back("revoked") tick()
+    U.click("notice.updates") tick()
+    ok(U.open.browse, "UPDATES: Browse opens")
+    eq(U.byId["bw.show"].index, 4, "UPDATES: SHOW is UPDATE AVAILABLE")
+    eq(#lines("BROWSE filter cat=all show=update "), 1, "UPDATES: the filter logged")
+    eq(names(U), "HUD Clock,Mod Manager,Nucleus (Mod Core)", "UPDATES: only the update rows")
+    local hn = rowNamed(U, "HUD Clock")
+    eq(U.byId["bw.r" .. hn .. ".st"].text, "PENDING RESTART", "UPDATES: the staged row reads PENDING RESTART")
+    eq(U.byId["bw.r" .. hn .. ".inst"].visible, false, "UPDATES: and offers no UPDATE")
+    ok(U.byId["bw.r" .. hn .. ".w"].style == nil, "UPDATES: and has no red badge")
+    endSession()
+end
+
+do -- The notice reappears on the next launch (no seen-state); a revoked row in Browse; Details' UPDATE.
+    for launch = 1, 2 do
+        local core, U = revSession{ stagePoll = stageOk({ NNC .. "hud-clock" }) }
+        eq(#lines("^%[ModManager%] NOTICE shown n=1$"), 1, "launch " .. launch .. ": the notice shows again")
+        if launch == 2 then
+            U = openBrowse(core)
+            local n = rowNamed(U, "HUD Clock")
+            eq(U.byId["bw.r" .. n .. ".st"].text, "REVOKED", "browse: the state reads REVOKED")
+            local w = U.byId["bw.r" .. n .. ".w"]
+            ok(w.image and w.image.icon == "warning" and w.style and w.style.tint and w.style.tint.r == 0.85, "browse: core's warning icon tinted red")
+            eq(w.tooltip, "REVOKED: crash on map load", "browse: its tooltip")
+            eq(U.byId["bw.r" .. n .. ".inst"].label, "UPDATE", "browse: UPDATE in the INSTALL slot")
+            ok(U.byId["bw.r" .. n .. ".inst"].visible, "browse: UPDATE shows")
+            local m = rowNamed(U, "Map Waypoints+")
+            ok(U.byId["bw.r" .. m .. ".w"].style == nil, "browse: other rows' icon untinted")
+            U.click("bw.r" .. n .. ".det") tick()
+            ok(U.byId["dt.install"].visible and U.byId["dt.install"].label == "UPDATE", "details: UPDATE")
+            ok(U.byId["dt.uninstall"].visible and U.byId["dt.uninstall"].label == "UNINSTALL", "details: UNINSTALL for an installed mod")
+            U.click("dt.install") tick()
+            eq(U.byId["in.title"].text, "UPDATE HUD CLOCK 0.3.0 → 0.3.1?", "details: UPDATE opens the confirm")
+            U.back("install") tick()
+            eq(#lines("^%[ModManager%] UPDATE cancel nuclearnightmare%-community%.hud%-clock %(close%)$"), 1, "details: BACK cancels, logged")
+            ok(U.byId.restart.visible == false or U.byId.restart.visible == nil, "details: BACK staged nothing")
+        end
+        endSession()
+    end
+end
+
+do -- Revoked, older fix: UPDATE TO 0.3.1 from 0.4.0 (the only downgrade); revoked, no fix: UNINSTALL only; sha differs.
+    local core, U, F = revSession{ hudVersion = "0.4.0", payload = revPayload{ hud = { { "0.4.0", A64 }, { "0.3.1", B64 } },
+        revoked = { { id = NNC .. "hud-clock", version = "0.4.0", sha256 = A64, reason = "breaks saves", action = "block" } } },
+        stagePoll = stageOk({ NNC .. "hud-clock" }) }
+    eq(#lines("REVOKED nuclearnightmare%-community%.hud%-clock v=0%.4%.0 action=block fix=0%.3%.1$"), 1, "older fix: REVOKED fix=0.3.1")
+    U.click("tn.review") tick()
+    eq(U.byId["rv.r1.upd"].label, "UPDATE TO 0.3.1", "older fix: UPDATE TO 0.3.1")
+    U.click("rv.r1.upd") tick()
+    eq(U.byId["in.title"].text, "UPDATE HUD CLOCK 0.4.0 → 0.3.1?", "older fix: the confirm")
+    U.click("in.ok") tick() tick()
+    ok(F.staged and F.staged[1].version == "0.3.1", "older fix: 0.3.1 staged")
+    endSession()
+    core, U, F = revSession{ payload = revPayload{ hud = { { "0.3.0", A64 } } }, stagePoll = stageOk({}) }
+    U.click("tn.review") tick()
+    eq(U.byId["rv.r1.upd"].visible, false, "no fix: no UPDATE TO")
+    eq(U.byId["rv.r1.un"].visible, true, "no fix: UNINSTALL only")
+    eq(#lines("fix=none$"), 1, "no fix: REVOKED fix=none")
+    U = openBrowse(core)
+    eq(rowNamed(U, "HUD Clock"), nil, "no fix: no version offered for this game (other-build)")
+    U.pick("bw.for", 3) tick()
+    local hn = rowNamed(U, "HUD Clock")
+    eq(U.byId["bw.r" .. hn .. ".st"].text, "REVOKED", "no fix: ALL BUILDS shows it REVOKED")
+    eq(U.byId["bw.r" .. hn .. ".inst"].visible, false, "no fix: Browse offers no UPDATE")
+    endSession()
+    core, U = revSession{ payload = revPayload{ revoked = { { id = NNC .. "hud-clock", version = "0.3.0", sha256 = B64, reason = "x", action = "disable" } } }, stagePoll = stageOk({}) }
+    eq(U.byId["tn.text"], nil, "sha differs: no notice")
+    eq(#lines("REVOKED nuclear"), 0, "sha differs: not revoked")
+    endSession()
+    -- two revoked: the plural text
+    core, U = revSession{ payload = revPayload{ revoked = { { id = NNC .. "hud-clock", version = "0.3.0", sha256 = A64, reason = "x", action = "disable" },
+        { id = NNC .. "whistle-mute", version = "0.2.1", sha256 = A64, reason = "y", action = "block" } } }, stagePoll = stageOk({}) }
+    eq(U.byId["tn.text"].text, "2 INSTALLED MODS WERE REVOKED", "several: the plural text")
+    eq(#lines("^%[ModManager%] NOTICE shown n=2$"), 1, "several: NOTICE shown n=2")
+    endSession()
+end
+
+do -- UPDATE refusals: the resolver's and the stage's, with UPDATE texts.
+    local core, U = revSession{ stagePoll = function() return "done", { outcome = "downgrade", message = "x", payload = {} } end }
+    U = openBrowse(core)
+    U.click("bw.r" .. rowNamed(U, "HUD Clock") .. ".inst") tick()
+    U.click("in.ok") tick() tick()
+    eq(U.byId["bw.status"].text, "UPDATE REFUSED (downgrade)", "update refused: the message")
+    eq(#lines("^%[ModManager%] UPDATE done outcome=downgrade "), 1, "update refused: UPDATE done")
+    endSession()
+    core, U = revSession{ stagePoll = function() return "done", { outcome = "error", message = "x", payload = {} } end }
+    U = openBrowse(core)
+    U.click("bw.r" .. rowNamed(U, "HUD Clock") .. ".inst") tick()
+    U.click("in.ok") tick() tick()
+    eq(U.byId["bw.status"].text, "UPDATE FAILED", "update error: UPDATE FAILED")
+    endSession()
+    core, U = revSession{ stagePoll = stageOk({}) }
+    U = openBrowse(core)
+    local Cat = package.loaded["catalog"]
+    local real = Cat.installSet
+    Cat.installSet = function() return nil, "conflict", { name = "HUD Clock" } end
+    U.click("bw.r" .. rowNamed(U, "HUD Clock") .. ".inst") tick()
+    Cat.installSet = real
+    eq(U.byId["bw.status"].text, "CAN'T UPDATE HUD CLOCK (CONFLICT)", "update resolver refusal: the message")
+    eq(#lines("^%[ModManager%] UPDATE refuse nuclearnightmare%-community%.hud%-clock reason=conflict$"), 1, "UPDATE refuse logged")
+    endSession()
+end
+
+do -- UNINSTALL from Details: the confirm, the unstage, PENDING RESTART; Nucleus and the Mod Manager have none.
+    local core, U, F, A = revSession{ unstagePoll = function(n) if n == 1 then return "running" end return unstageOk(3, 1)() end, stagePoll = stageOk({}) }
+    U = openBrowse(core)
+    U.click("bw.r" .. rowNamed(U, "Nucleus (Mod Core)") .. ".det") tick()
+    eq(U.byId["dt.uninstall"].visible, false, "Nucleus: no UNINSTALL")
+    U.back("details") tick()
+    U.click("bw.r" .. rowNamed(U, "Mod Manager") .. ".det") tick()
+    eq(U.byId["dt.uninstall"].visible, false, "Mod Manager: no UNINSTALL")
+    U.back("details") tick()
+    U.click("bw.r" .. rowNamed(U, "Map Waypoints+") .. ".det") tick()
+    eq(U.byId["dt.uninstall"].visible, false, "not installed: no UNINSTALL")
+    U.back("details") tick()
+    local n = rowNamed(U, "Whistle Emote Mute")
+    U.click("bw.r" .. n .. ".det") tick()
+    ok(U.byId["dt.uninstall"].visible, "installed: UNINSTALL")
+    local h0 = #U.hookCalls
+    U.click("dt.uninstall")
+    eq(#U.hookCalls, h0, "UNINSTALL does no ui work inside core's hook")
+    tick()
+    ok(U.open.uninstall, "UNINSTALL: the confirm window (id uninstall)")
+    eq(U.byId["un.title"].text, "UNINSTALL WHISTLE EMOTE MUTE 0.2.1?", "UNINSTALL: the title")
+    eq(U.byId["un.line"].text, "REMOVES ITS FILES AND ITS MODS.TXT LINE", "UNINSTALL: the line")
+    ok(U.byId["un.ok"].kind == "button" and U.byId["un.ok"].label == "UNINSTALL" and U.byId["un.ok"].visible, "UNINSTALL: its button (core's: keys and a gamepad reach it and BACK)")
+    eq(#lines("^%[ModManager%] UNINSTALL ask nuclearnightmare%-community%.whistle%-mute$"), 1, "UNINSTALL ask")
+    eq(F.unstages, nil, "UNINSTALL: nothing before the confirm")
+    U.click("un.ok") tick()
+    ok(not U.open.uninstall, "UNINSTALL: the confirm closes")
+    ok(F.unstaged and F.unstaged.id == NNC .. "whistle-mute" and F.unstaged.version == "0.2.1", "UNINSTALL: core.catalog.unstage(id, version)")
+    eq(#lines("^%[ModManager%] UNINSTALL stage job=201$"), 1, "UNINSTALL stage")
+    eq(U.byId["dt.uninstall"].enabled, false, "UNINSTALL: disabled while it runs")
+    tick()
+    eq(#lines("UNINSTALL done"), 0, "UNINSTALL: polled, running")
+    tick()
+    eq(#lines("^%[ModManager%] UNINSTALL done outcome=ok txn=fedcba9876543210fedcba9876543210 files=3 kept=1$"), 1, "UNINSTALL done")
+    eq(A.calls.start, 1, "UNINSTALL: core.apply.start()")
+    eq(U.byId["bw.status"].text, "WHISTLE EMOTE MUTE IS REMOVED WHEN THE GAME RESTARTS", "UNINSTALL: the message")
+    eq(U.byId["bw.r" .. n .. ".st"].text, "PENDING RESTART", "UNINSTALL: the row reads PENDING RESTART")
+    eq(U.byId["dt.uninstall"].visible, false, "UNINSTALL: Details has no UNINSTALL any more")
+    ok(U.byId.restart.visible and U.byId.quit.visible, "UNINSTALL: RESTART NOW and QUIT GAME show")
+    eq(W.async, 0, "UNINSTALL: never LoopAsync or ExecuteInGameThread")
+    eq(#lines("WARN"), 0, "UNINSTALL: no WARN")
+    endSession()
+end
+
+do -- UNINSTALL: BACK stages nothing; refusals; from the revoked window; the poll cap.
+    local core, U, F = revSession{ unstagePoll = unstageOk(), stagePoll = stageOk({}) }
+    U = openBrowse(core)
+    U.click("bw.r" .. rowNamed(U, "Whistle Emote Mute") .. ".det") tick()
+    U.click("dt.uninstall") tick()
+    U.back("uninstall") tick()
+    eq(#lines("^%[ModManager%] UNINSTALL cancel nuclearnightmare%-community%.whistle%-mute %(close%)$"), 1, "BACK: cancelled, logged")
+    U.click("un.ok") tick()
+    eq(F.unstages, nil, "BACK: a stale confirm click unstages nothing")
+    endSession()
+    for _, c in ipairs({ { "not-in-catalog", "UNINSTALL REFUSED (not-in-catalog)" }, { "changed", "UNINSTALL REFUSED (changed)" }, { "error", "UNINSTALL FAILED" } }) do
+        local core2, U2, _, A2 = revSession{ unstagePoll = function() return "done", { outcome = c[1], message = "why", payload = {} } end, stagePoll = stageOk({}) }
+        U2 = openBrowse(core2)
+        local n = rowNamed(U2, "Whistle Emote Mute")
+        U2.click("bw.r" .. n .. ".det") tick()
+        U2.click("dt.uninstall") tick()
+        U2.click("un.ok") tick() tick()
+        eq(U2.byId["bw.status"].text, c[2], c[1] .. ": the message")
+        eq(#lines("^%[ModManager%] UNINSTALL done outcome=" .. c[1]:gsub("%-", "%%-") .. " txn=%- files=0 kept=0$"), 1, c[1] .. ": UNINSTALL done")
+        eq(A2.calls.start, 0, c[1] .. ": no helper")
+        ok(U2.byId["dt.uninstall"].visible and U2.byId["dt.uninstall"].enabled, c[1] .. ": UNINSTALL offered again")
+        endSession()
+    end
+    for _, c in ipairs({ { "busy", "CATALOG BUSY" }, { "applying", "UNINSTALL REFUSED (applying)" }, { "interrupted", "UNINSTALL REFUSED (interrupted)" } }) do
+        local core2, U2 = revSession{ unstage = function() return nil, c[1] end, unstagePoll = unstageOk(), stagePoll = stageOk({}) }
+        U2 = openBrowse(core2)
+        U2.click("bw.r" .. rowNamed(U2, "Whistle Emote Mute") .. ".det") tick()
+        U2.click("dt.uninstall") tick()
+        U2.click("un.ok") tick()
+        eq(U2.byId["bw.status"].text, c[2], "unstage nil, " .. c[1] .. ": the message")
+        eq(#lines("^%[ModManager%] UNINSTALL stage job=" .. c[1] .. "$"), 1, "unstage nil, " .. c[1] .. ": logged")
+        endSession()
+    end
+    -- from the revoked window: UNINSTALL a revoked mod
+    core, U, F = revSession{ unstagePoll = function() return "done", { outcome = "ok", message = "", payload = { txn = TXN,
+        owners = { { id = NNC .. "hud-clock", version = "0.3.0", name = "HudClock", files = 2, kept = 0 } }, ops = 3 } } end, stagePoll = stageOk({}) }
+    U.click("tn.review") tick()
+    U.click("rv.r1.un") tick()
+    eq(U.byId["un.title"].text, "UNINSTALL HUD CLOCK 0.3.0?", "revoked window: UNINSTALL opens its confirm")
+    U.click("un.ok") tick() tick()
+    eq(F.unstaged.version, "0.3.0", "revoked window: the revoked version unstaged")
+    eq(U.byId["rv.msg"].text, "HUD CLOCK IS REMOVED WHEN THE GAME RESTARTS", "revoked window: the message")
+    eq(#lines("^%[ModManager%] NOTICE removed$"), 1, "revoked window: resolved, NOTICE removed")
+    endSession()
+    -- a poll that never finishes: 10 minutes, then UNINSTALL FAILED
+    core, U, F = revSession{ unstagePoll = function() return "running" end, stagePoll = stageOk({}) }
+    U = openBrowse(core)
+    U.click("bw.r" .. rowNamed(U, "Whistle Emote Mute") .. ".det") tick()
+    U.click("dt.uninstall") tick()
+    U.click("un.ok") tick()
+    for _ = 1, 2400 do tick() end
+    eq(U.byId["bw.status"].text, "UNINSTALL FAILED", "poll cap: UNINSTALL FAILED after 10 minutes")
+    endSession()
+end
+
+do -- UNINSTALL refused while an installed or staged mod needs it: no confirm, the names capped at 4.
+    local ms = {}
+    for i = 1, 6 do ms["Needs" .. i] = modJson("x.needs" .. i, "1.0.0", { NNC .. "whistle-mute" }) end
+    local core, U, F = revSession{ mods = ms, unstagePoll = unstageOk(), stagePoll = stageOk({}) }
+    U = openBrowse(core)
+    U.click("bw.r" .. rowNamed(U, "Whistle Emote Mute") .. ".det") tick()
+    U.click("dt.uninstall") tick()
+    ok(not U.open.uninstall, "needed: no confirm")
+    eq(U.byId["bw.status"].text, "CAN'T UNINSTALL WHISTLE EMOTE MUTE: NEEDED BY NEEDS1, NEEDS2, NEEDS3, NEEDS4 AND 2 MORE", "needed: the names, at most 4, then AND 2 MORE")
+    eq(#lines("^%[ModManager%] UNINSTALL refuse nuclearnightmare%-community%.whistle%-mute needed%-by=x%.needs%d,x%.needs%d,x%.needs%d,x%.needs%d,x%.needs%d,x%.needs%d$"), 1, "needed: UNINSTALL refuse with the ids")
+    eq(F.unstages, nil, "needed: nothing unstaged")
+    endSession()
+    -- a staged mod that needs it (installed this session)
+    local pk = { id = "x.uses", name = "Uses", kind = "mod", description = "Uses the mute.", categories = { "audio" }, versions = { { version = "1.0.0", scope = "client",
+        game = { version = "V8.2.3", build = "26601774" }, dependsOn = { { id = NNC .. "whistle-mute", version = ">=0.2.0" } }, sha256 = A64, size = 10 } } }
+    core, U, F = revSession{ payload = revPayload{ extra = { pk } }, unstagePoll = unstageOk(), stagePoll = stageOk({ "x.uses" }) }
+    U = openBrowse(core)
+    U.click("bw.r" .. rowNamed(U, "Uses") .. ".inst") tick()
+    U.click("in.ok") tick() tick()
+    U.click("bw.r" .. rowNamed(U, "Whistle Emote Mute") .. ".det") tick()
+    U.click("dt.uninstall") tick()
+    eq(U.byId["bw.status"].text, "CAN'T UNINSTALL WHISTLE EMOTE MUTE: NEEDED BY USES", "needed by a staged mod: refused")
+    eq(F.unstages, nil, "needed by a staged mod: nothing unstaged")
+    endSession()
 end
 
 io.stdout:write(("main_test: %d passed, %d failed\n"):format(passed, failed))

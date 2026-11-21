@@ -61,7 +61,17 @@ local want = { manage = "MANAGE MODS", title = "MOD MANAGER", name = "NAME", ver
     alsoNew = "%s %s (NEW)", alsoUpdate = "%s %s (UPDATE FROM %s)", alsoMore = "AND %d MORE", downloadSize = "DOWNLOAD %s",
     sizeKB = "%d KB", sizeMB = "%s MB", downloading = "DOWNLOADING %s...", installsOnRestart = "%s INSTALLS WHEN THE GAME RESTARTS",
     installRefused = "INSTALL REFUSED (%s)", installFailed = "INSTALL FAILED", cantInstallNeeds = "CAN'T INSTALL: %s NEEDS %s %s",
-    cantInstall = "CAN'T INSTALL %s (%s)" }
+    cantInstall = "CAN'T INSTALL %s (%s)",
+    -- v2 story 6: UPDATE, revocations, UNINSTALL
+    update = "UPDATE", updateTitle = "UPDATE %s %s → %s?", updatesOnRestart = "%s UPDATES WHEN THE GAME RESTARTS",
+    updateRefused = "UPDATE REFUSED (%s)", updateFailed = "UPDATE FAILED", cantUpdateNeeds = "CAN'T UPDATE: %s NEEDS %s %s",
+    cantUpdate = "CAN'T UPDATE %s (%s)", versionArrow = "%s → %s", stRevoked = "REVOKED", revokedTip = "REVOKED: %s",
+    nRevoked = "%d REVOKED", nUpdates = "%d UPDATES AVAILABLE", review = "REVIEW", updates = "UPDATES",
+    oneRevoked = "%s %s WAS REVOKED", manyRevoked = "%d INSTALLED MODS WERE REVOKED", revokedTitle = "REVOKED MODS",
+    updateTo = "UPDATE TO %s", noReason = "NO REASON GIVEN", uninstall = "UNINSTALL", uninstallTitle = "UNINSTALL %s %s?",
+    uninstallLine = "REMOVES ITS FILES AND ITS MODS.TXT LINE", cantUninstall = "CAN'T UNINSTALL %s: NEEDED BY %s",
+    andMoreNames = "%s AND %d MORE", removedOnRestart = "%s IS REMOVED WHEN THE GAME RESTARTS",
+    uninstallRefused = "UNINSTALL REFUSED (%s)", uninstallFailed = "UNINSTALL FAILED" }
 for k, v in pairs(want) do eq(S.TABLES.en[k], v, "en." .. k) end
 for k, v in pairs(S.TABLES.en) do
     ok(want[k] ~= nil, "en." .. k .. " is a string the spec names")

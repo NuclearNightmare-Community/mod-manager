@@ -19,6 +19,11 @@
 -- Callbacks the caller sets (main.lua wraps each in pcall): onGearClick(n), onToggle(n, checked), onConfirm(),
 -- onQuit(), onRestart() (story 8), onSetting(i, value); v2 story 4: onBrowse() (set before the first open: the main
 -- window then has BROWSE at its top right).
+-- v2 story 6: view:setNotice(nRevoked, nUpdates) (the notice line under the title, with REVIEW -> onReview() and
+-- UPDATES -> onUpdates()); a row's updateTo shows as "<installed> → <offered>" in its version cell, and its status
+-- kind revoked as core's warning icon tinted red (status.lua); view:openRevoked(list) / fillRevoked(list) /
+-- closeRevoked() / isRevokedOpen() / setRevokedMessage(text) (the revoked window, id "revoked"; onRevokedUpdate(id),
+-- onRevokedUninstall(id)).
 --
 -- Elements are created once per session and reused on every open: a window's elements stay created across closes and
 -- attach again on the next open of the same id (core's screen host). Rows are made as they are first needed; rows above
@@ -59,7 +64,17 @@ Screen.SIDE_RESERVE = 720
 -- normal 16). The list follows the header list a tight gap below, so it is nudged right by the difference.
 Screen.LIST_NUDGE = 8
 Screen.FILL = { name = 4, ver = 1 }
-Screen.STATUS_SLOTS = 3
+Screen.STATUS_SLOTS = 4      -- v2 story 6: build, dependency, restart, revoked
+-- v2 story 6: the notice line under the title (a one-row list: the text, REVIEW, UPDATES), shown only while there is
+-- something to say; while it shows, the main list is NOTICE_RESERVE shorter so the card keeps its height.
+Screen.NOTICE_H = 64
+Screen.NOTICE_RESERVE = 64 + 16
+-- v2 story 6: the revoked window (one mod per two list rows: name | version | UPDATE TO | UNINSTALL, then its reason)
+Screen.REVOKED_MAX = 32
+Screen.REVOKED_REASON = 120  -- characters of a reason shown
+Screen.REVOKED_LIST_H = 420
+Screen.REVOKED_FILL = { name = 3, ver = 1 }
+Screen.RED = { r = 0.85, g = 0.1, b = 0.1, a = 1 } -- the revoked badge's tint
 -- Configure: its settings list's height is the layout height less CFG_RESERVE (heading, four detail lines, the message
 -- line, BACK, the card's chrome) and PROBLEM_H per problem line shown; at least CFG_LIST_MIN. Story 12's RUNS ON line is
 -- the fourth detail line: one more body line, so PROBLEM_H (a body line and its gap) more than the 540 for three.
@@ -70,7 +85,8 @@ Screen.MAX_PROBLEM_LINES = 8
 Screen.MAX_SETTINGS = 64
 Screen.SETTING_FILL = { label = 3, control = 2 }
 Screen.MAX_TEXT = 256      -- core's text cap (characters); longer texts are cut here, so core never warns
-local ICON_OF = { build = "warning", dep = "warning", restart = "restart" }
+local ICON_OF = { build = "warning", dep = "warning", restart = "restart", revoked = "warning" }
+local TINT_OF = { revoked = Screen.RED } -- the rest: the icon as it is (white)
 -- Story 12: a row's scope (inventory.lua: host, client, host-plus, both, unknown) -> its strings' key part
 -- (scope<Part> is the name, scope<Part>Means the meaning). Anything else reads as unknown.
 Screen.SCOPE_KEY = { host = "Host", client = "Client", ["host-plus"] = "HostPlus", both = "Both", unknown = "Unknown" }
@@ -115,6 +131,12 @@ function Screen:versionText(row)
     if row.pakOnly then return self:str("unmanaged") end
     return row.version or self:str("unknown")
 end
+-- v2 story 6: the version cell: "<installed> → <offered>" when the catalog offers an update (main.lua sets updateTo).
+function Screen:versionCell(row)
+    local v = self:versionText(row)
+    if type(row.updateTo) == "string" and not row.pakOnly then return self:fmt("versionArrow", v, cut(row.updateTo, 64)) end
+    return v
+end
 
 -- Story 12: a row's scope key (unknown for anything inventory.lua didn't give), its words, its tooltip and its
 -- Configure line.
@@ -136,20 +158,69 @@ function Screen:scopeLine(row)
     return self:str("scopeLabel") .. ": " .. name .. " - " .. means
 end
 
-function Screen.listSize(size)
-    return { w = size.w - Screen.SIDE_RESERVE, h = size.h - Screen.LIST_RESERVE }
+function Screen.listSize(size, notice)
+    return { w = size.w - Screen.SIDE_RESERVE, h = size.h - Screen.LIST_RESERVE - (notice and Screen.NOTICE_RESERVE or 0) }
 end
 
--- The lists' places and sizes for a layout size (story 9). A later call re-creates both with the same ids and
--- places: core updates them in place and keeps their stack order.
+-- The lists' places and sizes for a layout size (story 9). A later call re-creates them with the same ids and
+-- places: core updates them in place and keeps their stack order. v2 story 6: the notice line's one-row list first
+-- (between the title and the header), and the main list NOTICE_RESERVE shorter while the notice shows.
 function Screen:lists(size)
-    local ls = Screen.listSize(size)
+    local ls = Screen.listSize(size, self.noticeShown)
     local ui = self.ui
+    self.noticeList = ui.list.create{ id = "notice.list", size = { w = ls.w, h = Screen.NOTICE_H },
+        place = { screen = self.main, corner = "top-left", gap = "normal" } }
     self.hdrList = ui.list.create{ id = "hdr.list", size = { w = ls.w, h = Screen.HEADER_H },
         place = { screen = self.main, corner = "top-left", gap = "normal" } }
     self.list = ui.list.create{ id = "list", size = ls,
         place = { screen = self.main, corner = "top-left", gap = "tight", offset = { x = Screen.LIST_NUDGE, y = 0 } } }
     self.size = { w = size.w, h = size.h }
+    self.listNotice = self.noticeShown == true
+end
+
+-- v2 story 6: the notice line's row (once): its text, REVIEW (the revoked window) and UPDATES (Browse showing UPDATE
+-- AVAILABLE), all hidden until setNotice has something to say.
+function Screen:buildNotice()
+    local ui = self.ui
+    local row = ui.row.create{ id = "notice", place = { list = self.noticeList } }
+    self.noticeText = ui.text.create{ id = "notice.text", text = "", place = { row = row, fill = 4 }, style = { font = "body", overflow = "ellipsis" } }
+    self.reviewSpec = { id = "notice.review", label = self:str("review"), place = { row = row },
+        onClick = function() if self.onReview then self.onReview() end end }
+    self.reviewBtn = ui.button.create(self.reviewSpec)
+    self.updatesSpec = { id = "notice.updates", label = self:str("updates"), place = { row = row },
+        onClick = function() if self.onUpdates then self.onUpdates() end end }
+    self.updatesBtn = ui.button.create(self.updatesSpec)
+    ui.list.setVisible(self.noticeList, false)
+    ui.button.setVisible(self.reviewBtn, false)
+    ui.button.setVisible(self.updatesBtn, false)
+    self.noticeShown, self.noticeState = false, { text = "", review = false, updates = false }
+end
+
+-- The notice line: "<n> REVOKED" and/or "<m> UPDATES AVAILABLE", REVIEW with revoked mods, UPDATES with updates; hidden
+-- when both are 0. Only what changed is set; the main list is resized when the line appears or goes.
+function Screen:setNotice(nRevoked, nUpdates)
+    self.notice = { revoked = nRevoked or 0, updates = nUpdates or 0 }
+    if not self.built then return end
+    local ui = self.ui
+    local parts = {}
+    if self.notice.revoked > 0 then parts[#parts + 1] = self:fmt("nRevoked", self.notice.revoked) end
+    if self.notice.updates > 0 then parts[#parts + 1] = self:fmt("nUpdates", self.notice.updates) end
+    local text = table.concat(parts, " - ")
+    local st = self.noticeState
+    if text ~= "" and st.text ~= text then ui.text.set(self.noticeText, cut(text, Screen.MAX_TEXT)); st.text = text end
+    for _, k in ipairs({ "review", "updates" }) do
+        local spec = k == "review" and self.reviewSpec or self.updatesSpec
+        if spec.label ~= self:str(k) then spec.label = self:str(k); ui.button.create(spec) end
+    end
+    local rv, up = self.notice.revoked > 0, self.notice.updates > 0
+    if st.review ~= rv then ui.button.setVisible(self.reviewBtn, rv); st.review = rv end
+    if st.updates ~= up then ui.button.setVisible(self.updatesBtn, up); st.updates = up end
+    local show = text ~= ""
+    if self.noticeShown ~= show then
+        self.noticeShown = show
+        ui.list.setVisible(self.noticeList, show)
+        if self.size then self:lists(self.size) end
+    end
 end
 
 -- The title, the header, the two lists, and the bottom-right stack (QUIT GAME, the banner, the message line; hidden
@@ -165,6 +236,7 @@ function Screen:build(size)
         self.browseBtn = ui.button.create(self.browseSpec)
     end
     self:lists(size)
+    self:buildNotice()
     local hdr = ui.row.create{ id = "hdr", place = { list = self.hdrList } }
     ui.image.create{ id = "hdr.on", place = { row = hdr }, size = Screen.ICON }
     self.hdrName = ui.text.create{ id = "hdr.name", text = self:str("name"), place = { row = hdr, fill = Screen.FILL.name }, style = { font = "body", overflow = "ellipsis" } }
@@ -206,10 +278,11 @@ function Screen:makeRow(n)
     c.scope, c.scopeTip = Screen.scopeOf(d), self:scopeTip(d)
     c.sc = ui.image.create{ id = p .. ".sc", place = { row = row }, image = { icon = "scope-" .. c.scope }, size = Screen.ICON,
         tooltip = c.scopeTip }
-    c.st = {}
+    c.st, c.stId = {}, {}
     for k = 1, Screen.STATUS_SLOTS do
-        c.st[k] = ui.image.create{ id = p .. ".s" .. k, place = { row = row }, size = Screen.ICON }
-        c.icons[k] = { icon = nil, tip = nil }
+        c.stId[k] = p .. ".s" .. k
+        c.st[k] = ui.image.create{ id = c.stId[k], place = { row = row }, size = Screen.ICON }
+        c.icons[k] = { icon = nil, tip = nil, tint = nil }
     end
     c.cfgSpec = { id = p .. ".cfg", place = { row = row }, icon = { icon = "gear" }, iconSize = Screen.ICON, dimmed = true,
         tooltip = self:str("configure"), onClick = function() self:onGear(n) end }
@@ -260,6 +333,13 @@ function Screen:fillStatus(c, r)
         local tip = kind and st.tips and st.tips[kind] or nil
         if tip == "" then tip = nil end
         local cur = c.icons[k]
+        local tint = kind and TINT_OF[kind] or nil
+        if cur.tint ~= tint then
+            -- v2 story 6: a tint is a style, set by creating the image again with its id (core updates it in place)
+            ui.image.create{ id = c.stId[k], place = { row = c.row }, size = Screen.ICON, image = icon and { icon = icon } or nil,
+                style = tint and { tint = tint } or nil, tooltip = tip }
+            cur.tint = tint -- the icon and tooltip below too, so a cleared icon is cleared everywhere
+        end
         if cur.icon ~= icon then
             ui.image.set(c.st[k], { image = icon and { icon = icon } or false })
             cur.icon = icon
@@ -295,7 +375,7 @@ function Screen:fill()
         if r then
             self:fillToggle(c, r)
             if c.name ~= r.name then ui.text.set(c.nameH, r.name); c.name = r.name end
-            local v = self:versionText(r)
+            local v = self:versionCell(r)
             if c.ver ~= v then ui.text.set(c.verH, v); c.ver = v end
             local sc, scTip = Screen.scopeOf(r), self:scopeTip(r)
             if c.scope ~= sc then ui.image.set(c.sc, { image = { icon = "scope-" .. sc } }); c.scope = sc end
@@ -328,11 +408,13 @@ function Screen:openMain(rows, lang, size)
         self.built = true
         self:fill()
         self:applyFooter()
+        if self.notice then self:setNotice(self.notice.revoked, self.notice.updates) end
         return self.main
     end
     if size and (not self.size or self.size.w ~= size.w or self.size.h ~= size.h) then self:lists(size) end
     self:fill()
     self:applyFooter()
+    if self.notice then self:setNotice(self.notice.revoked, self.notice.updates) end
     return ui.screen.open{ id = "main" }
 end
 
@@ -404,6 +486,108 @@ function Screen:openAlert(text)
         ui.text.set(self.alertText, text)
     end
     return self.alertWin
+end
+
+-- ---------------------------------------------------------------- v2 story 6: the revoked window
+-- Window id "revoked", on top (over the main window or straight over the title-screen menu). Its title, the message
+-- line (hidden until set), then a list: per revoked mod two rows, rv.r<k> (name | version | UPDATE TO <v> | UNINSTALL)
+-- and rv.d<k> (the reason, at most REVOKED_REASON characters, in the small font). Core's BACK is LATER. Every button is
+-- one of core's (focusable: the keys and a gamepad move between them and BACK). list = Catalog.revokedInstalled's
+-- entries; UPDATE TO shows only with a fix. Clicks give the mod's id at the click: onRevokedUpdate(id),
+-- onRevokedUninstall(id).
+function Screen:buildRevoked()
+    local ui = self.ui
+    local win = self.revWin
+    local function at(gap) return { screen = win, corner = "top-left", gap = gap or "normal" } end
+    local size = self.size or { w = 1920, h = 1080 }
+    local rv = { rows = {}, made = 0 }
+    rv.title = ui.text.create{ id = "rv.title", text = self:str("revokedTitle"), place = at(), style = { font = "title" } }
+    rv.msg = ui.text.create{ id = "rv.msg", text = "", place = at(), style = { font = "body" } }
+    ui.text.setVisible(rv.msg, false)
+    rv.msgShown, rv.msgText = false, ""
+    rv.list = ui.list.create{ id = "rv.list", size = { w = size.w - Screen.SIDE_RESERVE, h = math.min(Screen.REVOKED_LIST_H, size.h - Screen.LIST_RESERVE) }, place = at() }
+    self.rv = rv
+end
+
+function Screen:makeRevokedRow(k)
+    local ui = self.ui
+    local rv = self.rv
+    local p, d = "rv.r" .. k, "rv.d" .. k
+    local c = { visible = true, name = "", ver = "", why = "", updLabel = nil, updShown = true }
+    c.row = ui.row.create{ id = p, place = { list = rv.list } }
+    c.nameH = ui.text.create{ id = p .. ".name", text = "", place = { row = c.row, fill = Screen.REVOKED_FILL.name }, style = { font = "body", overflow = "ellipsis" } }
+    c.verH = ui.text.create{ id = p .. ".ver", text = "", place = { row = c.row, fill = Screen.REVOKED_FILL.ver }, style = { font = "body", overflow = "ellipsis" } }
+    c.updSpec = { id = p .. ".upd", label = self:str("update"), place = { row = c.row }, onClick = function()
+        local e = self.revList and self.revList[k]
+        if e and self.onRevokedUpdate then self.onRevokedUpdate(e.id) end
+    end }
+    c.upd = ui.button.create(c.updSpec)
+    c.unSpec = { id = p .. ".un", label = self:str("uninstall"), place = { row = c.row }, onClick = function()
+        local e = self.revList and self.revList[k]
+        if e and self.onRevokedUninstall then self.onRevokedUninstall(e.id) end
+    end }
+    c.un = ui.button.create(c.unSpec)
+    c.drow = ui.row.create{ id = d, place = { list = rv.list } }
+    c.whyH = ui.text.create{ id = d .. ".why", text = "", place = { row = c.drow, fill = 1 }, style = { font = "small", overflow = "ellipsis" } }
+    rv.rows[k] = c
+    rv.made = k
+    return c
+end
+
+-- New entries into the revoked window's rows (only what changed); rows past the count hidden.
+function Screen:fillRevoked(list)
+    local ui = self.ui
+    local rv = self.rv
+    if not rv then return end
+    self.revList = {}
+    for i = 1, math.min(#(list or {}), Screen.REVOKED_MAX) do self.revList[i] = list[i] end
+    for k = rv.made + 1, #self.revList do self:makeRevokedRow(k) end
+    for k = 1, rv.made do
+        local c, e = rv.rows[k], self.revList[k]
+        if e then
+            local name = cut(Screen.clean(e.name, 64), 64)
+            if c.name ~= name then ui.text.set(c.nameH, name ~= "" and name or "-"); c.name = name end
+            local ver = Screen.clean(e.version or "-", 64)
+            if c.ver ~= ver then ui.text.set(c.verH, ver); c.ver = ver end
+            local reason = type(e.reason) == "string" and e.reason ~= "" and e.reason or self:str("noReason")
+            local okL, len = pcall(utf8.len, reason)
+            if okL and len and len > Screen.REVOKED_REASON then reason = reason:sub(1, utf8.offset(reason, Screen.REVOKED_REASON + 1) - 1)
+            elseif not (okL and len) then reason = cut(reason, Screen.REVOKED_REASON) end
+            if c.why ~= reason then ui.text.set(c.whyH, reason); c.why = reason end
+            local fix = type(e.fix) == "string" and e.fix or nil
+            local label = fix and self:fmt("updateTo", Screen.clean(fix, 64)) or nil
+            if label and c.updSpec.label ~= label then c.updSpec.label = label; ui.button.create(c.updSpec) end
+            if c.updShown ~= (fix ~= nil) then ui.button.setVisible(c.upd, fix ~= nil); c.updShown = fix ~= nil end
+            if c.unSpec.label ~= self:str("uninstall") then c.unSpec.label = self:str("uninstall"); ui.button.create(c.unSpec) end
+            if not c.visible then ui.row.setVisible(c.row, true); ui.row.setVisible(c.drow, true); c.visible = true end
+        elseif c.visible then
+            ui.row.setVisible(c.row, false); ui.row.setVisible(c.drow, false)
+            c.visible = false
+        end
+    end
+end
+
+function Screen:openRevoked(list)
+    local ui = self.ui
+    self.revWin = ui.screen.open{ id = "revoked" }
+    if not self.rv then self:buildRevoked() else ui.text.set(self.rv.title, self:str("revokedTitle")) end
+    self:setRevokedMessage(nil)
+    self:fillRevoked(list)
+    return self.revWin
+end
+function Screen:isRevokedOpen() return self.revWin ~= nil and self.ui.screen.isOpen(self.revWin) == true end
+function Screen:closeRevoked()
+    if self:isRevokedOpen() then self.ui.screen.close(self.revWin) end
+end
+function Screen:setRevokedMessage(text)
+    local rv = self.rv
+    if not rv then return end
+    local ui = self.ui
+    if text then
+        text = cut(text, Screen.MAX_TEXT)
+        if rv.msgText ~= text then ui.text.set(rv.msg, text); rv.msgText = text end
+    end
+    if rv.msgShown ~= (text ~= nil) then ui.text.setVisible(rv.msg, text ~= nil); rv.msgShown = text ~= nil end
 end
 
 -- ---------------------------------------------------------------- Configure

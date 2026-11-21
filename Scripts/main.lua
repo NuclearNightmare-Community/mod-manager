@@ -20,7 +20,12 @@
 -- the mod and every dependency missing or too old), asks in a confirm window, then stages it through
 -- core.catalog.stage (core downloads, verifies and opens the zips; nothing from Lua becomes a path), polls that job like a
 -- refresh, starts core's apply helper (core.apply.start) and shows RESTART NOW. The Mod Manager writes no install file.
-local CORE, NEED, ME = "Nucleus", ">=0.26.0", "ModManager"
+-- v2 story 6: UPDATE (an update, or a revoked installed version with a fix) stages like INSTALL; a revoked installed
+-- version is flagged (never turned off, updated or removed by itself): a red badge on its rows, the main window's
+-- notice line, a notice on the title-screen menu with REVIEW, and the revoked window (UPDATE TO, UNINSTALL, LATER).
+-- UNINSTALL (Details, the revoked window) stages the removal through core.catalog.unstage (core lists the installed
+-- version's files; nothing from Lua becomes a path). Nothing is staged without its confirm.
+local CORE, NEED, ME = "Nucleus", ">=0.27.0", "ModManager"
 local ENTRY = "manage"
 local MAX_WARN_KEYS = 64     -- distinct warnings logged per session; then one line says the rest are dropped
 local MAX_LOGGED_ROWS = 512  -- distinct mods whose data is logged per session
@@ -31,6 +36,7 @@ local MAX_POLLS = 2400       -- 10 minutes of polls: then the refresh counts as 
 local MAX_LOGGED_PKGS = 512  -- distinct packages whose BROWSE pkg line is logged per session
 local MAX_IDS_LOG = 2000     -- bytes of ids on a BROWSE filter line
 local MAX_SET_LOG = 1000     -- v2 story 5: bytes of id@version pairs on an INSTALL ask line
+local MAX_NEEDED_BY = 4      -- v2 story 6: names in CAN'T UNINSTALL ... NEEDED BY, then AND <n> MORE
 
 local source = debug.getinfo(1, "S").source:gsub("^@", "")
 local scriptDir = source:match("^(.*)[/\\]") or "."
@@ -178,6 +184,9 @@ local function start(core)
         statusLogged = {}, nStatusLogged = 0, restartMode = nil, restartAsked = false,
         applyStaged = "none", applyResult = nil, applyShown = false }
     local confirm -- { n, key } while the confirm window asks
+    -- v2 story 4-6: the catalog (cat) and this session's stages (ins), set up below with Browse; declared here because
+    -- the main window's rows show their update and revocation (annotate)
+    local cat, ins
 
     local function statePath(paths) return paths.mods .. "\\" .. Inv.SELF_FOLDER .. "\\state.json" end
     local function modsTxtPath(paths) return paths.mods .. "\\mods.txt" end
@@ -329,6 +338,16 @@ local function start(core)
             session.applyStaged = st.staged
         end
         local result, fs, paths = scan(fs0, paths0)
+        -- v2 story 6: each installed mod's update (the version cell) and revocation (the red badge) from the verified
+        -- catalog; a mod staged this session shows neither
+        local byId = {}
+        for _, c in ipairs(cat and cat.rows or {}) do byId[c.id] = c end
+        for _, r in ipairs(result.rows) do
+            local c = r.folder and r.id and byId[r.id] or nil
+            local staged = c and ins and ins.staged[c.id]
+            r.updateTo = (c and not staged and c.state == "update" and c.offered) and c.offered.version or nil
+            r.revoked = (c and not staged and c.revoked) and { reason = c.revoked.reason } or nil
+        end
         if withSettings then
             for _, r in ipairs(result.rows) do
                 if r.folder and r.settings then session.settingsPending[r.key] = anyPending(describe(r.folder)) or nil end
@@ -336,6 +355,16 @@ local function start(core)
         end
         computeStatus(result.rows)
         return result, fs, paths
+    end
+
+    -- v2 story 6: the main window's notice line: revoked installed versions and updates, neither staged this session.
+    local function noticeCounts()
+        if not cat then return 0, 0 end
+        local nUp = 0
+        for _, c in ipairs(cat.rows) do
+            if c.state == "update" and c.offered and not ins.staged[c.id] then nUp = nUp + 1 end
+        end
+        return #Catalog.revokedInstalled(cat.rows, ins.staged), nUp
     end
 
     local function openMain()
@@ -348,6 +377,8 @@ local function start(core)
         local result, fs, paths = loadRows(true, fs0, paths0)
         logRows(result.rows)
         view.message = nil
+        view.notice = { revoked = 0, updates = 0 }
+        view.notice.revoked, view.notice.updates = noticeCounts()
         view:openMain(result.rows, lang, layoutSize())
         -- Story 8: whether this game can be started again the way it was launched (asked once per session: the exe and
         -- its folder don't change while it runs).
@@ -386,6 +417,7 @@ local function start(core)
         local result = loadRows(false)
         view:refresh(result.rows)
         view:setPending(session.pending)
+        view:setNotice(noticeCounts())
         return result
     end
 
@@ -605,9 +637,17 @@ local function start(core)
     -- ---------------------------------------------------------------- v2 story 4: the catalog and Browse
     local browse = Browse.new(ui, S)
     -- cat.state: "checking" (a job runs) | "ok" | "copy" | "unavailable" | "refused" | "error" | "none" (no core.catalog)
-    local cat = { job = nil, polls = 0, state = catalogApi and "checking" or "none", outcome = nil, decoded = nil, rows = {},
+    cat = { job = nil, polls = 0, state = catalogApi and "checking" or "none", outcome = nil, decoded = nil, rows = {},
         build = nil, loggedBuild = nil }
+    -- v2 story 5-6: ins.ask: { kind, id, name, set } while the install or update confirm asks; un.ask: { id, version,
+    -- name } while the uninstall confirm asks; ins.job: the stage or unstage job while it runs (ins.kind: "install" |
+    -- "update" | "uninstall"); ins.staged: the ids this session staged ({ [id] = true }), shown PENDING RESTART;
+    -- ins.info: { [id] = { name, deps, removal } } for Catalog.dependents.
+    ins = { ask = nil, job = nil, polls = 0, name = nil, kind = nil, staged = {}, info = {} }
+    local unAsk
     local pkgLogged, nPkgLogged = {}, 0
+    local revLogged = {}
+    local updateNotices -- the main window's notice line, the title-screen notice, the revoked window (below)
 
     -- The model again from the verified catalog: this game's build (the footer and the appmanifest, read fresh), the
     -- installed mods (a scan), core's version. Logs BUILD when the build changed and one BROWSE pkg line per package
@@ -634,6 +674,20 @@ local function start(core)
                 log.info("BROWSE pkg %s", line)
             end
         end
+        -- v2 story 6: one REVOKED line per installed revoked version whose line changed (only flagged, never acted on)
+        local seen = {}
+        for _, r in ipairs(rows) do
+            if r.revoked then
+                local line = string.format("%s v=%s action=%s fix=%s", r.id, Catalog.token(r.installedVersion),
+                    Catalog.token(r.revoked.action), r.revoked.fix and Catalog.token(r.revoked.fix) or "none")
+                seen[r.id] = true
+                if revLogged[r.id] ~= line and (revLogged[r.id] or nPkgLogged < MAX_LOGGED_PKGS) then
+                    revLogged[r.id] = line
+                    log.info("REVOKED %s", line)
+                end
+            end
+        end
+        for id in pairs(revLogged) do if not seen[id] then revLogged[id] = nil end end
     end
     local function browseData()
         local d = cat.decoded
@@ -674,6 +728,7 @@ local function start(core)
         log.info("CATALOG done outcome=%s source=%s packages=%d index_issued=%s", outcome, d and d.source or "-", #cat.rows,
             d and Catalog.token(d.indexIssued) or "-")
         if browse:isOpen() then browse:update(browseData()) end
+        if updateNotices then updateNotices() end -- v2 story 6: after every done
     end
 
     local pollOnce
@@ -728,9 +783,9 @@ local function start(core)
         end
     end
 
-    local function openBrowse()
+    local function openBrowse(show)
         buildModel() -- the installed mods and the build as they are now (the menu's footer is up)
-        browse:open(browseData(), view.lang, layoutSize())
+        browse:open(browseData(), view.lang, layoutSize(), show)
         log.info("BROWSE open shown=%d total=%d state=%s", browse.matched, #cat.rows, stateLog())
     end
     browse.defer = function(what, fn) soon(what, fn) end
@@ -750,15 +805,14 @@ local function start(core)
         if lines and r then log.info("DETAILS %s lines=%d", r.id, lines) end
     end
 
-    -- ---------------------------------------------------------------- v2 story 5: INSTALL
-    -- ins.ask: { id, name, set } while the confirm window asks; ins.job: the stage job while it runs; ins.staged: the ids
-    -- this session staged ({ [id] = true }), shown PENDING RESTART.
-    local ins = { ask = nil, job = nil, polls = 0, name = nil, staged = {} }
+    -- ---------------------------------------------------------------- v2 story 5: INSTALL; v2 story 6: UPDATE, UNINSTALL
     local stageApi = catalogApi and type(catalogApi.stage) == "function" and catalogApi.stage or nil
+    local unstageApi = catalogApi and type(catalogApi.unstage) == "function" and catalogApi.unstage or nil
     local function upper(s) return (Catalog.clean(s or "", 64):upper()) end
     local function say(text)
         browse:setMessage(text)
         view:setMessage(text)
+        view:setRevokedMessage(text) -- v2 story 6: the revoked window's message line (when it was made)
     end
     local function setLog(set)
         local parts, bytes = {}, 0
@@ -770,25 +824,64 @@ local function start(core)
         end
         return table.concat(parts, ",")
     end
+    local function rowOfCat(id)
+        for _, r in ipairs(cat.rows) do if r.id == id then return r end end
+        return nil
+    end
+    local TAG = { install = "INSTALL", update = "UPDATE", uninstall = "UNINSTALL" }
 
-    -- A finished stage (or a poll chain that gave up: error).
-    local function installDone(res)
-        ins.job = nil
-        browse:setInstalling(false)
-        local outcome = Catalog.token(type(res.outcome) == "string" and res.outcome or "error")
-        local p = type(res.payload) == "table" and res.payload or {}
-        local owners = type(p.owners) == "table" and p.owners or {}
-        log.info("INSTALL done outcome=%s txn=%s owners=%d ops=%s", outcome, Catalog.token(p.txn), #owners, math.type(p.ops) == "integer" and tostring(p.ops) or "-")
-        if outcome ~= "ok" then
-            if type(res.message) == "string" and res.message ~= "" then log.info("INSTALL message %s: %s", outcome, Catalog.clean(res.message, 200)) end
-            say(outcome == "error" and fmt("installFailed") or fmt("installRefused", outcome))
+    -- ---------------------------------------------------------------- v2 story 6: the notices and the revoked window
+    -- The revoked window (id "revoked", on top: over the main window, or straight over the title-screen menu).
+    local function openRevokedWin()
+        view.lang = S.language()
+        local list = Catalog.revokedInstalled(cat.rows, ins.staged)
+        view:openRevoked(list)
+        log.info("REVIEW open n=%d", #list)
+    end
+    -- The title-screen notice: while any installed version is revoked (in the verified revoked list) and not staged
+    -- this session, a text and REVIEW on core's menu host, top right. Shown at every launch until resolved (no
+    -- seen-state, no timer); removed once nothing is left.
+    local tn = { shown = false, n = 0, text = nil }
+    local function titleNotice()
+        local list = (cat.decoded and cat.decoded.revoked) and Catalog.revokedInstalled(cat.rows, ins.staged) or {}
+        local n = #list
+        if n == 0 then
+            if tn.shown then
+                tn.shown = false
+                if not pcall(ui.text.remove, tn.textEl) then pcall(ui.text.setVisible, tn.textEl, false) end
+                if not pcall(ui.button.remove, tn.btnEl) then pcall(ui.button.setVisible, tn.btnEl, false) end
+                tn.textEl, tn.btnEl, tn.text, tn.n = nil, nil, nil, 0
+                log.info("NOTICE removed")
+            end
             return
         end
-        for _, o in ipairs(owners) do
-            local id = type(o) == "table" and type(o.id) == "string" and o.id or nil
-            if id then ins.staged[id] = true end
+        local lang = S.language()
+        local text = n == 1 and S.fmt("oneRevoked", lang, upper(list[1].name), Catalog.clean(list[1].version or "-", 64)) or S.fmt("manyRevoked", lang, n)
+        text = Screen.cut(text, Screen.MAX_TEXT)
+        if not tn.shown then
+            local place = { host = "menu", corner = "top-right" }
+            tn.textEl = ui.text.create{ id = "tn.text", text = text, place = place, style = { font = "body" } }
+            tn.btnEl = ui.button.create{ id = "tn.review", label = S.get("review", lang), place = { host = "menu", corner = "top-right" },
+                onClick = function() soon("REVIEW", openRevokedWin) end }
+            tn.shown, tn.n, tn.text = true, n, text
+            log.info("NOTICE shown n=%d", n)
+        else
+            if tn.text ~= text then ui.text.set(tn.textEl, text); tn.text = text end
+            if tn.n ~= n then tn.n = n; log.info("NOTICE shown n=%d", n) end
         end
-        -- core's apply helper waits for this game to exit ("already started": one waits already)
+    end
+    updateNotices = function()
+        guard("the notices", function()
+            view:setNotice(noticeCounts())
+            titleNotice()
+            if view:isRevokedOpen() then view:fillRevoked(Catalog.revokedInstalled(cat.rows, ins.staged)) end
+        end)
+    end
+
+    -- ---------------------------------------------------------------- the stage and unstage jobs
+    -- After a stage or unstage that went through: core's apply helper waits for this game to exit ("already started":
+    -- one waits already), and the status again, so the pending count (QUIT GAME, RESTART NOW) includes this change.
+    local function afterStaged()
         if applyApi then
             local okA, r, why = pcall(applyApi.start)
             local started = okA and r == true
@@ -796,51 +889,116 @@ local function start(core)
         else
             log.info("APPLY start none (%s has no core.apply)", CORE)
         end
-        -- the status again, so the pending count (QUIT GAME, RESTART NOW) includes this change
         if view.built then refresh() else
             local st = applyStatus()
             if st then session.applyStaged = st.staged end
         end
         browse:setPending(ins.staged)
-        say(fmt("installsOnRestart", ins.name or "-"))
     end
 
-    local installPoll
-    local function installLater()
-        if type(ExecuteInGameThreadWithDelay) == "function" and pcall(ExecuteInGameThreadWithDelay, POLL_MS, installPoll) then return end
-        installDone({ outcome = "error", message = "the game thread can't be scheduled" })
+    -- A finished stage (install or update), or a poll chain that gave up: error.
+    local function installDone(res)
+        local kind = ins.kind or "install"
+        ins.job = nil
+        browse:setInstalling(false)
+        local outcome = Catalog.token(type(res.outcome) == "string" and res.outcome or "error")
+        local p = type(res.payload) == "table" and res.payload or {}
+        local owners = type(p.owners) == "table" and p.owners or {}
+        log.info("%s done outcome=%s txn=%s owners=%d ops=%s", TAG[kind], outcome, Catalog.token(p.txn), #owners, math.type(p.ops) == "integer" and tostring(p.ops) or "-")
+        if outcome ~= "ok" then
+            if type(res.message) == "string" and res.message ~= "" then log.info("%s message %s: %s", TAG[kind], outcome, Catalog.clean(res.message, 200)) end
+            if kind == "update" then say(outcome == "error" and fmt("updateFailed") or fmt("updateRefused", outcome))
+            else say(outcome == "error" and fmt("installFailed") or fmt("installRefused", outcome)) end
+            return
+        end
+        for _, o in ipairs(owners) do
+            local id = type(o) == "table" and type(o.id) == "string" and o.id or nil
+            if id then
+                ins.staged[id] = true
+                local r = rowOfCat(id)
+                ins.info[id] = { name = r and r.name or id, deps = r and r.offered and r.offered.deps or {} }
+            end
+        end
+        afterStaged()
+        say(fmt(kind == "update" and "updatesOnRestart" or "installsOnRestart", ins.name or "-"))
+        updateNotices()
     end
-    installPoll = function()
-        local okG = guard("the install poll", function()
+
+    -- A finished unstage (uninstall), or a poll chain that gave up: error.
+    local function uninstallDone(res)
+        ins.job = nil
+        browse:setInstalling(false)
+        local outcome = Catalog.token(type(res.outcome) == "string" and res.outcome or "error")
+        local p = type(res.payload) == "table" and res.payload or {}
+        local owners = type(p.owners) == "table" and p.owners or {}
+        local files, kept = 0, 0
+        for _, o in ipairs(owners) do
+            if type(o) == "table" then
+                if math.type(o.files) == "integer" and o.files >= 0 then files = files + o.files end
+                if math.type(o.kept) == "integer" and o.kept >= 0 then kept = kept + o.kept end
+            end
+        end
+        log.info("UNINSTALL done outcome=%s txn=%s files=%d kept=%d", outcome, Catalog.token(p.txn), files, kept)
+        if outcome ~= "ok" then
+            if type(res.message) == "string" and res.message ~= "" then log.info("UNINSTALL message %s: %s", outcome, Catalog.clean(res.message, 200)) end
+            say(outcome == "error" and fmt("uninstallFailed") or fmt("uninstallRefused", outcome))
+            return
+        end
+        local ids = { ins.target }
+        for _, o in ipairs(owners) do if type(o) == "table" and type(o.id) == "string" then ids[#ids + 1] = o.id end end
+        for _, id in ipairs(ids) do
+            ins.staged[id] = true
+            ins.info[id] = { name = ins.name or id, deps = {}, removal = true }
+        end
+        afterStaged()
+        say(fmt("removedOnRestart", ins.name or "-"))
+        updateNotices()
+    end
+    local function jobDone(res)
+        if ins.kind == "uninstall" then uninstallDone(res) else installDone(res) end
+    end
+
+    local jobPoll
+    local function jobLater()
+        if type(ExecuteInGameThreadWithDelay) == "function" and pcall(ExecuteInGameThreadWithDelay, POLL_MS, jobPoll) then return end
+        jobDone({ outcome = "error", message = "the game thread can't be scheduled" })
+    end
+    jobPoll = function()
+        local okG = guard("the " .. (ins.kind or "install") .. " poll", function()
             local job = ins.job
             if not job then return end
             ins.polls = ins.polls + 1
             local okP, st, res = pcall(catalogApi.poll, job)
             if not okP then
                 warnOnce("install-poll", "core.catalog.poll failed: %s", Catalog.clean(tostring(st), 200))
-                installDone({ outcome = "error", message = "poll failed" })
+                jobDone({ outcome = "error", message = "poll failed" })
                 return
             end
-            if st == "done" and type(res) == "table" then installDone(res) return end
-            if st == nil then installDone({ outcome = "error", message = Catalog.clean(tostring(res), 200) }) return end
-            if ins.polls >= MAX_POLLS then installDone({ outcome = "error", message = "no answer in 10 minutes" }) return end
-            installLater()
+            if st == "done" and type(res) == "table" then jobDone(res) return end
+            if st == nil then jobDone({ outcome = "error", message = Catalog.clean(tostring(res), 200) }) return end
+            if ins.polls >= MAX_POLLS then jobDone({ outcome = "error", message = "no answer in 10 minutes" }) return end
+            jobLater()
         end)
-        if not okG and ins.job then pcall(installDone, { outcome = "error", message = "the poll faulted" }) end
+        if not okG and ins.job then pcall(jobDone, { outcome = "error", message = "the poll faulted" }) end
     end
 
-    -- INSTALL on a row or in Details (after core's hook): the install set, then the confirm window, or why not.
-    browse.onInstall = function(id)
+    -- ---------------------------------------------------------------- INSTALL and UPDATE
+    -- INSTALL or UPDATE on a row, in Details or in the revoked window (after core's hook): the install set, then the
+    -- confirm window (id install), or why not.
+    local function onInstall(id)
         if ins.job or not stageApi then return end
-        if not browse:installShown(id) then return end -- staged meanwhile, or the catalog changed
+        local row = rowOfCat(id)
+        local kind = Catalog.action(row, ins.staged) -- staged meanwhile, or the catalog changed: nothing
+        if not kind then return end
+        local tag = TAG[kind]
         local set, why, info = Catalog.installSet(cat.rows, id)
         if not set then
-            log.info("INSTALL refuse %s reason=%s", id, Catalog.token(why))
+            log.info("%s refuse %s reason=%s", tag, id, Catalog.token(why))
             info = info or {}
             if why == "unsatisfiable" and info.dep then
-                say(fmt("cantInstallNeeds", upper(info.name), upper(info.dep), Catalog.clean(info.need or "", 64)))
+                say(fmt(kind == "update" and "cantUpdateNeeds" or "cantInstallNeeds", upper(info.name), upper(info.dep), Catalog.clean(info.need or "", 64)))
             else
-                say(fmt("cantInstall", upper(info.name or id), upper(why)))
+                say(fmt(kind == "update" and "cantUpdate" or "cantInstall", upper(info.name or id), upper(why)))
             end
             return
         end
@@ -856,45 +1014,124 @@ local function start(core)
         local more = #also > Browse.INSTALL_LINES and #also - Browse.INSTALL_LINES or nil
         while #also > Browse.INSTALL_LINES do table.remove(also) end
         local size = Catalog.sizeText(bytes)
-        ins.ask = { id = id, name = upper(target.name), set = set }
-        log.info("INSTALL ask %s set=%s", id, setLog(set))
-        browse:openInstall{ title = fmt("installTitle", upper(target.name), Catalog.clean(target.version, 64)), also = also, more = more,
-            size = fmt("downloadSize", fmt(size.key, size.n)) }
+        ins.ask = { kind = kind, id = id, name = upper(target.name), set = set }
+        log.info("%s ask %s set=%s", tag, id, setLog(set))
+        local title = kind == "update"
+            and fmt("updateTitle", upper(target.name), Catalog.clean(row.installedVersion ~= "" and row.installedVersion or "-", 64), Catalog.clean(target.version, 64))
+            or fmt("installTitle", upper(target.name), Catalog.clean(target.version, 64))
+        browse.lang = view.lang
+        browse:openInstall{ title = title, also = also, more = more, size = fmt("downloadSize", fmt(size.key, size.n)),
+            okLabel = S.get(kind == "update" and "update" or "install", view.lang) }
     end
-    -- The confirm window's INSTALL (after core's hook): the stage job, polled from the game thread.
+    browse.onInstall = onInstall
+    -- The confirm window's INSTALL or UPDATE (after core's hook): the stage job, polled from the game thread.
     browse.onInstallConfirm = function()
         local a = ins.ask
         if not a then return end
         ins.ask = nil
         browse:closeInstall()
         if ins.job or not stageApi then return end
+        local tag = TAG[a.kind]
         local list = {}
         for _, e in ipairs(a.set) do list[#list + 1] = { id = e.id, version = e.version } end
         local okS, job, why = pcall(stageApi, list)
         if okS and math.type(job) == "integer" then
-            ins.job, ins.polls, ins.name = job, 0, a.name
-            log.info("INSTALL stage job=%d", job)
+            ins.job, ins.polls, ins.name, ins.kind = job, 0, a.name, a.kind
+            log.info("%s stage job=%d", tag, job)
             browse:setInstalling(true)
             say(fmt("downloading", a.name))
-            installLater()
+            jobLater()
             return
         end
         local reason = Catalog.clean(tostring(okS and why or job), 64)
-        log.info("INSTALL stage job=%s", reason ~= "" and reason or "-")
+        log.info("%s stage job=%s", tag, reason ~= "" and reason or "-")
+        local upd = a.kind == "update"
         if okS and why == "busy" then say(fmt("busy"))
-        elseif not okS or reason:find("^error") then say(fmt("installFailed"))
-        else say(fmt("installRefused", reason)) end
+        elseif not okS or reason:find("^error") then say(fmt(upd and "updateFailed" or "installFailed"))
+        else say(fmt(upd and "updateRefused" or "installRefused", reason)) end
     end
-    -- Any other close of the confirm window (BACK, Escape, a parent closed): nothing is staged.
+
+    -- ---------------------------------------------------------------- UNINSTALL
+    -- At most MAX_NEEDED_BY names, then AND <n> MORE.
+    local function neededBy(names)
+        local shown = {}
+        for i = 1, math.min(#names, MAX_NEEDED_BY) do shown[i] = upper(names[i]) end
+        local text = table.concat(shown, ", ")
+        if #names > MAX_NEEDED_BY then text = fmt("andMoreNames", text, #names - MAX_NEEDED_BY) end
+        return text
+    end
+    -- UNINSTALL in Details or in the revoked window (after core's hook): refused while an installed or staged mod needs
+    -- it (no confirm), else the confirm window (id uninstall).
+    local function onUninstall(id)
+        if ins.job or not unstageApi then return end
+        local row = rowOfCat(id)
+        if not Catalog.canUninstall(row, ins.staged) then return end -- Nucleus, the Mod Manager, not installed, staged
+        local fs, paths = gameFs()
+        local installed = fs and scan(fs, paths).rows or {}
+        local names, ids = Catalog.dependents(installed, ins.info, id)
+        if #names > 0 then
+            local idLog, bytes = {}, 0
+            for _, d in ipairs(ids) do
+                if bytes + #d + 1 > MAX_SET_LOG then idLog[#idLog + 1] = "..." break end
+                idLog[#idLog + 1] = d
+                bytes = bytes + #d + 1
+            end
+            log.info("UNINSTALL refuse %s needed-by=%s", id, table.concat(idLog, ","))
+            say(fmt("cantUninstall", upper(row.name), neededBy(names)))
+            return
+        end
+        unAsk = { id = id, version = row.installedVersion, name = upper(row.name) }
+        log.info("UNINSTALL ask %s", id)
+        browse.lang = view.lang
+        browse:openUninstall{ title = fmt("uninstallTitle", unAsk.name, Catalog.clean(row.installedVersion, 64)) }
+    end
+    browse.onUninstall = onUninstall
+    -- The confirm window's UNINSTALL (after core's hook): the unstage job, polled from the game thread.
+    browse.onUninstallConfirm = function()
+        local a = unAsk
+        if not a then return end
+        unAsk = nil
+        browse:closeUninstall()
+        if ins.job or not unstageApi then return end
+        local okS, job, why = pcall(unstageApi, a.id, a.version)
+        if okS and math.type(job) == "integer" then
+            ins.job, ins.polls, ins.name, ins.kind, ins.target = job, 0, a.name, "uninstall", a.id
+            log.info("UNINSTALL stage job=%d", job)
+            browse:setInstalling(true)
+            jobLater()
+            return
+        end
+        local reason = Catalog.clean(tostring(okS and why or job), 64)
+        log.info("UNINSTALL stage job=%s", reason ~= "" and reason or "-")
+        if okS and why == "busy" then say(fmt("busy"))
+        elseif not okS or reason:find("^error") then say(fmt("uninstallFailed"))
+        else say(fmt("uninstallRefused", reason)) end
+    end
+
+    -- The main window's notice line and the revoked window's buttons (core calls them inside its hook: after it).
+    view.onReview = function() soon("REVIEW", openRevokedWin) end
+    view.onUpdates = function() soon("UPDATES", function() openBrowse("update") end) end
+    view.onRevokedUpdate = function(id) soon("UPDATE TO", function() onInstall(id) end) end
+    view.onRevokedUninstall = function(id) soon("UNINSTALL", function() onUninstall(id) end) end
+
+    -- Any other close of a confirm window (BACK, Escape, a parent closed): nothing is staged.
     local okIW, errIW = pcall(ui.screen.watch, function(_, info)
-        if type(info) == "table" and info.id == "install" and info.event ~= "opened" and ins.ask then
+        if type(info) ~= "table" or info.event == "opened" then return end
+        if info.id == "install" and ins.ask then
             local a = ins.ask
             ins.ask = nil
-            log.info("INSTALL cancel %s (%s)", a.id, tostring(info.reason or info.event))
+            log.info("%s cancel %s (%s)", TAG[a.kind], a.id, tostring(info.reason or info.event))
+        elseif info.id == "uninstall" and unAsk then
+            local a = unAsk
+            unAsk = nil
+            log.info("UNINSTALL cancel %s (%s)", a.id, tostring(info.reason or info.event))
+        elseif info.id == "revoked" then
+            log.info("REVIEW closed (%s)", tostring(info.reason or info.event)) -- LATER: nothing staged
         end
     end)
     if not okIW then warnOnce("watch-install", "the install window can't be watched: %s", tostring(errIW):match("^[^\n]*")) end
     if catalogApi and not stageApi then warnOnce("no-stage", "%s has no core.catalog.stage: Browse has no INSTALL", CORE) end
+    if catalogApi and not unstageApi then warnOnce("no-unstage", "%s has no core.catalog.unstage: Browse has no UNINSTALL", CORE) end
     if catalogApi then
         view.onBrowse = function() soon("Browse", openBrowse) end
         startRefresh()
