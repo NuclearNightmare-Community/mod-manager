@@ -25,6 +25,10 @@ local want = { manage = "MANAGE MODS", title = "MOD MANAGER", name = "NAME", ver
     setBy = "SET BY %s", notSaved = "NOT SAVED (%s)", noSettings = "NO SETTINGS",
     -- story 8
     restart = "RESTART NOW", cantRestart = "CAN'T RESTART: USE QUIT GAME AND START THE GAME AGAIN.",
+    -- v2 story 3
+    applied = "THE STAGED CHANGE WAS APPLIED.",
+    applyFailed = "A STAGED CHANGE COULD NOT BE APPLIED (%s). IT IS TRIED AGAIN AT THE NEXT RESTART.",
+    applyDropped = "A STAGED CHANGE COULD NOT BE APPLIED AND WAS DROPPED.",
     -- story 12
     scopeLabel = "RUNS ON",
     scopeHost = "HOST ONLY", scopeHostMeans = "ONLY THE HOST NEEDS IT; PLAYERS WHO JOIN DON'T",

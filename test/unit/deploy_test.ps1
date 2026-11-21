@@ -75,11 +75,11 @@ $m = Get-Content (Join-Path $repo 'mod.json') -Raw | ConvertFrom-Json
 Ok ($m.id -eq 'nuclearnightmare-community.mod-manager' -and $m.name -eq 'ModManager' -and $m.displayName -eq 'Mod Manager' -and $m.scope -eq 'client') 'mod.json: id, name, displayName, scope'
 Ok ($m.version -match '^\d+\.\d+\.\d+$') 'mod.json: semver version'
 Ok ($m.name -cmatch '^[A-Za-z0-9][A-Za-z0-9_-]*$') 'mod.json: name is a folder name (no space: UE4SS removes spaces from mods.txt lines)'
-Ok ($m.dependsOn.Count -eq 1 -and $m.dependsOn[0].id -eq 'nuclearnightmare-community.nucleus' -and $m.dependsOn[0].version -eq '>=0.21.0') 'mod.json: dependsOn nuclearnightmare-community.nucleus >=0.21.0'
+Ok ($m.dependsOn.Count -eq 1 -and $m.dependsOn[0].id -eq 'nuclearnightmare-community.nucleus' -and $m.dependsOn[0].version -eq '>=0.24.0') 'mod.json: dependsOn nuclearnightmare-community.nucleus >=0.24.0'
 Ok ($m.ue4ss -eq 'v3.0.1-1181-g83330635' -and $m.game.version -eq 'V8.2.3' -and $m.game.build -eq '26601774') 'mod.json: ue4ss and game build'
 Ok ($null -eq $m.settings) 'mod.json: no settings (the gear is dimmed)'
 $mainLua = Get-Content (Join-Path $repo 'Scripts\main.lua') -Raw
-Ok ($mainLua -match 'local CORE, NEED, ME = "Nucleus", ">=0\.21\.0", "ModManager"') 'main.lua: NEED = dependsOn (>=0.21.0)'
+Ok ($mainLua -match 'local CORE, NEED, ME = "Nucleus", ">=0.24.0", "ModManager"') 'main.lua: NEED = dependsOn (>=0.24.0)'
 foreach ($f in $ModScripts) { Ok (Test-Path (Join-Path $repo "Scripts\$f")) "Scripts/$f exists" }
 $long = Get-Content (Join-Path $repo 'test\ModManagerLong\mod.json') -Raw | ConvertFrom-Json
 Ok ($long.displayName.Length -eq 64 -and $long.displayName.StartsWith('ModManagerLong') -and $long.dependsOn[0].id -eq 'nuclearnightmare-community.nucleus' -and $long.dependsOn[0].version -eq '>=0.2.0') 'fixture Long: 64-character displayName, nuclearnightmare-community.nucleus >=0.2.0'
@@ -94,6 +94,44 @@ $base = Get-Content (Join-Path $repo 'test\ModManagerBase\mod.json') -Raw | Conv
 $depm = Get-Content (Join-Path $repo 'test\ModManagerDep\mod.json') -Raw | ConvertFrom-Json
 Ok ($base.id -eq 'nuclearnightmare-community.mod-manager-base' -and $base.version -eq '1.0.0' -and $base.displayName -eq 'Mod Manager Base' -and $base.game.version -eq 'V8.2.3') 'fixture Base: id, 1.0.0, Mod Manager Base, V8.2.3'
 Ok ($depm.id -eq 'nuclearnightmare-community.mod-manager-dep' -and $depm.displayName -eq 'Mod Manager Dep' -and $depm.dependsOn[0].id -eq $base.id -and $depm.dependsOn[0].version -eq '>=1.0.0') 'fixture Dep: needs Base >=1.0.0'
+
+# ---------------------------------------------------------------- Mod Manager v2 story 3: the apply scenario's plans
+$fa = Get-ApplyFixtures 'ModManager'
+Eq ($fa -join ',') 'ModManagerApplyA,ModManagerApplyB,ModManagerApplyC' 'apply: the fixtures A, B, C'
+foreach ($x in $fa) {
+    $mj = Get-Content (Join-Path $repo "test\$x\mod.json") -Raw | ConvertFrom-Json
+    $ml = Get-Content (Join-Path $repo "test\$x\Scripts\main.lua") -Raw
+    Ok ($mj.name -ceq $x -and $mj.id -ceq "nuclearnightmare-community.mod-manager-apply-$($x.Substring(15).ToLowerInvariant())" -and $mj.version -eq '1.0.0' -and $mj.scope -eq 'client' -and @($mj.dependsOn).Count -eq 0) "fixture ${x}: mod.json"
+    Ok ($ml.Contains("print(`"[$x] loaded\n`")") -and $ml.Contains("ModRef:SetSharedVariable(`"$($x.ToLowerInvariant()).loaded`", true)")) "fixture ${x}: logs [$x] loaded and sets $($x.ToLowerInvariant()).loaded"
+}
+$lockT = Get-ApplyLockTarget 'ModManager'
+Eq $lockT 'NuclearNightmare\Binaries\Win64\ue4ss\Mods\ModManagerApplyA\Scripts\main.lua' 'apply: the locked file is A''s Scripts\main.lua'
+$oa = @(Get-ApplyPlanOps -Repo $repo -Name 'ModManager' -Plan A)
+Eq (($oa | ForEach-Object { "$($_.Op):$($_.Owner)$($_.Name):$($_.Target)$($_.Value)" }) -join '|') ('put:ModManagerApplyA:NuclearNightmare\Binaries\Win64\ue4ss\Mods\ModManagerApplyA\mod.json|' +
+    'put:ModManagerApplyA:NuclearNightmare\Binaries\Win64\ue4ss\Mods\ModManagerApplyA\Scripts\main.lua|modstxt:ModManagerApplyA:on') 'apply: plan A''s operations'
+Ok ((Test-Path $oa[0].Source) -and (Test-Path $oa[1].Source)) 'apply: plan A puts the fixture''s own files'
+$oc = @(Get-ApplyPlanOps -Repo $repo -Name 'ModManager' -Plan C)
+Ok ($oc.Count -eq 4 -and $oc[0].Target -like '*\ModManagerApplyC\mod.json' -and $oc[1].Target -like '*\ModManagerApplyC\Scripts\main.lua' -and $oc[2].Target -ceq $lockT -and
+    $oc[3].Op -eq 'modstxt' -and $oc[3].Name -ceq 'ModManagerApplyC') 'apply: plan C puts C''s files, then over A''s locked file, then turns C on'
+Ok ($oc[2].Text -and $oc[2].Text -cne (Get-Content (Join-Path $repo 'test\ModManagerApplyA\Scripts\main.lua') -Raw)) 'apply: plan C''s file for A differs from A''s'
+Throws { Get-ApplyPlanOps -Repo $repo -Name 'ModManager' -Plan D } 'does not belong to the set' 'apply: no plan D'
+$ptmp = Join-Path ([IO.Path]::GetTempPath()) ("mod-manager-plan-test-" + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.txt')
+function Ours([string] $text) { [IO.File]::WriteAllText($ptmp, $text); Test-ApplyPlanOurs -Plan $ptmp -Name 'ModManager' }
+$h = "nucleus-plan`t1`ntxn`t$('0' * 32)`n"; $pre = 'NuclearNightmare\Binaries\Win64\ue4ss\Mods'
+Ok (Ours ($h + "put`tModManagerApplyC`t$('a' * 64)`t5`t$pre\ModManagerApplyA\Scripts\main.lua`nmodstxt`tModManagerApplyC`ton`n")) 'apply: a plan of the fixtures is ours'
+Ok (Ours ($h + "delete`tModManagerApplyB`t-`t$pre\ModManagerApplyB\x.lua`n")) 'apply: a delete in a fixture is ours'
+Ok (-not (Ours ($h + "put`tOther`t$('a' * 64)`t5`t$pre\ModManagerApplyA\x.lua`n"))) 'apply: another owner is not ours'
+Ok (-not (Ours ($h + "put`tModManagerApplyA`t$('a' * 64)`t5`t$pre\Other\x.lua`n"))) 'apply: a target outside the fixtures is not ours'
+Ok (-not (Ours ($h + "put`tModManagerApplyA`t$('a' * 64)`t5`t$pre\ModManagerApplyAX\x.lua`n"))) 'apply: a folder that only starts like a fixture is not ours'
+Ok (-not (Ours ($h + "modstxt`tOther`ton`n"))) 'apply: another mods.txt name is not ours'
+Ok (-not (Ours ($h + "rename`tModManagerApplyA`n"))) 'apply: an unknown operation is not ours'
+Ok (-not (Ours $h)) 'apply: a plan without operations is not ours'
+Remove-Item $ptmp -ErrorAction SilentlyContinue
+Ok (-not (Test-ApplyPlanOurs -Plan $ptmp -Name 'ModManager')) 'apply: no plan is not ours'
+# Core's plan writer (Nucleus 0.24.0's native/test/New-StagedPlan.ps1), for the apply deploy cases: from NN_NUCLEUS (the
+# ci workflow's Nucleus checkout), else the Nucleus checkout beside this repo's main checkout.
+$nucleusRepo = if ($env:NN_NUCLEUS) { $env:NN_NUCLEUS } elseif ($common) { Join-Path (Split-Path (Split-Path $common)) 'Nucleus' }
+$writerSrc = if ($nucleusRepo -and (Test-Path (Join-Path $nucleusRepo 'native\test\New-StagedPlan.ps1'))) { Join-Path $nucleusRepo 'native\test\New-StagedPlan.ps1' }
 
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("mod-manager-deploy-test-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory $tmp | Out-Null
@@ -145,26 +183,26 @@ try {
     [IO.File]::WriteAllText($modsTxt, $coreTxt)
     Set-Core '0.20.0'
     $d = Deploy @()
-    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.20\.0 is installed, but ModManager needs >=0\.21\.0; update Nucleus\.') 'deploy: core 0.20.0 -> refused, naming both versions' $d.Out
-    Set-Core '0.22.0' '0.22.0'
+    Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus 0\.20\.0 is installed, but ModManager needs >=0.24.0; update Nucleus\.') 'deploy: core 0.20.0 -> refused, naming both versions' $d.Out
+    Set-Core '0.25.0' '0.25.0'
     $d = Deploy @()
-    Ok ($d.Code -eq 1 -and $d.Out -match 'ModManager was made for Nucleus >=0\.21\.0, which this Nucleus 0\.22\.0 no longer supports') 'deploy: floor above the need -> refused' $d.Out
-    Set-Core '0.21.0' $null 'other.nucleus'
+    Ok ($d.Code -eq 1 -and $d.Out -match 'ModManager was made for Nucleus >=0.24.0, which this Nucleus 0\.25\.0 no longer supports') 'deploy: floor above the need -> refused' $d.Out
+    Set-Core '0.24.0' $null 'other.nucleus'
     $d = Deploy @()
     Ok ($d.Code -eq 1 -and $d.Out -match "is not Nucleus's manifest") 'deploy: a manifest with another id -> refused' $d.Out
-    Set-Core '0.21.0' $null 'nucleus'
+    Set-Core '0.24.0' $null 'nucleus'
     $d = Deploy @()
     Ok ($d.Code -eq 1 -and $d.Out -match "is not Nucleus's manifest") 'deploy: the old bare id nucleus -> refused (no legacy alias)' $d.Out
-    Set-Core '0.21.0' $null 'nuclearnightmare-community.nucleus'
+    Set-Core '0.24.0' $null 'nuclearnightmare-community.nucleus'
     [IO.File]::WriteAllText($modsTxt, "Nucleus : 0`r`n" + $stockTxt)
     $d = Deploy @()
     Ok ($d.Code -eq 1 -and $d.Out -match 'Nucleus is installed but disabled in mods\.txt') 'deploy: core disabled -> refused' $d.Out
 
     # Good core: installed below Nucleus, above Keybinds.
-    Set-Core '0.21.0'
+    Set-Core '0.24.0'
     [IO.File]::WriteAllText($modsTxt, "ModManager : 1`r`n" + $coreTxt)
     $d = Deploy @()
-    Ok ($d.Code -eq 0) 'deploy: core 0.21.0 -> installed' $d.Out
+    Ok ($d.Code -eq 0) 'deploy: core 0.24.0 -> installed' $d.Out
     Eq (Txt) ("Nucleus : 1`r`nModManager : 1`r`n" + $stockTxt) 'deploy: ModManager below Nucleus, above Keybinds'
     $files = @(Get-ChildItem (Join-Path $mods 'ModManager') -Recurse -File | ForEach-Object { $_.FullName.Substring((Join-Path $mods 'ModManager').Length + 1) } | Sort-Object)
     Eq ($files -join ',') ((@('mod.json') + @($ModScripts | ForEach-Object { "Scripts\$_" }) | Sort-Object) -join ',') 'deploy: exactly the Mod Manager files'
@@ -194,9 +232,51 @@ try {
         Eq ((@(Get-ChildItem (Join-Path $mods 'ModManagerRestart') -Recurse -File | ForEach-Object Name) | Sort-Object) -join ',') 'main.lua,mod.json' 'deploy -Test -Scenario restart: ModManagerRestart holds mod.json and Scripts/main.lua'
         Ok (-not (Test-Path (Join-Path $mods 'ModManagerDriver\Scripts\restart-facts.txt'))) 'deploy -Test: no leftover restart-facts.txt'
         Eq ([IO.File]::ReadAllText((Join-Path $mods 'ModManagerDriver\Scripts\scenario.txt'))) 'restart' 'deploy -Test -Scenario restart: scenario.txt'
+        # Mod Manager v2 story 3: -Scenario apply stages plan A with core's plan writer (from the instance's workspace,
+        # here $tmp) and installs none of the apply fixtures itself.
+        $staged = Join-Path $win64 'ue4ss\NucleusData\staged'
+        $d = Deploy @('-Test', '-Scenario', 'apply')
+        Ok ($d.Code -eq 1 -and $d.Out -match "the apply scenario needs core's plan writer" -and -not (Test-Path $staged)) 'deploy -Scenario apply: no plan writer -> refused, nothing staged' $d.Out
+        if ($writerSrc) {
+            $wdir = Join-Path $tmp 'mods\Nucleus\native\test'
+            New-Item -ItemType Directory -Force $wdir | Out-Null
+            Copy-Item $writerSrc $wdir
+            [IO.File]::WriteAllText((Join-Path $mods 'ModManagerDriver\Scripts\apply-session.txt'), '3')
+            $d = Deploy @('-Test', '-Scenario', 'apply')
+            Ok ($d.Code -eq 0 -and $d.Out -match 'Staged plan A \(txn [0-9a-f]{32}\)') 'deploy -Test -Scenario apply: installed, plan A staged' $d.Out
+            $planTxt = Join-Path $staged 'plan.txt'
+            Ok ((Test-Path $planTxt) -and -not (Test-Path "$planTxt.tmp") -and (Test-ApplyPlanOurs -Plan $planTxt -Name 'ModManager')) 'deploy -Scenario apply: staged\plan.txt is the scenario''s own'
+            $pl = @([IO.File]::ReadAllLines($planTxt))
+            Ok ($pl[0] -ceq "nucleus-plan`t1" -and $pl[1] -cmatch "^txn`t[0-9a-f]{32}$" -and $pl.Count -eq 5 -and $pl[2] -cmatch "^put`tModManagerApplyA`t[0-9a-f]{64}`t\d+`tNuclearNightmare\\Binaries\\Win64\\ue4ss\\Mods\\ModManagerApplyA\\mod\.json$" -and
+                $pl[3] -cmatch "^put`tModManagerApplyA`t[0-9a-f]{64}`t\d+`tNuclearNightmare\\Binaries\\Win64\\ue4ss\\Mods\\ModManagerApplyA\\Scripts\\main\.lua$" -and $pl[4] -ceq "modstxt`tModManagerApplyA`ton") 'deploy -Scenario apply: plan A puts mod.json and Scripts\main.lua, then turns A on' ($pl -join ' | ')
+            $srcMain = Join-Path $repo 'test\ModManagerApplyA\Scripts\main.lua'
+            $sha = (Get-FileHash $srcMain -Algorithm SHA256).Hash.ToLowerInvariant()
+            Ok ((Test-Path (Join-Path $staged "files\$sha")) -and ($pl[3] -split "`t")[2] -eq $sha) 'deploy -Scenario apply: A''s main.lua staged under its SHA-256'
+            Ok (-not (Test-Path (Join-Path $mods 'ModManagerApplyA')) -and -not (Test-Path (Join-Path $mods 'ModManagerApplyB')) -and -not (Test-Path (Join-Path $mods 'ModManagerApplyC')) -and (Txt) -notmatch 'ModManagerApply') 'deploy -Scenario apply: no apply fixture installed or in mods.txt (core''s helper installs them)'
+            $exp = Join-Path $mods 'ModManagerDriver\Scripts\apply-expect\ModManagerApplyA'
+            Ok ([IO.File]::ReadAllText((Join-Path $exp 'Scripts\main.lua')) -ceq [IO.File]::ReadAllText($srcMain) -and (Test-Path (Join-Path $exp 'mod.json'))) 'deploy -Scenario apply: the driver''s expected copy of A'
+            Ok (-not (Test-Path (Join-Path $mods 'ModManagerDriver\Scripts\apply-session.txt'))) 'deploy -Test: no leftover apply-session.txt'
+            Ok (-not (Test-Path (Join-Path $mods 'ModManagerRestart'))) 'deploy -Scenario apply: no ModManagerRestart'
+            # A leftover A installed by the helper (and its mods.txt line) goes with the next deploy, like the other fixtures.
+            New-Item -ItemType Directory -Force (Join-Path $mods 'ModManagerApplyA') | Out-Null
+            [IO.File]::WriteAllText($modsTxt, ((Txt) -replace 'Keybinds : 1', "ModManagerApplyA : 1`r`nKeybinds : 1"))
+            # A staged change that isn't the scenario's: refused, left alone.
+            $foreign = "nucleus-plan`t1`ntxn`t$('a' * 32)`nmodstxt`tSomeoneElse`ton`n"
+            [IO.File]::WriteAllText($planTxt, $foreign)
+            $d = Deploy @('-Test', '-Scenario', 'apply')
+            Ok ($d.Code -eq 1 -and $d.Out -match 'a change is already staged' -and [IO.File]::ReadAllText($planTxt) -ceq $foreign) 'deploy -Scenario apply: another staged change -> refused, left alone' $d.Out
+            $d = Deploy @('-Test', '-Scenario', 'restart')
+            Ok ($d.Code -eq 0 -and [IO.File]::ReadAllText($planTxt) -ceq $foreign) 'deploy: another staged change is never removed' $d.Out
+            Ok (-not (Test-Path (Join-Path $mods 'ModManagerApplyA')) -and (Txt) -notmatch 'ModManagerApplyA') 'deploy: a helper-installed apply fixture and its mods.txt line removed'
+            Remove-Item $staged -Recurse -Force
+            $d = Deploy @('-Test', '-Scenario', 'apply')
+            Ok ($d.Code -eq 0 -and (Test-Path $planTxt)) 'deploy -Scenario apply: staged again' $d.Out
+            Remove-Item $wdir -Recurse -Force
+        } else { Write-Host "NOTE Nucleus's native/test/New-StagedPlan.ps1 not found (Nucleus 0.24.0; NN_NUCLEUS or the main checkout's mods/Nucleus): the apply deploy cases are skipped" }
         # Redeploy without -Test: the driver and the fixtures go.
         $d = Deploy @()
         Ok ($d.Code -eq 0 -and -not (Test-Path (Join-Path $mods 'ModManagerDriver')) -and -not (Test-Path (Join-Path $mods 'ModManagerBare')) -and -not (Test-Path (Join-Path $mods 'ModManagerBase')) -and -not (Test-Path (Join-Path $mods 'ModManagerDep')) -and -not (Test-Path (Join-Path $mods 'ModManagerRestart'))) 'deploy without -Test removes the driver and fixtures' $d.Out
+        if ($writerSrc) { Ok (-not (Test-Path (Join-Path $win64 'ue4ss\NucleusData\staged'))) 'deploy without -Test removes the apply scenario''s staged change' }
         Eq (Names $paks) 'NuclearNightmare-Windows.pak' 'deploy without -Test removes the fixture paks'
         Eq (Txt) ("Nucleus : 1`r`nModManager : 1`r`n" + $stockTxt) 'deploy without -Test: mods.txt back to one line'
     }

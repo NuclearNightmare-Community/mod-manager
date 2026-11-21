@@ -144,6 +144,60 @@ function Write-ModsTxt {
     [IO.File]::WriteAllText($Path, $text, [Text.UTF8Encoding]::new([bool]$File.Bom))
 }
 
+# ---- Mod Manager v2 story 3: the apply scenario's staged changes (deploy.ps1 stages plan A; run.ps1's "stage B" and
+# "stage C" requests stage the others in the VM). Written by core's own plan writer (Nucleus's
+# native/test/New-StagedPlan.ps1), never by hand here: the plan format is core's.
+# The fixtures' mod folders, in order: A, B, C.
+function Get-ApplyFixtures([Parameter(Mandatory)] [string] $Name) { "${Name}ApplyA", "${Name}ApplyB", "${Name}ApplyC" }
+# Where the game folder's mods are, as a plan target says it (relative to the folder holding NuclearNightmare\).
+$ApplyModsRel = 'NuclearNightmare\Binaries\Win64\ue4ss\Mods'
+# The file of A that the runner locks in session 3 and plan C tries to overwrite (relative to the game folder; the
+# path core's result names).
+function Get-ApplyLockTarget([Parameter(Mandatory)] [string] $Name) { "$ApplyModsRel\${Name}ApplyA\Scripts\main.lua" }
+# Get-ApplyPlanOps -Repo <this repo> -Name <mod.json name> -Plan A|B|C -> New-StagedPlan's -Ops.
+#   A, B: the fixture's mod.json and Scripts\main.lua, then "<fixture> on" in mods.txt.
+#   C:    C's own two files first, then a different Scripts\main.lua over A's (the locked file), then "C on": the locked
+#         put fails after C's files were written, so the rollback is observable (C's files gone, A's byte-identical).
+function Get-ApplyPlanOps {
+    param([Parameter(Mandatory)] [string] $Repo, [Parameter(Mandatory)] [string] $Name, [Parameter(Mandatory)] [ValidateSet('A', 'B', 'C')] [string] $Plan)
+    $mod = "${Name}Apply$Plan"
+    $src = Join-Path $Repo "test\$mod"
+    $ops = @(
+        @{ Op = 'put'; Owner = $mod; Target = "$ApplyModsRel\$mod\mod.json"; Source = (Join-Path $src 'mod.json') }
+        @{ Op = 'put'; Owner = $mod; Target = "$ApplyModsRel\$mod\Scripts\main.lua"; Source = (Join-Path $src 'Scripts\main.lua') }
+    )
+    if ($Plan -eq 'C') {
+        $ops += @{ Op = 'put'; Owner = $mod; Target = (Get-ApplyLockTarget $Name); Text = "-- Written by plan C of the Mod Manager's apply scenario: never applied (the file is locked).`nprint(`"[${Name}ApplyA] overwritten by plan C\n`")`n" }
+    }
+    $ops + @(@{ Op = 'modstxt'; Name = $mod; Value = 'on' })
+}
+# New-ApplyPlan -Writer <New-StagedPlan.ps1> -Data <ue4ss\<Core>Data> -Repo -Name -Plan -> the plan's txn.
+function New-ApplyPlan {
+    param([Parameter(Mandatory)] [string] $Writer, [Parameter(Mandatory)] [string] $Data, [Parameter(Mandatory)] [string] $Repo,
+        [Parameter(Mandatory)] [string] $Name, [Parameter(Mandatory)] [ValidateSet('A', 'B', 'C')] [string] $Plan)
+    if (-not (Test-Path -LiteralPath $Writer)) { throw "core's plan writer is missing: $Writer (Nucleus 0.24.0's native/test/New-StagedPlan.ps1)" }
+    & $Writer -Data $Data -Ops (Get-ApplyPlanOps -Repo $Repo -Name $Name -Plan $Plan)
+}
+# Test-ApplyPlanOurs -Plan <staged\plan.txt> -Name <mod.json name> -> $true when every operation of that plan names
+# only the apply scenario's fixtures (owner, modstxt name, and a target in their folders): a plan deploy.ps1 may clear.
+function Test-ApplyPlanOurs {
+    param([Parameter(Mandatory)] [string] $Plan, [Parameter(Mandatory)] [string] $Name)
+    if (-not (Test-Path -LiteralPath $Plan -PathType Leaf)) { return $false }
+    $ours = Get-ApplyFixtures $Name
+    $ops = 0
+    foreach ($l in [IO.File]::ReadAllLines($Plan)) {
+        $f = $l -split "`t"
+        switch ($f[0]) {
+            { $_ -in 'nucleus-plan', 'txn', '' } { continue }
+            'put' { $ops++; if ($f.Count -ne 5 -or $f[1] -cnotin $ours -or $f[4] -notmatch ('^' + [regex]::Escape($ApplyModsRel) + '\\(' + ($ours -join '|') + ')\\')) { return $false } }
+            'delete' { $ops++; if ($f.Count -ne 4 -or $f[1] -cnotin $ours -or $f[3] -notmatch ('^' + [regex]::Escape($ApplyModsRel) + '\\(' + ($ours -join '|') + ')\\')) { return $false } }
+            'modstxt' { $ops++; if ($f.Count -ne 3 -or $f[1] -cnotin $ours) { return $false } }
+            default { return $false }
+        }
+    }
+    return $ops -gt 0
+}
+
 # The FILES check of run.ps1 (the Mod Manager writes nothing in story 3).
 # The state of a copy: mods.txt's SHA-256 and the file names under Content/Paks and Content/Paks/LogicMods.
 function Get-FileState([string] $instance) {

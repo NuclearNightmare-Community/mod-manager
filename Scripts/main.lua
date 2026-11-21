@@ -11,7 +11,7 @@
 -- Runs on Nucleus (core) through the dependent bootstrap (core's api-contract.md) and uses only core's public API
 -- (connect, core.ui, core.settings, core.restart, core.log) and core's pure modules nucleus.modid and nucleus.semver. Holds no
 -- UObject between calls: element handles, plain tables and strings only.
-local CORE, NEED, ME = "Nucleus", ">=0.21.0", "ModManager"
+local CORE, NEED, ME = "Nucleus", ">=0.24.0", "ModManager"
 local ENTRY = "manage"
 local MAX_WARN_KEYS = 64     -- distinct warnings logged per session; then one line says the rest are dropped
 local MAX_LOGGED_ROWS = 512  -- distinct mods whose data is logged per session
@@ -131,6 +131,9 @@ local function start(core)
     local settingsApi = type(core.settings) == "table" and core.settings or nil
     -- Story 8: core.restart (Nucleus 0.20.0). Missing, or a mode of nil: no RESTART NOW, QUIT GAME as before.
     local restartApi = type(core.restart) == "table" and type(core.restart.mode) == "function" and type(core.restart.start) == "function" and core.restart or nil
+    -- v2 story 3: core.apply (Nucleus 0.24.0): a change staged for the next exit, applied by core's helper.
+    local applyApi = type(core.apply) == "table" and type(core.apply.status) == "function" and type(core.apply.start) == "function"
+        and type(core.apply.ack) == "function" and core.apply or nil
 
     -- Each warning once per session (by key), at most MAX_WARN_KEYS of them.
     local warned, nWarned = {}, 0
@@ -153,7 +156,8 @@ local function start(core)
     local view = Screen.new(ui, S)
     local function fmt(key, ...) return S.fmt(key, view.lang, ...) end
     local session = { baseline = nil, state = State.empty(), settingsPending = {}, running = {}, status = {}, pending = 0,
-        statusLogged = {}, nStatusLogged = 0, restartMode = nil, restartAsked = false }
+        statusLogged = {}, nStatusLogged = 0, restartMode = nil, restartAsked = false,
+        applyStaged = "none", applyResult = nil, applyShown = false }
     local confirm -- { n, key } while the confirm window asks
 
     local function statePath(paths) return paths.mods .. "\\" .. Inv.SELF_FOLDER .. "\\state.json" end
@@ -186,6 +190,32 @@ local function start(core)
             local st, why = State.load(fs, statePath(paths))
             session.state = st
             if why then warnOnce("state", "Mods/%s/state.json %s; starting from an empty state (rewritten on the next save)", Inv.SELF_FOLDER, why) end
+        end
+    end
+    -- v2 story 3: the staged change's status (core.apply.status), or nil when it can't be read (one WARN per reason).
+    local function applyStatus()
+        if not applyApi then return nil end
+        local okS, st, why = pcall(applyApi.status)
+        if okS and type(st) == "table" then return st end
+        local reason = Screen.clean(tostring(okS and why or st), 64)
+        warnOnce("apply-status:" .. reason, "the staged change's status could not be read (%s)", reason)
+        return nil
+    end
+    -- At onReady: the status once; a change staged but with no helper waiting (pending), or an apply cut short
+    -- (interrupted), gets core's helper now, so the change reaches the disk however the game exits. A result is kept for
+    -- the first open of the window.
+    do
+        local st = applyStatus()
+        if st then
+            session.applyStaged = st.staged
+            if st.result ~= "none" then session.applyResult = st end
+            log.info("APPLY status staged=%s result=%s changes=%s attempts=%s", st.staged, st.result, tostring(st.changes), tostring(st.attempts))
+            if st.staged == "pending" or st.staged == "interrupted" then
+                local okA, r, why = pcall(applyApi.start)
+                log.info("APPLY start %s", (okA and r == true) and "ok" or Screen.clean(tostring(okA and why or r), 64))
+            end
+        elseif not applyApi then
+            log.info("APPLY none (%s has no core.apply)", CORE)
         end
     end
     local function saveState(fs, paths)
@@ -232,6 +262,9 @@ local function start(core)
                 log.info("STATUS %s %s", id, text)
             end
         end
+        -- v2 story 3: a staged change (pending, waiting for the exit, applying or cut short) is one more pending change:
+        -- the banner, QUIT GAME and RESTART NOW show for it.
+        if session.applyStaged ~= "none" then pending = pending + 1 end
         session.pending = pending
         return pending
     end
@@ -271,6 +304,11 @@ local function start(core)
 
     -- The data the main window shows: a scan, the restart marks of the settings, the statuses.
     local function loadRows(withSettings, fs0, paths0)
+        local st = applyStatus()
+        if st then
+            if st.staged ~= session.applyStaged then log.info("APPLY staged %s", st.staged) end
+            session.applyStaged = st.staged
+        end
         local result, fs, paths = scan(fs0, paths0)
         if withSettings then
             for _, r in ipairs(result.rows) do
@@ -308,6 +346,19 @@ local function start(core)
         view:setPending(session.pending)
         log.info("OPEN rows=%d total=%d lang=%s game=%s build=%s%s", #result.rows, result.total, lang, session.running.version or "-",
             session.running.build or "-", t0 and string.format(" us=%d", micros() - t0) or "")
+        -- v2 story 3: the last staged change's result, on the first open of the session: the message line, then acked
+        -- (core forgets it), so it shows once.
+        local res = session.applyResult
+        if res and not session.applyShown then
+            session.applyShown = true
+            local path = Screen.clean(res.path ~= "" and res.path or (res.reason ~= "" and res.reason or "-"), 128)
+            local text = res.result == "applied" and fmt("applied") or res.result == "failed" and fmt("applyFailed", path) or fmt("applyDropped")
+            view:setMessage(text)
+            log.info("APPLY result %s reason=%s path=%s attempts=%s", res.result, Screen.clean(res.reason ~= "" and res.reason or "-", 64),
+                Screen.clean(res.path ~= "" and res.path or "-", 128), tostring(res.attempts))
+            local okK, r, why = pcall(applyApi.ack, res.txn)
+            log.info("APPLY ack %s", (okK and r == true) and "ok" or Screen.clean(tostring(okK and why or r), 64))
+        end
         maybeAlert(result.rows, fs, paths)
     end
 

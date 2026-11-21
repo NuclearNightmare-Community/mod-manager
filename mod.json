@@ -4,10 +4,10 @@
   "displayName": "Mod Manager",
   "description": "Adds Manage Mods to the title screen: turn mods on or off, change their settings, and restart the game to apply. Browsing and installing from the catalog are coming.",
   "categories": ["tools", "ui"],
-  "version": "0.4.0",
+  "version": "0.5.0",
   "scope": "client",
   "game": { "version": "V8.2.3", "build": "26601774" },
   "ue4ss": "v3.0.1-1181-g83330635",
-  "dependsOn": [ { "id": "nuclearnightmare-community.nucleus", "version": ">=0.21.0" } ],
+  "dependsOn": [ { "id": "nuclearnightmare-community.nucleus", "version": ">=0.24.0" } ],
   "license": "MIT"
 }

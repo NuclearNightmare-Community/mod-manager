@@ -32,36 +32,56 @@
   ..." lines). run.ps1 then appends "[run.ps1] BUILDSCAN <file> <result> package=same|differs" for each line of
   Nucleus's build/logs/defender.txt (build.ps1's Windows Defender scans), comparing the scanned SHA-256 with the
   file in Nucleus's build/package.
+  The apply scenario (Mod Manager v2 story 3; VM only, title screen only, four game sessions in one run) checks that a
+  staged change reaches the disk however the game exits. deploy.ps1 -Test -Scenario apply stages plan A
+  (test/ModManagerApplyA) in the stage's ue4ss/NucleusData/staged/. The VM runner is called with -RepeatUntilEnd (after
+  an exit that isn't the game's own relaunch it waits for core's helpers to exit, then launches the game itself; each
+  session follows a "[run.ps1] SESSION <n> (<how>)" line), -DataDirs NucleusData (core's data folder moved aside for the
+  run and put back after; the helper's installs of ModManagerApplyA/B/C are removed with the run's -Mods), and
+  -StageFixtures B and C (plan B: test/ModManagerApplyB; plan C: test/ModManagerApplyC's files, then a different file
+  over A's Scripts/main.lua, then C on; each written on the host by Nucleus's native/test/New-StagedPlan.ps1). The
+  driver's requests "stage B|C", "lock <A's main.lua>", "kill" and "close" are served by tools/vm/vm-sp.ps1. Session
+  1 ends with RESTART NOW (the game relaunches itself after A is applied), session 2 with "kill" (B applied), session 3
+  with "close" (WM_CLOSE, as Alt+F4) while A's main.lua is locked (C fails and is rolled back), session 4 checks the
+  failure and ends at the driver's END line; the runner then stops the waiting helper and releases the lock. Like
+  restart: -MarkOfTheWeb on the helper, -DefenderReport (with Controlled Folder Access) and the BUILDSCAN lines.
   Keeps the log as <workspace>/dumps/<copy>/mod-manager/<scenario>[.vm].log (ignored by git) and runs check.ps1 on it.
   Refuses to start while another runner's test or driver mod is enabled in the copy (the workspace's tools/run-guard:
   the refusal names each and the command that clears it); -AllowOtherDrivers runs anyway.
 .EXAMPLE
   ./run.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2.3-build26601774 -Scenario screen
   ./run.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2.3-build26601774 -Scenario screen -Target host
+  ./run.ps1 -Instance C:\...\nuclear-nightmare\game-instances\v8.2.3-build26601774 -Scenario apply
 #>
 param(
     [Parameter(Mandatory)] [string] $Instance,
-    [ValidateSet('screen', 'no-core', 'old-core', 'restart')]
+    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply')]
     [string] $Scenario = 'screen',
-    [int] $TimeoutSec = 0, # 0: screen 1200 s (about 90 requests and two map loads), restart 600 s (two launches), others 420 s; x1.5 in the VM
+    [int] $TimeoutSec = 0, # 0: screen 1200 s (about 90 requests and two map loads), restart 600 s (two launches), apply 1200 s (four launches and three helper runs), others 420 s; x1.5 in the VM
     [ValidateSet('host', 'vm')] [string] $Target = 'vm',
     [switch] $AllowOtherDrivers # run even when another runner's test mod is enabled in the copy (tools/run-guard)
 )
 $ErrorActionPreference = 'Stop'
-$hostTimeout = switch ($Scenario) { 'screen' { 1200 } 'restart' { 600 } default { 420 } }
-if ($Scenario -eq 'restart' -and $Target -ne 'vm') { throw 'The restart scenario runs only in the VM (-Target vm): the host runner does not follow a game that starts itself again.' }
+$hostTimeout = switch ($Scenario) { 'screen' { 1200 } 'restart' { 600 } 'apply' { 1200 } default { 420 } }
+if ($Scenario -in 'restart', 'apply' -and $Target -ne 'vm') { throw "The $Scenario scenario runs only in the VM (-Target vm): the host runner does not follow a game that starts itself again." }
 if ($TimeoutSec -le 0 -and $Target -eq 'host') { $TimeoutSec = $hostTimeout }
 $CoreName = 'Nucleus'
 $here     = $PSScriptRoot
 $name     = (Get-Content (Join-Path $here 'mod.json') -Raw | ConvertFrom-Json).name
 $driver   = "${name}Driver"
-# The line that ends a run early: screen and restart end with QUIT GAME after END result=PASS, so only a FAIL stops it here.
+# The line that ends a run early: screen and restart end with QUIT GAME after END result=PASS, so only a FAIL stops it
+# here. apply ends at its END line: the runner then stops the helper that waits to apply plan C again.
 $endRx = if ($Scenario -in 'screen', 'restart') { "\[$driver\] END result=FAIL" } else { "\[$driver\] END result=" }
 $fixtures = @("${name}Fixture", "${name}Bare", "${name}Long", "${name}Base", "${name}Dep", "${name}Restart")
 $fixturePaks = @("${name}Pak_P.pak", "${name}PakOff_P.pak.disabled")
 $inst     = (Resolve-Path $Instance).Path
 $root     = Split-Path (Split-Path $inst)
 . (Join-Path $root 'tools\run-guard\run-guard.ps1')
+. (Join-Path $here 'deploy-lib.ps1')
+# Story 3 (v2): the apply scenario's fixtures (installed only by core's helper from staged changes; listed in the VM
+# run's -Mods so the restore removes them) and core's plan writer (Nucleus's native/test/New-StagedPlan.ps1).
+$applyFixtures = @(Get-ApplyFixtures $name)
+$planWriter = Join-Path $root "mods\$CoreName\native\test\New-StagedPlan.ps1"
 $outDir   = Join-Path $root "dumps\$(Split-Path $inst -Leaf)\mod-manager"
 function Set-DeployTarget([string] $instance) {
     $script:deployInst = $instance
@@ -142,8 +162,7 @@ function Deploy-Scenario {
 }
 
 # ---------------------------------------------------------------- files: the mod writes nothing
-# Get-FileState and Get-FilesLine live in deploy-lib.ps1 (tested in test/unit/deploy_test.ps1).
-. (Join-Path $here 'deploy-lib.ps1')
+# Get-FileState and Get-FilesLine live in deploy-lib.ps1 (dot-sourced above; tested in test/unit/deploy_test.ps1).
 function Add-FilesLine([string] $kept, [string] $line) {
     Write-Host $line
     if (Test-Path $kept) { Add-Content -LiteralPath $kept -Value $line }
@@ -163,8 +182,23 @@ if ($Target -eq 'vm') {
         $relaunch = @{ AllowRelaunch = $true; DefenderReport = $true
             MarkOfTheWeb = "NuclearNightmare\Binaries\Win64\ue4ss\Mods\$CoreName\bin\${CoreName}Restart.exe" }
     }
+    $runMods = @($CoreName, $driver, $name) + $fixtures
+    if ($Scenario -eq 'apply') {
+        # Story 3 (v2): four sessions; core's data folder saved and put back; plans B and C staged on request. The blocks
+        # run inside vm-sp.ps1's functions (dot-sourced here), which see this script's functions; its variables are
+        # named with $script: because a function's own variables (Send-NNBSpStageFixture's $Name) would hide them.
+        if (-not (Test-Path -LiteralPath $planWriter)) { throw "The apply scenario needs core's plan writer: $planWriter (Nucleus 0.24.0 or newer)." }
+        $dataRel = "NuclearNightmare\Binaries\Win64\ue4ss\${CoreName}Data"
+        $runMods += $applyFixtures
+        $relaunch = @{ RepeatUntilEnd = $true; DefenderReport = $true; DataDirs = "${CoreName}Data"
+            MarkOfTheWeb = "NuclearNightmare\Binaries\Win64\ue4ss\Mods\$CoreName\bin\${CoreName}Restart.exe"
+            StageFixtures = @{
+                B = { param($dir) $null = New-ApplyPlan -Writer $script:planWriter -Data (Join-Path $dir $script:dataRel) -Repo $script:here -Name $script:name -Plan B }
+                C = { param($dir) $null = New-ApplyPlan -Writer $script:planWriter -Data (Join-Path $dir $script:dataRel) -Repo $script:here -Name $script:name -Plan C }
+            } }
+    }
     try {
-        $run = Invoke-NNBSpRun -Instance $inst -TestMod $driver -Mods (@($CoreName, $driver, $name) + $fixtures) -Paks "$CoreName.pak" -BasePaks $fixturePaks -FileState `
+        $run = Invoke-NNBSpRun -Instance $inst -TestMod $driver -Mods $runMods -Paks "$CoreName.pak" -BasePaks $fixturePaks -FileState `
             -EndPattern $endRx -TimeoutSec (Get-NNBSpTimeout $hostTimeout $TimeoutSec) -LogOut $kept @relaunch -Prepare {
                 param($stage)
                 $refusal = Get-RunGuardRefusal -Workspace $root -Instance $stage -Owner 'mod-manager' -Bypass:$AllowOtherDrivers -Vm
@@ -179,7 +213,7 @@ if ($Target -eq 'vm') {
     if ($run.Log) {
         Add-FilesLine $kept "[run.ps1] RUN $($run.Result)"
         Add-FilesLine $kept (Get-FilesLine $run.FilesBefore $run.FilesAfter)
-        if ($Scenario -eq 'restart') {
+        if ($Scenario -in 'restart', 'apply') {
             # Story 8: build.ps1's Windows Defender scans of what was installed (Nucleus's build/logs/defender.txt).
             $coreBuild = Join-Path $root "mods\$CoreName\build"
             $scanLog = Join-Path $coreBuild 'logs\defender.txt'

@@ -2,6 +2,16 @@
 
 All notable changes to the Mod Manager are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-11-21
+
+### Added
+
+- Changes staged until the game exits (Mod Manager v2 story 3). Installs, updates and removals from the catalog (coming next) can't replace the files of a running game, so they are staged and Nucleus's helper applies them once the game has closed, however it closes. At start the Mod Manager reads the staged change's state (`core.apply.status`, `APPLY status ...`) and, when a change is staged and no helper waits for it yet, starts the helper (`APPLY start ok`). A staged change counts as one pending change: the banner, QUIT GAME and RESTART NOW show for it, and RESTART NOW applies it before the game starts again. The first time the window opens after a change was applied or not, its message line says so once (`THE STAGED CHANGE WAS APPLIED.`, `A STAGED CHANGE COULD NOT BE APPLIED (<file>). IT IS TRIED AGAIN AT THE NEXT RESTART.` or `A STAGED CHANGE COULD NOT BE APPLIED AND WAS DROPPED.`) and the result is acknowledged (`APPLY result ...`, `APPLY ack ...`). The Mod Manager itself stages nothing yet.
+- The `apply` test scenario (VM only): four game sessions ending by RESTART NOW, a kill and a window close, and a change rolled back because one of its files was held open.
+
+### Changed
+
+- Needs Nucleus 0.24.0 or newer (`>=0.24.0`, was `>=0.21.0`), which has `core.apply`.
 ## [0.4.0] - 2026-11-20
 
 - Catalog listing: the display name "Mod Manager", a description and categories.

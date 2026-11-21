@@ -44,8 +44,20 @@
   Mod Manager running once more, no ModManagerRestart line, no helper started, the driver's facts and RS* checks, END
   result=PASS, then "[ModManager] QUIT pending=1" and the game closing itself. A failed check here is the story's
   evidence: a Defender, SmartScreen or Smart App Control line means stop and report, never work around it.
+  apply (Mod Manager v2 story 3; the VM runner's log holds four sessions, split at its "[run.ps1] SESSION <n>" lines,
+  which must read 2 relaunched by the game, 3 relaunched by the runner after kill, 4 after close): the whole log has no
+  crash or driver FAIL, no "[ModManagerApplyC] loaded", one "RELAUNCH ... cmdline=same userdir=yes", "RUN finished",
+  the MOTW and BUILDSCAN lines as restart, Defender's real-time and behaviour monitoring on, detections=0, events=0,
+  cfa-events=0 (Controlled Folder Access 1123/1124), codeintegrity-blocks=0. Session 1: the Mod Manager's "APPLY
+  status staged=pending result=none" and "APPLY start ok", the driver's AP*1 checks (the helper waiting, RESTART NOW
+  shown), "CLICK RESTART NOW", "RESTART mode=direct"; session 2: "[ModManagerApplyA] loaded", "APPLY result applied",
+  "APPLY ack ok", the driver's AP*2 checks (stage B pending, start() true, waiting); session 3: A and B loaded, the
+  AP*3 checks (stage C, A's file locked, waiting); session 4: "APPLY start ok", "APPLY result failed reason=locked
+  path=<A's Scripts\main.lua> attempts=1", "APPLY ack ok", the AP*4 checks (A byte-identical, none of C's files, C
+  still pending, the buttons shown), END result=PASS. Any detection, event or block fails the run with a line saying
+  the story stops blocked with that evidence.
   Exit code 1 when any check fails; otherwise prints "All checks passed."
-  Scenarios: screen, no-core, old-core, restart (run.ps1 drives them); unit needs no log: it runs test.ps1.
+  Scenarios: screen, no-core, old-core, restart, apply (run.ps1 drives them); unit needs no log: it runs test.ps1.
   -Target vm: a log from run.ps1 -Target vm. The VM's game shares the CPU with the host, so core's "hud slow tick"
   WARN under the Mod Manager's tag is soft there.
 .EXAMPLE
@@ -54,7 +66,7 @@
 param(
     [string] $Instance,
     [string] $Log,
-    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'unit')]
+    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply', 'unit')]
     [string] $Scenario = 'screen',
     [ValidateSet('host', 'vm')] [string] $Target = 'host',
     [string] $CoreManifest # Nucleus's deployed mod.json; default: -Instance's, else the workspace's mods/Nucleus/build/package
@@ -85,7 +97,7 @@ if (-not $CoreManifest) {
 $lines = @(Get-Content $Log)
 Write-Host "--- $name lines ($Scenario) ---"
 $lines | Where-Object {
-    $_ -match "\[$M\]|\[$D\]|^\[run\.ps1\]|\[${M}Restart\]|\[$K\] native: restart" -or
+    $_ -match "\[$M\]|\[$D\]|^\[run\.ps1\]|\[${M}Restart\]|\[${M}Apply[ABC]\]|\[$K\] native: (restart|apply)" -or
     $_ -match 'Error executing script|threw an exception|removing hook|Unhandled Exception|stack traceback|\[script_hook\]'
 } | ForEach-Object { $_ -replace '^\[[^\]]+\]\s*', '' -replace '^\[Lua\]\s*', '' }
 
@@ -187,6 +199,31 @@ $expect = @{
         '^\[run\.ps1\] RUN game exited'
         '^\[run\.ps1\] FILES (unchanged|changed: mods\.txt sha256 [0-9A-F]{64} -> [0-9A-F]{64})$'
     )
+    # Mod Manager v2 story 3: the patterns of the whole log (each session below is checked on its own part).
+    'apply' = @(
+        '^\[run\.ps1\] SESSION 2 \(relaunched by the game\)\s*$'
+        '^\[run\.ps1\] SESSION 3 \(relaunched by the runner after kill\)\s*$'
+        '^\[run\.ps1\] SESSION 4 \(relaunched by the runner after close\)\s*$'
+        '#3|^\[run\.ps1\] SESSION '
+        '#1|^\[run\.ps1\] RELAUNCH old=\d+ new=\d+ cmdline=same userdir=yes\s*$'
+        '!^\[run\.ps1\] RELAUNCH (old|new) cmdline'
+        "^\[run\.ps1\] MOTW .*/$K/bin/${K}Restart\.exe ZoneId=3\s*$"
+        '^\[run\.ps1\] DEFENDER status realtime=True behavior=True '
+        '^\[run\.ps1\] DEFENDER detections=0\s*$'
+        '^\[run\.ps1\] DEFENDER events=0\s*$'
+        '^\[run\.ps1\] DEFENDER cfa=\S+'
+        '^\[run\.ps1\] DEFENDER cfa-events=0\s*$'
+        '^\[run\.ps1\] DEFENDER codeintegrity-blocks=0\s*$'
+        '!^\[run\.ps1\] DEFENDER (detection|event|cfa-event|codeintegrity|error) '
+        '^\[run\.ps1\] BUILDSCAN main\.dll no threats found.* package=same\s*$'
+        "^\[run\.ps1\] BUILDSCAN bin/${K}Restart\.exe no threats found.* package=same\s*$"
+        '!^\[run\.ps1\] BUILDSCAN (missing|unreadable)'
+        '^\[run\.ps1\] RUN finished\s*$'
+        '^\[run\.ps1\] FILES (unchanged|changed: mods\.txt sha256 [0-9A-F]{64} -> [0-9A-F]{64})$'
+        "!\[${M}ApplyC\] loaded"
+        "!\[$M\] APPLY none"
+        "#1|\[$D\] END result="
+    )
     'old-core' = @(
         '^\[run\.ps1\] FILES unchanged$'
         "#1|\[$M\] "
@@ -264,6 +301,72 @@ if ($Scenario -eq 'restart') {
         if ($iquit -lt 0 -and $s2[$i] -match "\[$M\] QUIT pending=") { $iquit = $i }
     }
     if ($iend -ge 0 -and $iquit -gt $iend) { Pass 'session 2: QUIT GAME clicked after END result=PASS' } else { Fail "session 2: QUIT GAME clicked after END result=PASS (END at line $iend, QUIT at line $iquit)" }
+}
+
+if ($Scenario -eq 'apply') {
+    # Mod Manager v2 story 3: four sessions, split at the runner's SESSION lines (the whole-log patterns above check
+    # that there are three, saying how each session started).
+    $cuts = @(for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match '^\[run\.ps1\] SESSION [2-9] ') { $i } })
+    $bounds = @(-1) + $cuts + @($lines.Count)
+    $part = @(for ($k = 0; $k -lt 4; $k++) {
+        $a = if ($k -lt $bounds.Count - 1) { $bounds[$k] + 1 } else { $lines.Count }
+        $b = if ($k + 1 -lt $bounds.Count) { $bounds[$k + 1] - 1 } else { -1 }
+        , $(if ($b -ge $a) { @($lines[$a..$b]) } else { @() })
+    })
+    $MA = [regex]::Escape("${name}ApplyA"); $MB = [regex]::Escape("${name}ApplyB"); $MC = [regex]::Escape("${name}ApplyC")
+    $lockRx = [regex]::Escape((Get-ApplyLockTarget $name))
+    $each = $running + @("\[$D\] SCENARIO apply\s*$", "!\[$MC\] loaded")
+    Test-Patterns ($each + @(
+        "#1|\[$D\] APPLY session 1\s*$"
+        "!\[$MA\] loaded", "!\[$MB\] loaded"
+        "#1|\[$M\] APPLY status staged=pending result=none "
+        "#1|\[$M\] APPLY start ok\s*$"
+        "\[$D\] OK APWAIT1 ", "\[$D\] OK APRESULT1 ", "\[$D\] OK APNOTLOADED1 ", "\[$D\] OK APSHOWN1 "
+        "\[$D\] CLICK RESTART NOW at "
+        "#1|\[$M\] RESTART mode=direct pending=[1-9]\d*\s*$"
+        "!\[$M\] WARN RESTART NOW"
+        "!\[$D\] END result="
+    )) $part[0] 'session 1: '
+    Test-Patterns ($each + @(
+        "#1|\[$D\] APPLY session 2\s*$"
+        "#1|\[$MA\] loaded\s*$", "!\[$MB\] loaded"
+        "#1|\[$M\] APPLY status staged=none result=applied "
+        "!\[$M\] APPLY start "
+        "#1|\[$M\] APPLY result applied "
+        "#1|\[$M\] APPLY ack ok\s*$"
+        "\[$D\] OK APLOADED2 ", "\[$D\] OK APRESULT2 ", "\[$D\] OK APACKED2 ", "\[$D\] OK APSTAGED2 ", "\[$D\] OK APSTART2 ", "\[$D\] OK APWAIT2 "
+        "\[$D\] KILL "
+        "!\[$M\] RESTART mode="
+        "!\[$D\] END result="
+    )) $part[1] 'session 2: '
+    Test-Patterns ($each + @(
+        "#1|\[$D\] APPLY session 3\s*$"
+        "#1|\[$MA\] loaded\s*$", "#1|\[$MB\] loaded\s*$"
+        "#1|\[$M\] APPLY status staged=none result=applied "
+        "!\[$M\] APPLY start "
+        "\[$D\] OK APLOADED3 ", "\[$D\] OK APRESULT3 ", "\[$D\] OK APSTAGED3 ", "\[$D\] OK APLOCK3 ", "\[$D\] OK APSTART3 ", "\[$D\] OK APWAIT3 "
+        "\[$D\] CLOSE "
+        "!\[$M\] RESTART mode="
+        "!\[$D\] END result="
+    )) $part[2] 'session 3: '
+    Test-Patterns ($each + @(
+        "#1|\[$D\] APPLY session 4\s*$"
+        "#1|\[$MA\] loaded\s*$", "#1|\[$MB\] loaded\s*$"
+        "#1|\[$M\] APPLY status staged=pending result=failed "
+        "#1|\[$M\] APPLY start ok\s*$"
+        "#1|\[$M\] APPLY result failed reason=locked path=$lockRx attempts=1\s*$"
+        "#1|\[$M\] APPLY ack ok\s*$"
+        "\[$D\] OK APRESULT4 ", "\[$D\] OK APSAME4 ", "\[$D\] OK APNOC4 ", "\[$D\] OK APNOTLOADED4 ", "\[$D\] OK APPENDING4 ", "\[$D\] OK APSHOWN4 "
+        "\[$D\] END result=PASS"
+        "!\[$M\] RESTART mode="
+        "!\[$M\] QUIT pending="
+    )) $part[3] 'session 4: '
+    # The story's gate: a Defender detection or event, a Controlled Folder Access event or a Code Integrity block is
+    # evidence, never something to work around.
+    $gate = @($lines | Where-Object { $_ -match '^\[run\.ps1\] DEFENDER (detection|event|cfa-event|codeintegrity) ' -or $_ -match '^\[run\.ps1\] DEFENDER (detections|events|cfa-events|codeintegrity-blocks)=[1-9]' })
+    if ($gate) {
+        Fail "Windows Defender, Controlled Folder Access or Code Integrity reported something: stop the story as blocked with this evidence (never add an exclusion or change the helper to avoid it): $($gate -join ' / ')"
+    } else { Pass 'no Defender detection or event, no Controlled Folder Access event, no Code Integrity block' }
 }
 
 function IndexOf([string] $p) { for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match $p) { return $i } } return -1 }
