@@ -28,6 +28,14 @@
   Mod Manager v2 story 5, only with -Scenario install (VM only: -Staged): no fixture of its own; the copy must have no
   HudClock (the live catalog's HUD Clock, which the scenario installs through core): Mods/HudClock, its paks and its
   mods.txt line are taken out of the stage, so the VM run moves the VM copy's HudClock aside and its restore puts it back.
+  Mod Manager v2 story 6, only with -Scenario update (VM only: -Staged): core's test flavour of main.dll (the
+  workspace's mods/<Core>/native/build-test/main.dll, build.ps1 -TestCatalog; refused when missing or without its
+  marker) replaces the stage's Mods/<Core>/dlls/main.dll; the fixture catalog (test/update-fixture.ps1: release zips of
+  HUD Clock 0.3.0 and 0.3.1, WhistleMute and core one patch above its build/package, an index and revoked list signed
+  with keys made for this deploy, the fixture server's map and the catalog-test template) goes into the driver's
+  fixture/ folder; HUD Clock 0.3.0 (with its old-only file) and WhistleMute are installed in the installer's layout
+  (no installed.txt) with "HudClock : 1" and "WhistleMute : 1". The VM run (run.ps1 -Scenario update) serves the
+  catalog in the VM and writes NucleusData/catalog-test.json; its restore puts the VM copy back.
   A deploy without -Test removes the driver and the fixtures. -Remove deletes all of it and their mods.txt lines;
   nothing else changes (mods.txt keeps its bytes when it had none of these lines). Both also delete the apply
   fixtures' folders (core's helper installs them) and a staged change of only those fixtures (NucleusData/staged/).
@@ -42,7 +50,7 @@
 param(
     [Parameter(Mandatory)] [string] $Instance,
     [switch] $Test,
-    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply', 'browse', 'install')]
+    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply', 'browse', 'install', 'update')]
     [string] $Scenario = 'screen',
     [switch] $Force,
     [switch] $Remove,
@@ -67,6 +75,8 @@ $modsTxt  = Join-Path $modsDir 'mods.txt'
 $paksDir  = Join-Path $inst 'NuclearNightmare\Content\Paks'
 $coreData = Join-Path $ue4ss "${CoreName}Data"   # core's data folder (staged changes: staged\)
 $installTarget = 'HudClock' # Mod Manager v2 story 5: the install scenario's mod (the live catalog's HUD Clock)
+$updateMods = @('HudClock', 'WhistleMute') # Mod Manager v2 story 6: the update scenario's installed fixtures
+$testMarker = 'NN-CORE-CATALOG-TEST-BUILD-NEVER-PACKAGE' # core's test main.dll (build.ps1 -TestCatalog) carries it
 
 function Stop-Deploy([string] $why) { Write-Host "$name not deployed: $why"; exit 1 }
 
@@ -81,6 +91,11 @@ $mine  = @($name, $driver) + $fixtures + $applyFixtures
 if ($Test -and $Scenario -eq 'install') {
     if (-not $Staged) { Stop-Deploy 'the install scenario runs only in the VM (run.ps1 -Scenario install), which deploys into its stage with -Staged.' }
     $mine += $installTarget
+}
+# Story 6 (v2): the update scenario installs its own HudClock and WhistleMute (VM stage only).
+if ($Test -and $Scenario -eq 'update') {
+    if (-not $Staged) { Stop-Deploy 'the update scenario runs only in the VM (run.ps1 -Scenario update), which deploys into its stage with -Staged.' }
+    $mine += $updateMods
 }
 $clean = Edit-ModsTxt -Lines $file.Lines -Remove $mine
 
@@ -141,6 +156,19 @@ if ($Test -and $Scenario -eq 'apply') {
     if ((Test-Path -LiteralPath $plan) -and -not (Test-ApplyPlanOurs -Plan $plan -Name $name)) { Stop-Deploy "a change is already staged in $(Split-Path $plan) that is not the apply scenario's; leave it to core, or remove it by hand." }
 }
 
+# Story 6 (v2): the update scenario's test main.dll and fixture catalog, from the workspace holding the instance (the
+# stage is <workspace>\game-instances\_vmstage). Checked and built before anything is written.
+$updateFixture = $null
+if ($Test -and $Scenario -eq 'update') {
+    $ws = Split-Path (Split-Path $inst)
+    $testDll = Join-Path $ws "mods\$CoreName\native\build-test\main.dll"
+    if (-not (Test-Path -LiteralPath $testDll)) { Stop-Deploy "the update scenario needs core's test main.dll at $testDll ($CoreName's build.ps1 -TestCatalog)." }
+    if (-not [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($testDll)).Contains($testMarker)) { Stop-Deploy "$testDll is not core's test flavour (no $testMarker)." }
+    . (Join-Path $here 'test\update-fixture.ps1')
+    $fixtureTmp = Join-Path ([IO.Path]::GetTempPath()) ("mm-update-fixture-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    $updateFixture = New-UpdateFixture -Workspace $ws -Out $fixtureTmp -CoreName $CoreName
+}
+
 # The fixture pak (screen scenario): built once by build.ps1 -Fixtures.
 $fixturePak = Join-Path $here "build\fixtures\${name}Pak_P.pak"
 if ($Test -and -not (Test-Path $fixturePak)) {
@@ -162,7 +190,7 @@ $add = @($name)
 $off = @()
 if ($Test) {
     Copy-Item (Join-Path $here "test\$driver") (Join-Path $modsDir $driver) -Recurse -Force
-    foreach ($f in 'scenario.txt', 'request.txt', 'done.txt', 'restart-facts.txt', 'apply-session.txt', 'install-session.txt') { Remove-Item (Join-Path $modsDir "$driver\Scripts\$f") -ErrorAction SilentlyContinue }
+    foreach ($f in 'scenario.txt', 'request.txt', 'done.txt', 'restart-facts.txt', 'apply-session.txt', 'install-session.txt', 'update-session.txt') { Remove-Item (Join-Path $modsDir "$driver\Scripts\$f") -ErrorAction SilentlyContinue }
     [IO.File]::WriteAllText((Join-Path $modsDir "$driver\Scripts\scenario.txt"), $Scenario)
     New-Item -ItemType Directory -Force (Join-Path $modsDir "${name}Fixture"), (Join-Path $modsDir "${name}Bare\Scripts"), (Join-Path $modsDir "${name}Long") | Out-Null
     Copy-Item (Join-Path $here "test\${name}Fixture\mod.json") (Join-Path $modsDir "${name}Fixture") -Force
@@ -186,6 +214,23 @@ if ($Test) {
         Remove-Item (Join-Path $modsDir $installTarget) -Recurse -Force -ErrorAction SilentlyContinue
         foreach ($p in (Join-Path $paksDir "LogicMods\$installTarget.pak"), (Join-Path $paksDir "${installTarget}_P.pak")) { Remove-Item $p -Force -ErrorAction SilentlyContinue }
         Write-Host "No $installTarget in the stage: the install scenario installs it through core."
+    }
+    if ($Scenario -eq 'update') {
+        # Story 6 (v2): core's test main.dll, the fixture catalog in the driver's folder, HudClock 0.3.0 and WhistleMute as
+        # the installer lays them out (no installed.txt).
+        Copy-Item -LiteralPath $testDll (Join-Path $modsDir "$CoreName\dlls\main.dll") -Force
+        $fx = Join-Path $modsDir "$driver\fixture"
+        Remove-Item $fx -Recurse -Force -ErrorAction SilentlyContinue
+        Move-Item -LiteralPath $fixtureTmp -Destination $fx
+        foreach ($m in $updateMods) { Remove-Item (Join-Path $modsDir $m) -Recurse -Force -ErrorAction SilentlyContinue }
+        foreach ($rel in $updateFixture.Files.Keys) {
+            if ($rel -notmatch '^Mods/([A-Za-z0-9_-]+)/') { throw "unexpected fixture path $rel" }
+            $to = Join-Path $ue4ss ($rel -replace '/', '\')
+            New-Item -ItemType Directory -Force (Split-Path $to) | Out-Null
+            [IO.File]::WriteAllBytes($to, [byte[]]$updateFixture.Files[$rel])
+        }
+        $add += $updateMods
+        Write-Host "Update scenario: core's test main.dll, the fixture catalog (core $($updateFixture.Core) offered) in Mods/$driver/fixture, $($updateMods -join ' and ') installed."
     }
     if ($Scenario -eq 'apply') {
         # Story 3 (v2): plan A staged for core's helper (the Mod Manager starts it at launch), and the driver's copy of A's

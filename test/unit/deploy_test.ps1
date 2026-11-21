@@ -278,6 +278,55 @@ try {
             Ok ($d.Code -eq 0 -and (Test-Path $planTxt)) 'deploy -Scenario apply: staged again' $d.Out
             Remove-Item $wdir -Recurse -Force
         } else { Write-Host "NOTE Nucleus's native/test/New-StagedPlan.ps1 not found (Nucleus 0.24.0; NN_NUCLEUS or the main checkout's mods/Nucleus): the apply deploy cases are skipped" }
+        # Mod Manager v2 story 6: -Scenario update runs only in a VM stage, needs core's test main.dll, and installs the
+        # fixture catalog in the driver's folder plus HudClock 0.3.0 and WhistleMute in the installer's layout.
+        $d = Deploy @('-Test', '-Scenario', 'update')
+        Ok ($d.Code -eq 1 -and $d.Out -match 'the update scenario runs only in the VM') 'deploy -Scenario update without -Staged: refused' $d.Out
+        $d = Deploy @('-Test', '-Scenario', 'update', '-Staged')
+        Ok ($d.Code -eq 1 -and $d.Out -match "the update scenario needs core's test main\.dll") 'deploy -Scenario update: no test main.dll -> refused' $d.Out
+        $wsMods = if ($common) { Join-Path (Split-Path (Split-Path $common)) '' }
+        $minisign = Get-Command minisign -CommandType Application -ErrorAction SilentlyContinue
+        if ($env:NN_CI -ne '1' -and $wsMods -and (Test-Path (Join-Path $wsMods 'hud-clock\mod.json')) -and (Test-Path (Join-Path $wsMods 'whistle-mute\mod.json')) -and $minisign) {
+            foreach ($m in 'hud-clock', 'whistle-mute') {
+                $dst = Join-Path $tmp "mods\$m"
+                New-Item -ItemType Directory -Force (Join-Path $dst 'Scripts') | Out-Null
+                Copy-Item (Join-Path $wsMods "$m\mod.json"), (Join-Path $wsMods "$m\deploy-lib.ps1") $dst
+                Copy-Item (Join-Path $wsMods "$m\Scripts\*.lua") (Join-Path $dst 'Scripts')
+            }
+            $fakePkg = Join-Path $tmp 'mods\Nucleus\build\package\Mods\Nucleus'
+            New-Item -ItemType Directory -Force (Join-Path $fakePkg 'dlls') | Out-Null
+            Set-Content (Join-Path $fakePkg 'mod.json') '{ "id": "nuclearnightmare-community.nucleus", "name": "Nucleus", "version": "0.27.0", "description": "Core.", "categories": ["library"], "scope": "client", "game": { "version": "V8.2.3", "build": "26601774" }, "ue4ss": "v3.0.1-1181-g83330635", "dependsOn": [] }'
+            Set-Content (Join-Path $fakePkg 'dlls\main.dll') 'normal'
+            $testDllDir = Join-Path $tmp 'mods\Nucleus\native\build-test'
+            New-Item -ItemType Directory -Force $testDllDir | Out-Null
+            Set-Content (Join-Path $testDllDir 'main.dll') 'not the test flavour'
+            $d = Deploy @('-Test', '-Scenario', 'update', '-Staged')
+            Ok ($d.Code -eq 1 -and $d.Out -match 'is not core''s test flavour') 'deploy -Scenario update: a main.dll without the marker -> refused' $d.Out
+            Set-Content (Join-Path $testDllDir 'main.dll') 'MZ NN-CORE-CATALOG-TEST-BUILD-NEVER-PACKAGE'
+            New-Item -ItemType Directory -Force (Join-Path $mods 'Nucleus\dlls') | Out-Null
+            $d = Deploy @('-Test', '-Scenario', 'update', '-Staged')
+            Ok ($d.Code -eq 0 -and $d.Out -match 'core 0\.27\.1 offered') 'deploy -Test -Scenario update -Staged: installed' $d.Out
+            Ok ([IO.File]::ReadAllText((Join-Path $mods 'Nucleus\dlls\main.dll')).Contains('NN-CORE-CATALOG-TEST-BUILD-NEVER-PACKAGE')) 'deploy -Scenario update: core''s test main.dll in place'
+            $fx = Join-Path $mods 'ModManagerDriver\fixture'
+            Eq (Names $fx) 'catalog-test.template.json,index.json,index.json.minisig,map.json,revoked.json,revoked.json.minisig' 'deploy -Scenario update: the fixture catalog''s files'
+            Eq (Names (Join-Path $fx 'site')) 'hud-clock-0.3.0.zip,hud-clock-0.3.1.zip,nucleus-0.27.1.zip,whistle-mute-0.2.1.zip' 'deploy -Scenario update: the release zips'
+            $ix = Get-Content (Join-Path $fx 'index.json') -Raw | ConvertFrom-Json
+            $hc = @($ix.packages | Where-Object id -eq 'nuclearnightmare-community.hud-clock')[0]
+            $rv = (Get-Content (Join-Path $fx 'revoked.json') -Raw | ConvertFrom-Json).revoked
+            $zipSha = (Get-FileHash (Join-Path $fx 'site\hud-clock-0.3.0.zip')).Hash.ToLowerInvariant()
+            Ok ($hc.versions[0].version -eq '0.3.1' -and $hc.versions[1].version -eq '0.3.0' -and $hc.versions[1].sha256 -eq $zipSha -and $rv.Count -eq 1 -and $rv[0].sha256 -eq $zipSha -and $rv[0].version -eq '0.3.0') 'deploy -Scenario update: 0.3.1 offered, 0.3.0 revoked with its index sha256'
+            $map = Get-Content (Join-Path $fx 'map.json') -Raw | ConvertFrom-Json -AsHashtable
+            Ok ($map['https://nuclearnightmare-community.github.io/catalog/keys.json'].status -eq 404 -and $map['https://github.com/NuclearNightmare-Community/hud-clock/releases/download/v0.3.1/hud-clock-0.3.1.zip'].file -eq 'site/hud-clock-0.3.1.zip') 'deploy -Scenario update: the transport map'
+            $tpl = Get-Content (Join-Path $fx 'catalog-test.template.json') -Raw | ConvertFrom-Json
+            Ok ((@($tpl.keys.role) -join ',') -eq 'release,backup,revoke' -and -not ($tpl.PSObject.Properties.Name -contains 'proxy')) 'deploy -Scenario update: the template has the three keys, no proxy'
+            Ok (@(Get-ChildItem $fx -Recurse -File | Where-Object { $_.Extension -eq '.key' }).Count -eq 0) 'deploy -Scenario update: no secret key left in the stage'
+            Ok ((Test-Path (Join-Path $mods 'HudClock\Scripts\old-0.3.0.txt')) -and (Get-Content (Join-Path $mods 'HudClock\mod.json') -Raw) -match '"version": "0\.3\.0"' -and (Test-Path (Join-Path $mods 'WhistleMute\Scripts\main.lua'))) 'deploy -Scenario update: HudClock 0.3.0 (with its old-only file) and WhistleMute installed'
+            Ok ((Txt) -match "HudClock : 1`r`nWhistleMute : 1`r`n" -and (Txt).IndexOf('WhistleMute : 1') -lt (Txt).IndexOf('Keybinds : 1') -and -not (Test-Path (Join-Path $win64 'ue4ss\NucleusData\installed.txt'))) 'deploy -Scenario update: their mods.txt lines above Keybinds, no installed.txt' (Txt)
+            # A later deploy (another scenario) leaves the real mods' folders alone; the driver's fixture goes with the driver.
+            Remove-Item (Join-Path $mods 'HudClock'), (Join-Path $mods 'WhistleMute') -Recurse -Force
+            [IO.File]::WriteAllText($modsTxt, ((Txt) -replace "HudClock : 1`r`nWhistleMute : 1`r`n", ''))
+            Remove-Item (Join-Path $tmp 'mods\hud-clock'), (Join-Path $tmp 'mods\whistle-mute'), (Join-Path $tmp 'mods\Nucleus\build'), $testDllDir -Recurse -Force
+        } else { Write-Host 'NOTE the update deploy cases need the workspace''s mods/hud-clock and mods/whistle-mute and minisign: skipped' }
         # Redeploy without -Test: the driver and the fixtures go.
         $d = Deploy @()
         Ok ($d.Code -eq 0 -and -not (Test-Path (Join-Path $mods 'ModManagerDriver')) -and -not (Test-Path (Join-Path $mods 'ModManagerBare')) -and -not (Test-Path (Join-Path $mods 'ModManagerBase')) -and -not (Test-Path (Join-Path $mods 'ModManagerDep')) -and -not (Test-Path (Join-Path $mods 'ModManagerRestart'))) 'deploy without -Test removes the driver and fixtures' $d.Out

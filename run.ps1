@@ -51,6 +51,14 @@
   NucleusData (core's data folder with its downloads, staged change, installed.txt and result, moved aside for the run
   and put back after). Session 1 ends with RESTART NOW (core's helper applies the staged HUD Clock, then relaunches the
   game); session 2 checks it runs and ends at the driver's END line.
+  The update scenario (Mod Manager v2 story 6; VM only, a fixture catalog, two game sessions in one run): deploy.ps1
+  -Test -Scenario update installs core's test main.dll, HUD Clock 0.3.0 and WhistleMute, and the fixture catalog in the
+  driver's folder (HUD Clock 0.3.0 revoked, 0.3.1 and core one patch newer offered). The VM runner is called with
+  -RepeatUntilEnd, -DataDirs NucleusData and -FixtureServer (tools/release/tests/https-fixture-server.ps1 serves the
+  fixture map inside the VM; the run writes NucleusData/catalog-test.json with its port and certificate, for the test
+  main.dll). Session 1: the title-screen notice, UPDATE TO 0.3.1 from REVIEW, the Nucleus update, WhistleMute's
+  UNINSTALL, RESTART NOW; session 2 checks what core's helper applied and ends at the driver's END line. The VM
+  restore puts HudClock, WhistleMute, core and NucleusData back as they were.
   The browse scenario (Mod Manager v2 story 4; VM only) runs against the live catalog: the Mod Manager's startup refresh
   and one REFRESH reach the catalog's endpoints through core's native part; it ends at the driver's END line.
   Keeps the log as <workspace>/dumps/<copy>/mod-manager/<scenario>[.vm].log (ignored by git) and runs check.ps1 on it.
@@ -63,15 +71,15 @@
 #>
 param(
     [Parameter(Mandatory)] [string] $Instance,
-    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply', 'browse', 'install')]
+    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply', 'browse', 'install', 'update')]
     [string] $Scenario = 'screen',
-    [int] $TimeoutSec = 0, # 0: screen 1200 s (about 90 requests and two map loads), restart 600 s (two launches), apply 1200 s (four launches and three helper runs), browse 600 s (two live refreshes), install 900 s (two launches, a download and an apply), others 420 s; x1.5 in the VM
+    [int] $TimeoutSec = 0, # 0: screen 1200 s (about 90 requests and two map loads), restart 600 s (two launches), apply 1200 s (four launches and three helper runs), browse 600 s (two live refreshes), install 900 s (two launches, a download and an apply), update 900 s (two launches, three stages and an apply), others 420 s; x1.5 in the VM
     [ValidateSet('host', 'vm')] [string] $Target = 'vm',
     [switch] $AllowOtherDrivers # run even when another runner's test mod is enabled in the copy (tools/run-guard)
 )
 $ErrorActionPreference = 'Stop'
-$hostTimeout = switch ($Scenario) { 'screen' { 1200 } 'restart' { 600 } 'apply' { 1200 } 'browse' { 600 } 'install' { 900 } default { 420 } }
-if ($Scenario -in 'restart', 'apply', 'install' -and $Target -ne 'vm') { throw "The $Scenario scenario runs only in the VM (-Target vm): the host runner does not follow a game that starts itself again." }
+$hostTimeout = switch ($Scenario) { 'screen' { 1200 } 'restart' { 600 } 'apply' { 1200 } 'browse' { 600 } 'install' { 900 } 'update' { 900 } default { 420 } }
+if ($Scenario -in 'restart', 'apply', 'install', 'update' -and $Target -ne 'vm') { throw "The $Scenario scenario runs only in the VM (-Target vm): the host runner does not follow a game that starts itself again." }
 if ($Scenario -eq 'browse' -and $Target -ne 'vm') { throw "The browse scenario runs only in the VM (-Target vm): its driver asks for 'key RIGHT', 'type <text>' and screenshots, which only the VM runner serves (the host runner serves key ENTER, UP and DOWN, clicks, moves and wheels)." }
 if ($TimeoutSec -le 0 -and $Target -eq 'host') { $TimeoutSec = $hostTimeout }
 $CoreName = 'Nucleus'
@@ -201,6 +209,17 @@ if ($Target -eq 'vm') {
         $runPaks += 'HudClock.pak'
         $runBasePaks += 'HudClock_P.pak'
         $relaunch = @{ RepeatUntilEnd = $true; DataDirs = "${CoreName}Data" }
+    }
+    if ($Scenario -eq 'update') {
+        # Story 6 (v2): HudClock and WhistleMute are the deploy's fixtures (their VM copies saved and put back by the
+        # restore); two sessions; core's data folder saved and put back; the fixture catalog served inside the VM.
+        $runMods += 'HudClock', 'WhistleMute'
+        $runPaks += 'HudClock.pak', 'WhistleMute.pak'
+        $runBasePaks += 'HudClock_P.pak', 'WhistleMute_P.pak'
+        $ueRel = 'NuclearNightmare\Binaries\Win64\ue4ss'
+        $relaunch = @{ RepeatUntilEnd = $true; DataDirs = "${CoreName}Data"; FixtureServer = @{
+                Map = "$ueRel\Mods\$driver\fixture\map.json"; Template = "$ueRel\Mods\$driver\fixture\catalog-test.template.json"
+                Config = "$ueRel\${CoreName}Data\catalog-test.json" } }
     }
     if ($Scenario -eq 'apply') {
         # Story 3 (v2): four sessions; core's data folder saved and put back; plans B and C staged on request. The blocks
