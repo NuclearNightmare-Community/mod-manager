@@ -120,6 +120,36 @@ S.TABLES = {
         installFailed = "INSTALL FAILED",
         cantInstallNeeds = "CAN'T INSTALL: %s NEEDS %s %s",
         cantInstall = "CAN'T INSTALL %s (%s)",
+        -- v2 story 6: UPDATE (the INSTALL slot's button on an update or a revoked mod with a fix, and in Details)
+        update = "UPDATE",
+        updateTitle = "UPDATE %s %s → %s?",          -- the confirm window (id install)
+        updatesOnRestart = "%s UPDATES WHEN THE GAME RESTARTS",
+        updateRefused = "UPDATE REFUSED (%s)",
+        updateFailed = "UPDATE FAILED",
+        cantUpdateNeeds = "CAN'T UPDATE: %s NEEDS %s %s",
+        cantUpdate = "CAN'T UPDATE %s (%s)",
+        versionArrow = "%s → %s",                    -- the main window's version cell with an update
+        -- revocations: the badge, the main window's notice line, the title-screen notice, the revoked window
+        stRevoked = "REVOKED",                        -- a Browse row's state
+        revokedTip = "REVOKED: %s",                   -- the red warning icon's tooltip (the reason)
+        nRevoked = "%d REVOKED",                      -- the main window's notice line
+        nUpdates = "%d UPDATES AVAILABLE",
+        review = "REVIEW",
+        updates = "UPDATES",
+        oneRevoked = "%s %s WAS REVOKED",             -- the title-screen notice
+        manyRevoked = "%d INSTALLED MODS WERE REVOKED",
+        revokedTitle = "REVOKED MODS",                -- the revoked window
+        updateTo = "UPDATE TO %s",
+        noReason = "NO REASON GIVEN",
+        -- UNINSTALL (Details, the revoked window) and its confirm window (id uninstall)
+        uninstall = "UNINSTALL",
+        uninstallTitle = "UNINSTALL %s %s?",
+        uninstallLine = "REMOVES ITS FILES AND ITS MODS.TXT LINE",
+        cantUninstall = "CAN'T UNINSTALL %s: NEEDED BY %s",
+        andMoreNames = "%s AND %d MORE",
+        removedOnRestart = "%s IS REMOVED WHEN THE GAME RESTARTS",
+        uninstallRefused = "UNINSTALL REFUSED (%s)",
+        uninstallFailed = "UNINSTALL FAILED",
         -- the 14 categories (spec-mod-manager-v2/categories.md), cat.<id>
         ["cat.gameplay"] = "GAMEPLAY", ["cat.content"] = "CONTENT", ["cat.visuals"] = "VISUALS", ["cat.audio"] = "AUDIO",
         ["cat.ui"] = "USER INTERFACE", ["cat.qol"] = "QUALITY OF LIFE", ["cat.tools"] = "UTILITIES & TOOLS",

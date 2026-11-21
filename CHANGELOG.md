@@ -2,6 +2,22 @@
 
 All notable changes to the Mod Manager are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-11-21
+
+### Added
+
+- UPDATE (Mod Manager v2 story 6). Browse rows with an update (`UPDATE AVAILABLE`), and installed mods whose version was revoked when the catalog offers another good version, get an **UPDATE** button where INSTALL sits, and so does their DETAILS window. It works like INSTALL: the confirm window reads `UPDATE <NAME> <FROM> → <TO>?` with ALSO INSTALLS and DOWNLOAD, its button UPDATE; the result reads `<NAME> UPDATES WHEN THE GAME RESTARTS`, `UPDATE REFUSED (<outcome>)` or `UPDATE FAILED`. Nucleus and the Mod Manager update like any mod. Going down a version is offered only away from a revoked version (Nucleus checks that again against its own verified list).
+- The MOD MANAGER window shows `<installed> → <offered>` in the version column of a mod with an update, and one notice line under the title, `<n> REVOKED` and/or `<m> UPDATES AVAILABLE`, with **REVIEW** (the revoked window) and **UPDATES** (Browse showing UPDATE AVAILABLE).
+- Revocations are flagged, never acted on. An installed version the verified revoked list names (same id and version, and the revoked SHA-256 is the catalog's for that version, or the catalog no longer lists that version; either action) gets a red badge (Nucleus's warning icon tinted red, tooltip `REVOKED: <reason>`) on its main-window row, reads `REVOKED` in Browse, and a notice shows on the title screen (top right): `<NAME> <V> WAS REVOKED` or `<n> INSTALLED MODS WERE REVOKED`, with **REVIEW**. It shows at every launch until the mod is updated, uninstalled, or a fix is staged; there is no "seen" and no timer.
+- The **REVOKED MODS** window: each revoked mod with its version and reason (at most 120 characters), **UPDATE TO <v>** (the newest good version for this build, newer or older; none when there is none) and **UNINSTALL**; BACK is LATER and changes nothing. Keys and a gamepad reach every button.
+- UNINSTALL (story 7, merged into 6). In DETAILS of an installed mod (not Nucleus or the Mod Manager) and in the revoked window. Refused without a confirm while an installed mod, or one staged this session, needs it: `CAN'T UNINSTALL <NAME>: NEEDED BY <A>, <B>` (at most 4 names, then `AND <n> MORE`). Otherwise the confirm `UNINSTALL <NAME> <V>?`, `REMOVES ITS FILES AND ITS MODS.TXT LINE`; confirming hands the id and version to Nucleus (`core.catalog.unstage`), which stages the removal of exactly that version's files (a file the player changed is kept) and of its `mods.txt` line. Then `<NAME> IS REMOVED WHEN THE GAME RESTARTS`, RESTART NOW, and the row reads `PENDING RESTART`; otherwise `UNINSTALL REFUSED (<outcome>)` or `UNINSTALL FAILED`.
+- `Scripts/catalog.lua`: `revokedMatch`, `revokedInstalled`, `dependents`, `action`, `canUninstall`; rows gain `revoked`. Log lines `UPDATE ask|refuse|cancel|stage|done|message`, `REVOKED <id> v=<v> action=<a> fix=<v|none>`, `NOTICE shown n=<n>` / `NOTICE removed`, `REVIEW open n=<n>` / `REVIEW closed (<reason>)`, `UNINSTALL ask <id>|refuse <id> needed-by=<ids>|cancel|stage job=<n>|<reason>|done outcome=<o> txn=<t> files=<n> kept=<n>|message`.
+
+### Changed
+
+- Needs Nucleus 0.27.0 or newer (`>=0.27.0`, was `>=0.26.0`), which stages removals (`core.catalog.unstage`).
+- The main window's status slot has four icons (build, dependency, restart, revoked).
+
 ## [0.7.0] - 2026-11-21
 
 ### Added

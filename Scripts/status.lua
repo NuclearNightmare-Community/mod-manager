@@ -6,7 +6,8 @@
 --                                                   rows first seen later are added as they are
 --   Status.compute(rows, ctx) -> { [key] = st }     ctx = { baseline, running = { version, build }, settingsPending =
 --                                                   { [key] = true }, fmt = function(key, ...) -> string }
---     st = { kinds = { "build" | "dep" | "restart", ... } (in that order), tips = { build =, dep =, restart = },
+--     st = { kinds = { "build" | "dep" | "restart" | "revoked", ... } (in that order; v2 story 6: revoked when
+--            row.revoked = { reason } is set), tips = { build =, dep =, restart =, revoked = },
 --            lines = { <every problem line, in order> }, pending = "on" | "off" | "setting" | nil }
 --   Status.dependents(rows, row) -> { name, ... }   other folder rows that are on and list row's id in dependsOn
 --   Status.confirmNames(names, fmt) -> text          at most 5 names, then "AND <n> MORE"
@@ -112,6 +113,12 @@ function Status.compute(rows, ctx)
             if #r > 0 then
                 st.kinds[#st.kinds + 1] = "restart"; st.tips.restart = tip(r)
                 for _, l in ipairs(r) do st.lines[#st.lines + 1] = l end
+            end
+            -- v2 story 6: the installed version is revoked (main.lua sets row.revoked from the verified catalog)
+            if type(row.revoked) == "table" then
+                local why = type(row.revoked.reason) == "string" and row.revoked.reason ~= "" and row.revoked.reason or fmt("noReason")
+                local l = fmt("revokedTip", Status.cut((why:gsub("[%z\1-\31\127]", " ")), Status.MAX_TIP - 16))
+                st.kinds[#st.kinds + 1] = "revoked"; st.tips.revoked = tip({ l }); st.lines[#st.lines + 1] = l
             end
         end
         out[row.key] = st

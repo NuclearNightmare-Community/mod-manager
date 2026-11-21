@@ -355,5 +355,98 @@ do
     ok(z.key == "sizeKB" and z.n == 1, "sizeText: nothing known reads 1 KB")
 end
 
+-- ---------------------------------------------------------------- v2 story 6: revocations, updates, uninstall
+do
+    local SHA_A, SHA_B, SHA_C = string.rep("a", 64), string.rep("b", 64), string.rep("c", 64)
+    local function ver(v, sha, deps) return { version = v, scope = "client", game = { version = "V8.2.3", build = B }, dependsOn = deps or {}, sha256 = sha, size = 100 } end
+    local function pkg(id, name, versions) return { id = id, name = name, kind = "mod", description = name .. ".", categories = { "ui" }, versions = versions } end
+    local index = { packages = {
+        pkg(NN .. "nucleus", "Nucleus", { ver("0.27.0", SHA_A) }),
+        pkg(NN .. "mod-manager", "ModManager", { ver("0.8.0", SHA_A) }),
+        pkg("x.newer", "NewerFix", { ver("0.3.1", SHA_A), ver("0.3.0", SHA_B) }),              -- 0.3.0 revoked, 0.3.1 offered
+        pkg("x.older", "OlderFix", { ver("0.4.0", SHA_B), ver("0.3.1", SHA_A) }),              -- 0.4.0 revoked, 0.3.1 offered
+        pkg("x.nofix", "NoFix", { ver("1.0.0", SHA_B) }),                                      -- 1.0.0 revoked, nothing else
+        pkg("x.shadiff", "ShaDiff", { ver("1.0.0", SHA_A) }),                                  -- revoked entry with another sha
+        pkg("x.gone", "Gone", { ver("2.0.0", SHA_A) }),                                        -- installed 1.0.0 no longer listed
+        pkg("x.upd", "Upd", { ver("2.0.0", SHA_A, { { id = NN .. "nucleus", version = ">=0.27.0" } }) }),
+    } }
+    local revoked = { revoked = {
+        { id = "X.Newer", version = "0.3.0", sha256 = SHA_B:upper(), reason = "crash on map load", action = "disable" },
+        { id = "x.older", version = "0.4.0", sha256 = SHA_B, reason = "breaks saves", action = "block" },
+        { id = "x.nofix", version = "1.0.0", sha256 = SHA_B, reason = "", action = "block" },
+        { id = "x.shadiff", version = "1.0.0", sha256 = SHA_C, reason = "other build", action = "disable" },
+        { id = "x.gone", version = "1.0.0", sha256 = SHA_C, reason = "pulled", action = "disable" },
+    } }
+    local installed = {
+        { folder = "Nucleus", id = NN .. "nucleus", version = "0.26.0", deps = {} },
+        { folder = "ModManager", id = NN .. "mod-manager", version = "0.8.0", deps = {} },
+        { folder = "NewerFix", id = "x.newer", version = "0.3.0", deps = {} },
+        { folder = "OlderFix", id = "x.older", version = "0.4.0", deps = {} },
+        { folder = "NoFix", id = "x.nofix", version = "1.0.0", deps = {} },
+        { folder = "ShaDiff", id = "x.shadiff", version = "1.0.0", deps = {} },
+        { folder = "Gone", id = "x.gone", version = "1.0.0", deps = {} },
+        { folder = "Upd", id = "x.upd", version = "1.0.0", deps = { { id = NN .. "nucleus", need = ">=0.20.0" } } },
+    }
+    local rows = Catalog.model(index, revoked, installed, "0.26.0", B)
+    local r = byId(rows, "x.newer")
+    ok(r.revoked and r.revoked.reason == "crash on map load" and r.revoked.action == "disable" and r.revoked.fix == "0.3.1", "revoked, newer fix: flagged with its reason, action and fix (id and sha without case)")
+    eq(r.state, "update", "revoked, newer fix: still state update")
+    eq(Catalog.action(r), "update", "revoked, newer fix: UPDATE")
+    r = byId(rows, "x.older")
+    ok(r.revoked and r.revoked.fix == "0.3.1" and r.revoked.action == "block", "revoked, older fix: the fix is the offered (older) version")
+    eq(Catalog.action(r), "update", "revoked, older fix: UPDATE (UPDATE TO 0.3.1)")
+    local set, why = Catalog.installSet(rows, "x.older")
+    ok(set and #set == 1 and set[1].version == "0.3.1" and set[1].flag == "update" and set[1].from == "0.4.0", "installSet: a downgrade away from a revoked version is allowed", why)
+    r = byId(rows, "x.nofix")
+    ok(r.revoked and r.revoked.fix == nil, "revoked, no fix: no fix")
+    eq(Catalog.action(r), nil, "revoked, no fix: no UPDATE")
+    ok(Catalog.canUninstall(r), "revoked, no fix: UNINSTALL")
+    eq(byId(rows, "x.shadiff").revoked, nil, "revoked entry's sha differs from the index's: not revoked")
+    r = byId(rows, "x.gone")
+    ok(r.revoked and r.revoked.reason == "pulled" and r.revoked.fix == "2.0.0", "the index no longer lists the installed version: revoked (any sha)")
+    -- a non-revoked downgrade stays refused
+    local dg = Catalog.model({ packages = { pkg("x.d", "D", { ver("1.0.0", SHA_A) }) } }, nil, { { folder = "D", id = "x.d", version = "2.0.0" } }, "0.26.0", B)
+    local s2, w2 = Catalog.installSet(dg, "x.d")
+    ok(s2 == nil and w2 == "downgrade", "installSet: a non-revoked downgrade is refused", w2)
+    eq(Catalog.action(byId(dg, "x.d")), nil, "a newer installed (not revoked) version offers nothing")
+    -- an update target with a too-old dependency: one set, the dependency first
+    set = Catalog.installSet(rows, "x.upd")
+    ok(set and #set == 2 and set[1].id == NN .. "nucleus" and set[1].flag == "update" and set[1].from == "0.26.0" and set[2].id == "x.upd" and set[2].from == "1.0.0",
+        "installSet: an update whose new version needs a newer Nucleus: ALSO INSTALLS NUCLEUS (UPDATE FROM 0.26.0)")
+    -- action, pending, uninstall
+    local pend = { ["x.newer"] = true }
+    eq(Catalog.action(byId(rows, "x.newer"), pend), nil, "pending: no UPDATE")
+    eq(Catalog.canUninstall(byId(rows, "x.newer"), pend), false, "pending: no UNINSTALL")
+    eq(Catalog.canUninstall(byId(rows, NN .. "nucleus")), false, "Nucleus: no UNINSTALL")
+    eq(Catalog.canUninstall(byId(rows, NN .. "mod-manager")), false, "Mod Manager: no UNINSTALL")
+    -- revokedInstalled: sorted by name, staged ones resolved
+    local list = Catalog.revokedInstalled(rows)
+    local names = {}
+    for i, e in ipairs(list) do names[i] = e.name .. "@" .. e.version .. ":" .. (e.fix or "none") end
+    eq(table.concat(names, ","), "Gone@1.0.0:2.0.0,NewerFix@0.3.0:0.3.1,NoFix@1.0.0:none,OlderFix@0.4.0:0.3.1", "revokedInstalled: every revoked installed version, by name")
+    eq(#Catalog.revokedInstalled(rows, { ["x.gone"] = true, ["x.nofix"] = true }), 2, "revokedInstalled: a staged owner counts as resolved")
+    -- not installed: never flagged
+    local rows2 = Catalog.model(index, revoked, {}, "0.26.0", B)
+    eq(#Catalog.revokedInstalled(rows2), 0, "revoked versions that aren't installed are not flagged")
+    eq(byId(rows2, "x.newer").offered.version, "0.3.1", "the offered version skips the revoked one")
+end
+do -- dependents: installed rows and staged owners whose dependsOn names the id (normalized)
+    local rows = {
+        { folder = "A", id = "x.a", name = "Alpha", deps = {} },
+        { folder = "B", id = "x.b", name = "Bravo", deps = { { id = "X.A", need = ">=1.0.0" } } },
+        { folder = "C", id = "x.c", name = "Charlie", deps = { { id = "x.a" } } },
+        { folder = "D", id = "x.d", name = "Delta", deps = { { id = "x.z" } } },
+        { key = "pak", name = "PakOnly", deps = { { id = "x.a" } } }, -- not a folder row
+    }
+    local names, ids2 = Catalog.dependents(rows, {}, "x.a")
+    eq(table.concat(names, ","), "Bravo,Charlie", "dependents: installed rows that need it")
+    eq(table.concat(ids2, ","), "x.b,x.c", "dependents: their ids")
+    names = Catalog.dependents(rows, { ["x.e"] = { name = "Echo", deps = { { id = "x.a", need = ">=1.0.0" } } } }, "x.a")
+    eq(table.concat(names, ","), "Bravo,Charlie,Echo", "dependents: a staged owner that needs it too")
+    names = Catalog.dependents(rows, { ["x.b"] = { name = "Bravo", deps = {}, removal = true } }, "x.a")
+    eq(table.concat(names, ","), "Charlie", "dependents: an owner staged for removal needs nothing")
+    eq(#Catalog.dependents(rows, {}, "x.d"), 0, "dependents: nobody needs it")
+end
+
 io.stdout:write(("catalog_test: %d passed, %d failed\n"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

@@ -58,12 +58,12 @@ do -- First open: the window, the title, the header, the lists, one row per mod.
     eq(U.byId.hdr.place.list, U.byId["hdr.list"].handle, "the header row is in the header list")
     local order = {}
     for _, c in ipairs(U.calls) do local o = c.args[1] if type(o) == "table" and o.place and o.place.row == U.byId.hdr.handle then order[#order + 1] = o.id end end
-    eq(table.concat(order, ","), "hdr.on,hdr.name,hdr.ver,hdr.sc,hdr.s1,hdr.s2,hdr.s3,hdr.cfg", "header cells in a row's order")
+    eq(table.concat(order, ","), "hdr.on,hdr.name,hdr.ver,hdr.sc,hdr.s1,hdr.s2,hdr.s3,hdr.s4,hdr.cfg", "header cells in a row's order")
     local hsc = U.byId["hdr.sc"]
     ok(hsc.kind == "image" and hsc.image == nil and hsc.size == Screen.ICON and hsc.place.fill == nil and hsc.tooltip == nil, "story 12 header: a spacer above the scope column")
     order = {}
     for _, c in ipairs(U.calls) do local o = c.args[1] if type(o) == "table" and o.place and o.place.row == U.byId.r1.handle and c.name:match("create") then order[#order + 1] = o.id end end
-    eq(table.concat(order, ","), "r1.on,r1.tg,r1.name,r1.ver,r1.sc,r1.s1,r1.s2,r1.s3,r1.cfg", "row cells: lock, checkbox, name, version, scope, three status icons, gear")
+    eq(table.concat(order, ","), "r1.on,r1.tg,r1.name,r1.ver,r1.sc,r1.s1,r1.s2,r1.s3,r1.s4,r1.cfg", "row cells: lock, checkbox, name, version, scope, four status icons (v2 story 6: revoked), gear")
     for n, r in ipairs(ROWS) do
         local p = "r" .. n
         ok(U.byId[p] and U.byId[p].place.list == l.handle and U.byId[p].visible, p .. " in the list, shown")
@@ -257,7 +257,7 @@ do -- The Configure window: heading and three lines; created once; Close is core
     eq(U.byId["cfg.title"].text, "ModManagerFixture", "without a hook the gear opens Configure itself")
     -- clickable buttons: the gears, QUIT GAME and RESTART NOW (the toggles are checkboxes)
     for id, el in pairs(U.byId) do
-        if el.onClick then ok(id:match("^r%d+%.cfg$") ~= nil or id == "quit" or id == "restart", "only gears, QUIT GAME and RESTART NOW are buttons: " .. id) end
+        if el.onClick then ok(id:match("^r%d+%.cfg$") ~= nil or id == "quit" or id == "restart" or id == "notice.review" or id == "notice.updates", "only gears, QUIT GAME, RESTART NOW and the notice line's REVIEW and UPDATES are buttons: " .. id) end
     end
 end
 
@@ -404,7 +404,7 @@ do -- 0.1.1 layout: the card's top-left corner stack, no fixed offsets; the list
     ok(isCorner(l, "tight", Screen.LIST_NUDGE), "list: top-left corner, a tight gap after the header list, nudged right")
     eq(8 + l.place.offset.x, 16, "the list's left edge is the header list's (tight gap + nudge = normal gap)")
     ok(hl.place.screen == w and l.place.screen == w, "both lists on the main window")
-    eq(cornerOrder(U, w), "title,hdr.list,list", "the corner stack's creation order: title, header list, list")
+    eq(cornerOrder(U, w), "title,notice.list,hdr.list,list", "the corner stack's creation order: title, notice line (v2 story 6), header list, list")
     eq(cornerOrder(U, w, "bottom-right"), "quit,restart,banner,msg", "story 6: QUIT GAME, (story 8) RESTART NOW right after it, the banner and the message line in the bottom-right corner")
     eq(hl.size.h, Screen.HEADER_H, "header list height")
     eq(l.size.h, 1080 - Screen.LIST_RESERVE, "list height: the layout height less the reserve")
@@ -427,12 +427,12 @@ do -- 0.1.1 layout: the card's top-left corner stack, no fixed offsets; the list
     v:openMain(ROWS, "en", { w = 2580, h = 1080 })
     local creates = {}
     for _, c in ipairs(U.since(before)) do if c.name:match("%.create$") then creates[#creates + 1] = c.args[1].id end end
-    eq(table.concat(creates, ","), "hdr.list,list", "a new size re-creates only the two lists, with the same ids")
+    eq(table.concat(creates, ","), "notice.list,hdr.list,list", "a new size re-creates only the three lists, with the same ids")
     eq(l.size.w, 2580 - Screen.SIDE_RESERVE, "wider layout: a wider list")
     eq(hl.size.w, l.size.w, "wider layout: the header list follows")
     eq(l.size.h, 1080 - Screen.LIST_RESERVE, "wider layout: the same height")
     ok(isCorner(hl, "normal") and isCorner(l, "tight", Screen.LIST_NUDGE), "wider layout: the same corner places")
-    eq(cornerOrder(U, w), "title,hdr.list,list", "wider layout: the same stack order")
+    eq(cornerOrder(U, w), "title,notice.list,hdr.list,list", "wider layout: the same stack order")
     before = #U.calls
     v:openMain(ROWS, "en", { w = 2580, h = 1080 })
     eq(#U.since(before, "list.create"), 0, "the same size: no list re-created")
@@ -546,6 +546,76 @@ do -- toggleKind and controlOf (pure).
     eq((Screen.controlOf({ type = "bool", readOnly = true })), "ro", "readOnly: a text")
     eq(Screen.clean("a\tb" .. string.rep("x", 100), 10), "a bx" .. string.rep("x", 6), "clean: controls as spaces, cut")
     eq(Screen.cut("ab\226\130\172", 4), "ab", "cut on a UTF-8 boundary")
+end
+
+do -- v2 story 6: the notice line under the title, the version cell with an update, the revoked badge.
+    local U = FakeUi.new()
+    local v = Screen.new(U, S)
+    local rows = { row{ folder = "HudClock", name = "HudClock", version = "0.3.0", state = "on" }, row{ folder = "Other", name = "Other", version = "1.0.0", state = "on" } }
+    rows[1].updateTo = "0.3.1"
+    rows[1].st = { kinds = { "revoked" }, tips = { revoked = "REVOKED: crash" }, lines = { "REVOKED: crash" } }
+    v:openMain(rows, "en", SIZE)
+    eq(U.byId["r1.ver"].text, "0.3.0 → 0.3.1", "version cell: <installed> → <offered>")
+    eq(U.byId["r2.ver"].text, "1.0.0", "version cell: no update, the version")
+    local s1 = U.byId["r1.s1"]
+    ok(s1.image and s1.image.icon == "warning" and s1.style and s1.style.tint.r == 0.85 and s1.style.tint.g == 0.1 and s1.style.tint.b == 0.1 and s1.style.tint.a == 1, "revoked: core's warning icon tinted red")
+    eq(s1.tooltip, "REVOKED: crash", "revoked: its tooltip")
+    eq(U.byId["notice.list"].visible, false, "notice: hidden with nothing to say")
+    eq(U.byId.list.size.h, 1080 - Screen.LIST_RESERVE, "notice hidden: the list's usual height")
+    v:setNotice(1, 0)
+    eq(U.byId["notice.list"].visible, true, "notice: shown")
+    eq(U.byId["notice.text"].text, "1 REVOKED", "notice: <n> REVOKED")
+    ok(U.byId["notice.review"].visible and not U.byId["notice.updates"].visible, "notice: REVIEW only")
+    eq(U.byId.list.size.h, 1080 - Screen.LIST_RESERVE - Screen.NOTICE_RESERVE, "notice shown: the list is shorter")
+    v:setNotice(2, 3)
+    eq(U.byId["notice.text"].text, "2 REVOKED - 3 UPDATES AVAILABLE", "notice: both")
+    ok(U.byId["notice.review"].visible and U.byId["notice.updates"].visible, "notice: REVIEW and UPDATES")
+    v:setNotice(0, 1)
+    eq(U.byId["notice.text"].text, "1 UPDATES AVAILABLE", "notice: updates only")
+    ok(not U.byId["notice.review"].visible and U.byId["notice.updates"].visible, "notice: UPDATES only")
+    local clicked
+    v.onUpdates = function() clicked = "updates" end
+    v.onReview = function() clicked = "review" end
+    U.click("notice.updates")
+    eq(clicked, "updates", "notice: UPDATES calls onUpdates")
+    v:setNotice(0, 0)
+    eq(U.byId["notice.list"].visible, false, "notice: hidden again")
+    eq(U.byId.list.size.h, 1080 - Screen.LIST_RESERVE, "notice hidden again: the list's usual height")
+    -- the tint goes when the kind does
+    rows[1].st = { kinds = {}, tips = {}, lines = {} }
+    v:refresh(rows)
+    ok(U.byId["r1.s1"].image == nil and U.byId["r1.s1"].style == nil, "revoked gone: no icon, no tint")
+end
+
+do -- v2 story 6: the revoked window: rows, UPDATE TO only with a fix, the reason cut to 120 characters, refill.
+    local U = FakeUi.new()
+    local v = Screen.new(U, S)
+    local long = string.rep("x", 130)
+    local list = { { id = "x.a", name = "Alpha", version = "0.4.0", reason = long, fix = "0.3.1" },
+        { id = "x.b", name = "Bravo", version = "1.0.0", reason = "", fix = nil } }
+    local w = v:openRevoked(list)
+    eq(w.id, "revoked", "revoked: the window's id")
+    eq(U.byId["rv.title"].text, "REVOKED MODS", "revoked: the title")
+    eq(U.byId["rv.r1.name"].text, "Alpha", "revoked: row 1 name")
+    eq(U.byId["rv.d1.why"].text, string.rep("x", 120), "revoked: the reason cut to 120 characters")
+    eq(U.byId["rv.r1.upd"].label, "UPDATE TO 0.3.1", "revoked: UPDATE TO <fix>")
+    eq(U.byId["rv.r2.upd"].visible, false, "revoked: no fix, no UPDATE TO")
+    eq(U.byId["rv.r2.un"].visible, true, "revoked: UNINSTALL always")
+    eq(U.byId["rv.d2.why"].text, "NO REASON GIVEN", "revoked: an empty reason")
+    for _, id in ipairs({ "rv.r1.upd", "rv.r1.un", "rv.r2.un" }) do eq(U.byId[id].kind, "button", id .. ": one of core's buttons (focusable: the keys and a gamepad)") end
+    local got = {}
+    v.onRevokedUpdate = function(id) got[#got + 1] = "upd:" .. id end
+    v.onRevokedUninstall = function(id) got[#got + 1] = "un:" .. id end
+    U.click("rv.r1.upd"); U.click("rv.r2.un")
+    eq(table.concat(got, ","), "upd:x.a,un:x.b", "revoked: clicks give the row's id")
+    v:fillRevoked({ list[2] })
+    eq(U.byId["rv.r2"].visible, false, "revoked: a refill hides rows past the count")
+    eq(U.byId["rv.r1.name"].text, "Bravo", "revoked: row 1 now Bravo")
+    eq(U.byId["rv.r1.upd"].visible, false, "revoked: Bravo has no fix")
+    v:setRevokedMessage("HELLO")
+    ok(U.byId["rv.msg"].visible and U.byId["rv.msg"].text == "HELLO", "revoked: the message line")
+    U.back("revoked")
+    eq(v:isRevokedOpen(), false, "revoked: BACK (LATER) closes it")
 end
 
 io.stdout:write(("screen_test: %d passed, %d failed\n"):format(passed, failed))
