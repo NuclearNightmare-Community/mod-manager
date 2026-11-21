@@ -361,6 +361,7 @@ function Catalog.installSet(rows, targetId)
     local ti = installed(target)
     if ti and (SV.compare(target.offered.version, ti) or 0) < 0 then return nil, "downgrade", { name = target.name } end
     local set, chosen, visiting = {}, {}, {}
+    local metByInstalled = {} -- { by, dep, need }: needs the installed version met; re-checked if that dep is chosen later
     local fail
     local function add(r)
         local inst = installed(r)
@@ -375,7 +376,8 @@ function Catalog.installSet(rows, targetId)
         for _, d in ipairs(r.offered.deps or {}) do
             local dep = byId[d.id]
             local inst = installed(dep)
-            if inst and SV.satisfies(inst, d.need) then -- the installed version will do
+            if inst and SV.satisfies(inst, d.need) then -- the installed version will do (unless a later need updates it)
+                metByInstalled[#metByInstalled + 1] = { by = r.name, dep = d.id, need = d.need }
             elseif chosen[d.id] then
                 if not SV.satisfies(chosen[d.id].version, d.need) then fail = { "unsatisfiable", { name = r.name, dep = nameOf(d.id), need = d.need } } end
             elseif visiting[d.id] then -- a cycle: the version being chosen must meet this need too
@@ -404,6 +406,10 @@ function Catalog.installSet(rows, targetId)
     visit(target, 0)
     if fail then return nil, fail[1], fail[2] end
     add(target)
+    for _, m in ipairs(metByInstalled) do
+        local c = chosen[m.dep]
+        if c and not SV.satisfies(c.version, m.need) then return nil, "unsatisfiable", { name = m.by, dep = nameOf(m.dep), need = m.need } end
+    end
     if #set > Catalog.MAX_SET then return nil, "too-many", { name = target.name } end
     return set
 end
