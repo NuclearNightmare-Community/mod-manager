@@ -253,7 +253,7 @@ function Catalog.model(index, revoked, installedRows, coreVersion, build)
     for _, r in ipairs(installedRows or {}) do
         if type(r) == "table" and type(r.folder) == "string" then
             folders[r.folder:lower()] = r
-            if type(r.id) == "string" then installedById[r.id] = r end
+            if type(r.id) == "string" then installedById[MID.normalize(r.id) or r.id] = r end
         end
     end
     local function installedOf(row)
