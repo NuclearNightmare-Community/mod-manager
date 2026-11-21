@@ -320,6 +320,27 @@ do
     table.remove(many[1].offered.deps)
     s2 = Catalog.installSet(many, "x.top")
     eq(s2 and #s2, 16, "installSet: 16 in one set is fine")
+    -- a need met by the installed version, broken by an update another dependency asks for: unsatisfiable
+    do
+        local SVm = require("nucleus.semver")
+        local real = SVm.satisfies
+        -- caret semantics for this case (the shipped semver reads ^ as a minimum): ^0.2.0 means >=0.2.0 and <0.3.0
+        SVm.satisfies = function(have, need)
+            local base = type(need) == "string" and need:match("^%^(%d+%.%d+%.%d+)$")
+            if base then
+                return real(have, ">=" .. base) and have:match("^%d+%.%d+%.") == base:match("^%d+%.%d+%.")
+            end
+            return real(have, need)
+        end
+        local rows2 = { { id = "x.t", name = "T", state = "available", offered = { version = "1.0.0", deps = {
+                { id = "x.lib", need = "^0.2.0" }, { id = "x.b", need = ">=1.0.0" } } } },
+            { id = "x.lib", name = "Lib", state = "installed", installedVersion = "0.2.5", offered = { version = "0.3.0", deps = {} } },
+            { id = "x.b", name = "B", state = "available", offered = { version = "1.0.0", deps = { { id = "x.lib", need = ">=0.3.0" } } } } }
+        local s3, why3, info3 = Catalog.installSet(rows2, "x.t")
+        SVm.satisfies = real
+        ok(s3 == nil and why3 == "unsatisfiable" and info3.name == "T" and info3.dep == "Lib" and info3.need == "^0.2.0",
+            "installSet: a need the installed version met, broken by an update another dependency needs: unsatisfiable, naming it", why3)
+    end
     -- depth: a chain of 10
     local chain = {}
     for i = 1, 10 do chain[i] = { id = "x.k" .. i, name = "K" .. i, state = "available", offered = { version = "1.0.0", deps = i < 10 and { { id = "x.k" .. (i + 1), need = ">=1.0.0" } } or {} } } end
