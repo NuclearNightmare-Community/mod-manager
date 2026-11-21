@@ -63,6 +63,8 @@ function F.new()
         set = function(h, t) rec("text.set", h, t) assert(#tostring(t) <= 256, "text.set: over 256 characters") elOf(h).text = t end,
         setVisible = vis("text"),
         setTooltip = function(h, t) rec("text.setTooltip", h, t) elOf(h).tooltip = tip(t) end,
+        -- v2 story 6: Browse's REVOKED state text gets a red background (and loses it again)
+        setStyle = function(h, st) rec("text.setStyle", h, st) assert(type(st) == "table", "text.setStyle: a style table") elOf(h).style = st end,
         remove = function(h) rec("text.remove", h) local el = elOf(h) el.removed, el.visible = true, false end,
     }
     U.image = {
@@ -226,6 +228,49 @@ function F.new()
         if not el.visible or el.enabled == false then return false end
         inHook(el.onClick)
         return true
+    end
+    -- v2 story 6: a gamepad (or the arrow keys and Enter) on window id, as core's focus moves on a screen: through the
+    -- window's buttons that are shown and enabled (their row and list shown too), in the order they were made, then
+    -- core's BACK. U.pad(id) -> { at() -> button id | "BACK", down(), up(), accept() }: accept clicks the focused
+    -- button (U.click) or, on BACK, closes the window (U.back). Focus starts on the first entry.
+    function U.pad(winId)
+        local P = { i = 1 }
+        local function shownUp(el)
+            for _ = 1, 8 do
+                if not el or el.removed or el.visible == false then return false end
+                local pl = el.place or {}
+                if pl.screen then return pl.screen.id == winId end
+                local up = pl.row or pl.list or pl.panel
+                if not up then return false end
+                el = U.els[up]
+            end
+            return false
+        end
+        function P.items()
+            local l = {}
+            for _, c in ipairs(U.calls) do
+                if c.name == "button.create" then
+                    local el = U.byId[c.args[1].id]
+                    if el and el.enabled ~= false and shownUp(el) then
+                        local dup = false
+                        for _, x in ipairs(l) do if x == el.id then dup = true end end
+                        if not dup then l[#l + 1] = el.id end
+                    end
+                end
+            end
+            l[#l + 1] = "BACK"
+            return l
+        end
+        function P.at() local l = P.items() return l[math.min(P.i, #l)] end
+        function P.down() P.i = math.min(P.i + 1, #P.items()) return P.at() end
+        function P.up() P.i = math.max(P.i - 1, 1) return P.at() end
+        function P.accept()
+            assert(U.open[winId], "pad: window " .. winId .. " is not open")
+            local id = P.at()
+            if id == "BACK" then U.back(winId) return true end
+            return U.click(id)
+        end
+        return P
     end
     function U.count(name) local n = 0 for _, c in ipairs(U.calls) do if c.name == name then n = n + 1 end end return n end
     function U.since(i, name) local r = {} for k = i + 1, #U.calls do if not name or U.calls[k].name == name then r[#r + 1] = U.calls[k] end end return r end

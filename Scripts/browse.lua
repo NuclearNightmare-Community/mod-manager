@@ -272,8 +272,13 @@ function Browse:fill()
             local tip = self:scopeTip(sc)
             if c.scopeTip ~= tip then ui.image.setTooltip(c.sc, tip); c.scopeTip = tip end
             if c.st ~= st then ui.text.set(c.stH, st); c.st = st end
-            -- v2 story 6: a revoked installed version (not staged): core's warning icon tinted red, REVOKED: <reason>
+            -- v2 story 6: a revoked installed version (not staged): the state text REVOKED in the badge colour (a red
+            -- box behind it), core's warning icon tinted red, REVOKED: <reason>
             local revoked = r.revoked ~= nil and not self.pending[r.id]
+            if (c.stRed == true) ~= revoked then
+                ui.text.setStyle(c.stH, revoked and { font = "body", overflow = "ellipsis", background = Screen.RED } or { font = "body", overflow = "ellipsis" })
+                c.stRed = revoked
+            end
             local warn = revoked or r.needsCore == true
             local wtip = revoked and self:fmt("revokedTip", cut(r.revoked.reason ~= "" and r.revoked.reason or self:str("noReason"), 480))
                 or (warn and self:fmt("needsCore", r.coreNeed or self:str("unknown")) or nil)

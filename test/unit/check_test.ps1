@@ -530,8 +530,13 @@ function UpdateSession([int] $n) {
         $l += L 'HudClock' 'CONNECT ok Nucleus 0.27.1 (pong 0.27.1 boot=1)'
         $l += L $M 'APPLY result applied reason=- path=- attempts=0'
         $l += L $M 'APPLY ack ok'
-        $l += L $D "UPOLD absent txn=$TX"
-        foreach ($k in 'UPAPPLIED', 'UPCORE', 'UPLOADED', 'UPJSON', 'UPOLDFILE', 'UPWMGONE', 'UPWMLINE', 'UPMODSTXT', 'UPNONOTICE2', 'UPROW2') { $l += L $D "OK $k x" }
+        foreach ($k in 'UPAPPLIED', 'UPCORE', 'UPLOADED', 'UPJSON', 'UPOLDFILE', 'UPWMGONE', 'UPWMLINE', 'UPMODSTXT', 'UPNONOTICE2', 'UPOLDBEFORE', 'UPROW2') { $l += L $D "OK $k x" }
+        $l += L $M "UNINSTALL ask $HCID"
+        $l += L $M 'UNINSTALL stage job=2'
+        $l += L 'Nucleus' "native: catalog: unstage job 2 started ($HCID 0.3.1)"
+        $l += L $M "UNINSTALL done outcome=ok txn=$TX files=4 kept=0"
+        $l += L $M 'APPLY start ok'
+        foreach ($k in 'UPUNTITLE2', 'UPUNDONE2', 'UPWAIT2', 'UPOLD') { $l += L $D "OK $k x" }
         $l += L $D 'END result=PASS checks=60 failures=0'
     }
     return $l
@@ -541,7 +546,9 @@ $utail = @("[run.ps1] FIXTURE server pid=7 port=50123 cert=$('ab' * 32) config=N
 function UpdateLog($p1 = $u1, $p2 = $u2, $tl = $utail) { @($p1) + $iS2 + @($p2) + @($tl) }
 $ugood = UpdateLog
 Expect $ugood 'update' 0 'update: passes' 'All checks passed' 'vm'
-Expect (UpdateLog -p2 ($u2 -replace 'UPOLD absent', 'UPOLD present')) 'update' 0 'update: the helper''s .old still there is only a warning' 'warn: session 2: .*UPOLD absent' 'vm'
+Expect (UpdateLog -p2 ($u2 -replace 'OK UPOLD x', 'FAIL UPOLD x')) 'update' 1 'update: the helper''s .old still there fails' 'session 2: .*OK UPOLD ' 'vm'
+Expect (UpdateLog -p2 ($u2 -replace 'kept=0', 'kept=1')) 'update' 1 'update: session 2''s uninstall keeping a file fails' 'session 2: ' 'vm'
+Expect (UpdateLog -p2 ($u2 | Where-Object { $_ -notmatch 'APPLY start ok' })) 'update' 1 'update: no helper started in session 2 fails' 'session 2: ' 'vm'
 Expect (UpdateLog -tl $itail) 'update' 1 'update: no fixture server fails' 'FIXTURE server' 'vm'
 Expect (UpdateLog -p1 ($u1 | Where-Object { $_ -notmatch 'NOTICE shown' })) 'update' 1 'update: no title notice fails' 'session 1: ' 'vm'
 Expect (UpdateLog -p1 ($u1 -replace 'UNINSTALL done outcome=ok', 'UNINSTALL done outcome=not-in-catalog')) 'update' 1 'update: a refused uninstall fails' 'session 1: ' 'vm'

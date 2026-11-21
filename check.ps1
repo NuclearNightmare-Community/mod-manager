@@ -81,8 +81,10 @@
   nuclearnightmare-community.whistle-mute", "UNINSTALL done outcome=ok ... files=3 kept=0", core's stage and unstage job
   lines, the driver's UP* checks, "RESTART mode=direct", no END line. Session 2: "APPLY status staged=none
   result=applied", "APPLY result applied", "APPLY ack ok", core's READY (the driver's UPCORE: its mod.json at the fixture version), no test main.dll, a
-  "[HudClock]" line, no NOTICE shown, the driver's UP* checks, END result=PASS; soft: "UPOLD absent" (the helper's
-  renamed copy bin\<Core>Restart.<txn>.old is deleted only by a later helper start).
+  "[HudClock]" line, no NOTICE shown, no UPDATE or INSTALL, the helper's renamed copy bin\<Core>Restart.<txn>.old still
+  there (UPOLDBEFORE), then "UNINSTALL ask" HUD Clock, "UNINSTALL done outcome=ok ... kept=0" (its files from
+  installed.txt) and "APPLY start ok" (a helper starts: only one in apply mode deletes the .old), the driver's UP*
+  checks (UPOLD: the .old gone), END result=PASS.
   Exit code 1 when any check fails; otherwise prints "All checks passed."
   Scenarios: screen, no-core, old-core, restart, apply, browse, install, update (run.ps1 drives them); unit needs no log: it runs test.ps1.
   -Target vm: a log from run.ps1 -Target vm. The VM's game shares the CPU with the host, so core's "hud slow tick"
@@ -529,12 +531,16 @@ if ($Scenario -eq 'update') {
         "#1|\[$M\] APPLY status staged=none result=applied "
         "#1|\[$M\] APPLY result applied "
         "#1|\[$M\] APPLY ack ok\s*$"
-        "!\[$M\] APPLY start "
         "!\[$M\] NOTICE shown "
-        "!\[$M\] (UPDATE|UNINSTALL|INSTALL) "
+        "!\[$M\] (UPDATE|INSTALL) "
         "\[$D\] OK UPAPPLIED ", "\[$D\] OK UPCORE ", "\[$D\] OK UPLOADED ", "\[$D\] OK UPJSON ", "\[$D\] OK UPOLDFILE ", "\[$D\] OK UPWMGONE "
-        "\[$D\] OK UPWMLINE ", "\[$D\] OK UPMODSTXT ", "\[$D\] OK UPNONOTICE2 ", "\[$D\] OK UPROW2 "
-        "?\[$D\] UPOLD absent "
+        "\[$D\] OK UPWMLINE ", "\[$D\] OK UPMODSTXT ", "\[$D\] OK UPNONOTICE2 ", "\[$D\] OK UPROW2 ", "\[$D\] OK UPOLDBEFORE "
+        # the HUD Clock uninstall that starts core's helper (from installed.txt: kept=0), then the .old gone
+        "#1|\[$M\] UNINSTALL ask $HC\s*$"
+        "#1|\[$M\] UNINSTALL done outcome=ok txn=[0-9a-f]{32} files=[1-9]\d* kept=0\s*$"
+        "!\[$M\] UNINSTALL refuse "
+        "#1|\[$M\] APPLY start ok\s*$"
+        "\[$D\] OK UPUNTITLE2 ", "\[$D\] OK UPUNDONE2 ", "\[$D\] OK UPWAIT2 ", "\[$D\] OK UPOLD "
         "\[$D\] END result=PASS"
         "!\[$M\] RESTART mode="
     )) $s2 'session 2: '

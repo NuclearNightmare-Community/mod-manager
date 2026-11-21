@@ -76,7 +76,10 @@
 --             confirm (UPPENDING, UPCORETITLE, UPDONE2); BACK, BROWSE, "type whistle", WhistleMute's DETAILS, UNINSTALL
 --             and its confirm (UPUNTITLE, UPUNLINE, UPUNDONE, UPWAIT); BACK twice, RESTART NOW. Session 2: core 0.27.1
 --             and HUD Clock 0.3.1 run, the file only 0.3.0 had and WhistleMute's files and mods.txt line are gone, no
---             title notice (UP* checks), UPOLD (the helper's renamed copy: reported only), the HUD Clock row; END.
+--             title notice (UP* checks), the helper's renamed copy bin\<Core>Restart.<txn>.old still there (UPOLDBEFORE),
+--             the HUD Clock row; BROWSE, "type clock", HUD Clock's DETAILS, UNINSTALL and its confirm (UPUNTITLE2,
+--             UPUNDONE2, UPWAIT2: its files from installed.txt; core's helper starts and waits), the .old deleted by that
+--             helper (UPOLD); END. The run stops that helper before the game closes, so the removal is never applied.
 --   no-core:  (run.ps1 moves core aside) the menu has no MANAGE MODS entry.
 --   old-core: (run.ps1 sets core's installed mod.json to 0.1.0) publishes that version as <core>.version before the
 --             Mod Manager connects, as an old core would; the menu has no MANAGE MODS entry.
@@ -280,6 +283,13 @@ local function readFile(rel)
     local s = f:read("a")
     f:close()
     return s
+end
+-- Whether a file under ue4ss\Mods exists (opened and closed, nothing read).
+local function exists(rel)
+    local f = io.open(MODS_DIR .. "\\" .. rel, "rb")
+    if not f then return false end
+    f:close()
+    return true
 end
 
 local function texOf(img) return try(function() local o = img.Brush.ResourceObject if v(o) then return fname(o) end return "none" end) or "?" end
@@ -1846,6 +1856,7 @@ local function buildUpdate()
     -- package entry: its id followed by its name, unlike a dependsOn entry).
     local CORE_NEW = (readFile(ME .. "\\fixture\\index.json") or ""):match('"id":%s*"nuclearnightmare%-community%.' .. CORE:lower() .. '",%s*"name".-"versions":%s*%[%s*{%s*"version":%s*"([^"]+)"') or "?"
     local ARROW = "\u{2192}"
+    local oldRel -- session 2: the helper's renamed copy bin\<Core>Restart.<txn>.old (from apply-result.txt)
 
     waitWorld("menu" .. n, "NewMainMenu", 120)
     pastStartup()
@@ -2010,13 +2021,13 @@ local function buildUpdate()
             local ih, ik = t:find("HudClock : 1", 1, true), t:find("Keybinds : 1", 1, true)
             check(ih ~= nil and ik ~= nil and ih < ik, "UPMODSTXT mods.txt keeps HudClock : 1 above Keybinds : 1")
             check(not shownW(menuHostEl("tn.text")), "UPNONOTICE2 no title notice")
-            -- The helper renamed its running copy to bin\<Core>Restart.<txn>.old (core's self-update); only a later
-            -- helper start deletes it (none starts while nothing is staged), so this is reported, not required.
+            -- The helper renamed its running copy to bin\<Core>Restart.<txn>.old (core's self-update). A helper that
+            -- starts in apply mode deletes it (story 3); none starts while nothing is staged, so the UNINSTALL below
+            -- stages something and checks it is gone after core's helper started.
             local r = readFile("..\\" .. CORE .. "Data\\apply-result.txt") or ""
             local txn = r:match("txn\t(%x+)")
-            local state = "unknown"
-            if txn then state = readFile(CORE .. "\\bin\\" .. CORE .. "Restart." .. txn .. ".old") ~= nil and "present" or "absent" end
-            say("UPOLD %s txn=%s", state, tostring(txn))
+            oldRel = txn and (CORE .. "\\bin\\" .. CORE .. "Restart." .. txn .. ".old") or nil
+            check(oldRel ~= nil and exists(oldRel), "UPOLDBEFORE the helper's renamed copy %s is there before a helper starts", tostring(oldRel))
         end)
         openMain("session 2")
         step("update: rows", function()
@@ -2029,6 +2040,41 @@ local function buildUpdate()
         end)
         away()
         shot("update-session2")
+        -- UNINSTALL HUD Clock 0.3.1 (its files from installed.txt, which the helper wrote): core's helper starts and
+        -- waits, deleting the old helper copy. The run stops that helper before the game closes and the VM restore puts
+        -- the copy back, so the removal is never applied.
+        clickOn("BROWSE", function() return mainEl("browse") end)
+        waitFor("Browse", function() return screenOf("browse") ~= nil and bwEl("bw.title") ~= nil end, 15)
+        settle(2)
+        search("clock")
+        clickOn("DETAILS " .. HC, function() local x = bwRowNamed(HC) return x and bwCell(x, "det") end)
+        waitFor("Details", function() return screenOf("details") ~= nil and winEl("details", "dt.uninstall") ~= nil end, 15)
+        settle(2)
+        clickOn("UNINSTALL", function() return winEl("details", "dt.uninstall") end)
+        waitFor("the uninstall confirm", function() return screenOf("uninstall") ~= nil end, 15)
+        settle(2)
+        step("update: the HUD Clock uninstall confirm", function()
+            local t = textOf(winEl("uninstall", "un.title"))
+            check(t == "UNINSTALL HUD CLOCK 0.3.1?", "UPUNTITLE2 the confirm reads %s", tostring(t))
+        end)
+        clickOn("the confirm's UNINSTALL", function() return winEl("uninstall", "un.ok") end)
+        waitLogN("[" .. MOD .. "] UNINSTALL done ", 1, "UNINSTALL done (HUD Clock)", 300)
+        settle(2)
+        step("update: HUD Clock uninstall staged", function()
+            check((logCount("[" .. MOD .. "] UNINSTALL done outcome=ok ") or 0) == 1, "UPUNDONE2 the HUD Clock uninstall staged ok (from installed.txt)")
+            local s, why = applyStatus()
+            check(s ~= nil and s.staged == "waiting", "UPWAIT2 core's helper started and waits (%s)", s and tostring(s.staged) or tostring(why))
+        end)
+        step("update: the helper's .old", function()
+            if not oldRel then check(false, "UPOLD apply-result.txt names the change's txn") return end
+            local untilT = os.clock() + 30
+            return function()
+                local gone = not exists(oldRel)
+                if not gone and os.clock() < untilT then return false end
+                check(gone, "UPOLD the helper's renamed copy %s is deleted once a helper starts", oldRel)
+                return true
+            end, 40, "the helper's .old to go"
+        end)
         step("update: end", function() finish() end)
     end
 end

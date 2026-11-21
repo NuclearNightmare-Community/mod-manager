@@ -57,7 +57,9 @@
   -RepeatUntilEnd, -DataDirs NucleusData and -FixtureServer (tools/release/tests/https-fixture-server.ps1 serves the
   fixture map inside the VM; the run writes NucleusData/catalog-test.json with its port and certificate, for the test
   main.dll). Session 1: the title-screen notice, UPDATE TO 0.3.1 from REVIEW, the Nucleus update, WhistleMute's
-  UNINSTALL, RESTART NOW; session 2 checks what core's helper applied and ends at the driver's END line. The VM
+  UNINSTALL, RESTART NOW; session 2 checks what core's helper applied, uninstalls HUD Clock 0.3.1 (so a helper starts
+  and deletes the self-update's bin\<Core>Restart.<txn>.old; the run stops it before the game closes, so that removal
+  is never applied) and ends at the driver's END line. The VM
   restore puts HudClock, WhistleMute, core and NucleusData back as they were.
   The browse scenario (Mod Manager v2 story 4; VM only) runs against the live catalog: the Mod Manager's startup refresh
   and one REFRESH reach the catalog's endpoints through core's native part; it ends at the driver's END line.

@@ -340,13 +340,16 @@ local function start(core)
         local result, fs, paths = scan(fs0, paths0)
         -- v2 story 6: each installed mod's update (the version cell) and revocation (the red badge) from the verified
         -- catalog; a mod staged this session shows neither
-        local byId = {}
+        local byId, revById = {}, {}
         for _, c in ipairs(cat and cat.rows or {}) do byId[c.id] = c end
+        -- the revocations of the last verified catalog (a later refresh that failed keeps them), orphans included
+        for _, c in ipairs(cat and cat.revRows or {}) do if c.revoked then revById[c.id] = c end end
         for _, r in ipairs(result.rows) do
             local c = r.folder and r.id and byId[r.id] or nil
-            local staged = c and ins and ins.staged[c.id]
+            local rc = r.folder and r.id and revById[r.id] or nil
+            local staged = ins and ((c and ins.staged[c.id]) or (rc and ins.staged[rc.id]))
             r.updateTo = (c and not staged and c.state == "update" and c.offered) and c.offered.version or nil
-            r.revoked = (c and not staged and c.revoked) and { reason = c.revoked.reason } or nil
+            r.revoked = (rc and not staged and rc.installedVersion == r.version) and { reason = rc.revoked.reason } or nil
         end
         if withSettings then
             for _, r in ipairs(result.rows) do
@@ -364,7 +367,7 @@ local function start(core)
         for _, c in ipairs(cat.rows) do
             if c.state == "update" and c.offered and not ins.staged[c.id] then nUp = nUp + 1 end
         end
-        return #Catalog.revokedInstalled(cat.rows, ins.staged), nUp
+        return #Catalog.revokedInstalled(cat.revRows or {}, ins.staged), nUp
     end
 
     -- v2 story 6: the catalog model again (buildModel, below): the startup refresh may finish before the menu's footer
@@ -666,9 +669,15 @@ local function start(core)
         local b = (build or "-") .. " from=" .. from
         if cat.loggedBuild ~= b then cat.loggedBuild = b; log.info("BUILD %s", b) end
         local installed = fs and scan(fs, paths).rows or {}
-        local rows, warns = Catalog.model(d.index, d.revoked, installed, type(core.version) == "string" and core.version or nil, build)
+        local rows, warns, _, orphans = Catalog.model(d.index, d.revoked, installed, type(core.version) == "string" and core.version or nil, build)
         for _, w in ipairs(warns) do warnOnce(w.key, "%s", w.msg) end
         cat.rows = rows
+        -- v2 story 6: the revocations of this verified catalog, packages the index dropped included (orphans). Kept
+        -- when a later refresh fails (no verified catalog: buildModel returns above), so the notice stays until resolved.
+        local rev = {}
+        for _, r in ipairs(rows) do rev[#rev + 1] = r end
+        for _, r in ipairs(orphans or {}) do rev[#rev + 1] = r end
+        cat.revRows = rev
         for _, r in ipairs(rows) do
             local line = string.format("%s v=%s cat=%s scope=%s state=%s core=%s", r.id, Catalog.token(r.version),
                 #r.categories > 0 and table.concat(r.categories, ",") or "-", r.scope, r.state, r.needsCore and "needs" or "ok")
@@ -680,7 +689,7 @@ local function start(core)
         end
         -- v2 story 6: one REVOKED line per installed revoked version whose line changed (only flagged, never acted on)
         local seen = {}
-        for _, r in ipairs(rows) do
+        for _, r in ipairs(rev) do
             if r.revoked then
                 local line = string.format("%s v=%s action=%s fix=%s", r.id, Catalog.token(r.installedVersion),
                     Catalog.token(r.revoked.action), r.revoked.fix and Catalog.token(r.revoked.fix) or "none")
@@ -832,6 +841,9 @@ local function start(core)
     end
     local function rowOfCat(id)
         for _, r in ipairs(cat.rows) do if r.id == id then return r end end
+        -- v2 story 6: a revoked package the index dropped (an orphan: UNINSTALL only), or the last verified catalog's
+        -- revoked row after a refresh that failed
+        for _, r in ipairs(cat.revRows or {}) do if r.id == id then return r end end
         return nil
     end
     local TAG = { install = "INSTALL", update = "UPDATE", uninstall = "UNINSTALL" }
@@ -841,16 +853,17 @@ local function start(core)
     local function openRevokedWin()
         view.lang = S.language()
         buildModel() -- this game's build now (the fix needs it), as Browse does
-        local list = Catalog.revokedInstalled(cat.rows, ins.staged)
+        local list = Catalog.revokedInstalled(cat.revRows or {}, ins.staged)
         view:openRevoked(list)
         log.info("REVIEW open n=%d", #list)
     end
     -- The title-screen notice: while any installed version is revoked (in the verified revoked list) and not staged
     -- this session, a text and REVIEW on core's menu host, top right. Shown at every launch until resolved (no
-    -- seen-state, no timer); removed once nothing is left.
+    -- seen-state, no timer); removed once nothing is left. The list is the last verified catalog's (cat.revRows): a
+    -- later refresh that fails doesn't drop it.
     local tn = { shown = false, n = 0, text = nil }
     local function titleNotice()
-        local list = (cat.decoded and cat.decoded.revoked) and Catalog.revokedInstalled(cat.rows, ins.staged) or {}
+        local list = Catalog.revokedInstalled(cat.revRows or {}, ins.staged)
         local n = #list
         if n == 0 then
             if tn.shown then
@@ -881,7 +894,7 @@ local function start(core)
         guard("the notices", function()
             view:setNotice(noticeCounts())
             titleNotice()
-            if view:isRevokedOpen() then view:fillRevoked(Catalog.revokedInstalled(cat.rows, ins.staged)) end
+            if view:isRevokedOpen() then view:fillRevoked(Catalog.revokedInstalled(cat.revRows or {}, ins.staged)) end
         end)
     end
 
