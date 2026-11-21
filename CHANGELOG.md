@@ -4,6 +4,8 @@ All notable changes to the Mod Manager are recorded here. The format follows [Ke
 
 ## [0.4.0] - 2026-11-20
 
+- Catalog listing: the display name "Mod Manager", a description and categories.
+
 ### Added
 
 - Where a mod runs (story 12). A new column between the version and the status icons shows one icon per mod from its `mod.json` `scope`: a house for `host` (HOST ONLY), a person for `client` (JUST YOU), a house with a small person for `host-plus` (HOST, PLAYERS OPTIONAL), a house and a person with a plus for `both` (HOST AND PLAYERS), and a question mark for anything else (UNKNOWN: no scope, the retired `all`, a wrong case, a Blueprint-only mod). The icon's tooltip says what it means, and Configure repeats it as a `RUNS ON:` line, so keyboard and gamepad players get the words through the gear. The icon only informs; nothing is turned off because of it.
