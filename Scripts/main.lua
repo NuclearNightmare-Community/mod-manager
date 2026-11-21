@@ -682,8 +682,14 @@ local function start(core)
             if not job then return end
             cat.polls = cat.polls + 1
             local okP, st, res = pcall(catalogApi.poll, job)
-            if okP and st == "done" and type(res) == "table" then finish(res) return end
-            if okP and st == nil and res == "unknown job" then finish({ outcome = "error", message = "unknown job" }) return end
+            if not okP then
+                warnOnce("catalog-poll", "core.catalog.poll failed: %s", Catalog.clean(tostring(st), 200))
+                finish({ outcome = "error", message = "poll failed" })
+                return
+            end
+            if st == "done" and type(res) == "table" then finish(res) return end
+            -- nil, <reason> (unknown job, bad job, a call failure, an unexpected answer): the job is over, as error
+            if st == nil then finish({ outcome = "error", message = Catalog.clean(tostring(res), 200) }) return end
             if cat.polls >= MAX_POLLS then finish({ outcome = "error", message = "no answer in 10 minutes" }) return end
             pollLater()
         end)
@@ -734,9 +740,8 @@ local function start(core)
         log.info("BROWSE filter cat=%s show=%s scope=%s for=%s q=%s shown=%d ids=%s", f.cat or "all", f.show or "all", f.scope or "all",
             f["for"] or "game", table.concat(Catalog.terms(f.q), " "), matched, #ids > 0 and table.concat(ids, ",") or "-")
     end
-    browse.onDetails = function(n)
-        local r = browse.shown[n]
-        local lines = browse:openDetails(n)
+    browse.onDetails = function(id)
+        local lines, r = browse:openDetailsFor(id)
         if lines and r then log.info("DETAILS %s lines=%d", r.id, lines) end
     end
     if catalogApi then

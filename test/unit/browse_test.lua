@@ -222,5 +222,19 @@ do -- Deferred input: the caller's defer runs fills after the hook; several chan
     eq(refreshed, 1, "REFRESH after the hook")
 end
 
+do -- A 280-character description: the row shows 256 of it, Details wraps all of it, search sees its end.
+    local U = FakeUi.new()
+    local b = Browse.new(U, S)
+    local desc = string.rep("word ", 54) .. "zebra" -- 275 characters
+    local rows = Catalog.model({ packages = { pkg(1, { displayName = "Long", description = desc .. "fishy" }) } }, nil, {}, "1.0.0", B)
+    b:open(data(rows), "en", SIZE)
+    eq(utf8.len(U.byId["bw.d1.text"].text), 256, "the row's description is cut to 256 characters")
+    eq(b:openDetails(1), 4, "Details wraps the whole 280 characters")
+    ok(U.byId["dt.l4"].text:find("zebrafishy", 1, true) ~= nil, "Details shows the end of the description")
+    U.back("details")
+    U.typeText("bw.q", "zebrafishy")
+    eq(#b.shown, 1, "search matches a word past character 256")
+end
+
 io.stdout:write(("browse_test: %d passed, %d failed\n"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

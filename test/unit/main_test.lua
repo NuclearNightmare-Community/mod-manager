@@ -1435,6 +1435,64 @@ do -- The poll chain stops on "unknown job" and after 10 minutes (error); a refr
     endSession()
 end
 
+do -- Every other nil answer of core.catalog.poll ends the chain as error; a throwing poll too (one WARN).
+    for _, why in ipairs({ "bad job", "poll: bad arguments", "bad-signature", "error: unexpected answer" }) do
+        local core, U, F = browseSession{ poll = function() return nil, why end }
+        tick()
+        eq(#lines("^%[ModManager%] CATALOG message error: " .. why:gsub("%p", "%%%0") .. "$"), 1, "poll nil, " .. why .. ": done as error with its reason")
+        eq(#lines("^%[ModManager%] CATALOG done outcome=error "), 1, "poll nil, " .. why .. ": one done")
+        tick()
+        eq(F.polls, 1, "poll nil, " .. why .. ": the chain stopped")
+        U = openBrowse(core)
+        eq(#lines("BROWSE open shown=0 total=0 state=error$"), 1, "poll nil, " .. why .. ": state=error, not CHECKING")
+        endSession()
+    end
+    local core, U, F = browseSession{ poll = function() error("native gone") end }
+    tick()
+    eq(#lines("^%[ModManager%] WARN core%.catalog%.poll failed: .*native gone"), 1, "throwing poll: one WARN with the error")
+    eq(#lines("^%[ModManager%] CATALOG done outcome=error "), 1, "throwing poll: done as error")
+    tick()
+    eq(F.polls, 1, "throwing poll: the chain stopped")
+    U = openBrowse(core)
+    eq(#lines("BROWSE open shown=0 total=0 state=error$"), 1, "throwing poll: state=error")
+    U.click("bw.refresh") tick()
+    eq(#lines("^%[ModManager%] CATALOG refresh busy$"), 0, "throwing poll: REFRESH is not BUSY afterwards")
+    endSession()
+end
+
+do -- core answers "busy" to the startup refresh: never CHECKING forever, Browse opens with state=error.
+    local core = browseSession{ refresh = function() return nil, "busy" end, poll = function() return "running" end }
+    local U = openBrowse(core)
+    eq(#lines("^%[ModManager%] CATALOG refresh busy$"), 1, "startup busy: logged")
+    eq(#lines("BROWSE open shown=0 total=0 state=error$"), 1, "startup busy: BROWSE open state=error")
+    eq(U.byId["bw.status"].text, "CATALOG ERROR", "startup busy: the status line")
+    endSession()
+end
+
+do -- DETAILS opens the package its row showed at the click, even when a refill ran before the deferred click.
+    local core = browseSession{ poll = done("ok", fixture("catalog-ok.json")) }
+    tick()
+    local U = openBrowse(core)
+    local second = U.byId["bw.r2.name"].text
+    U.typeText("bw.q", "waypoints") -- the refill is queued first
+    U.click("bw.r2.det")             -- row 2 is still Map Waypoints+ at the click
+    tick()
+    eq(names(U), "Map Waypoints+", "refill before DETAILS: Waypoints is row 1 now")
+    eq(second, "Map Waypoints+", "refill before DETAILS: row 2 was Waypoints at the click")
+    ok(U.open.details, "refill before DETAILS: Details opens")
+    eq(#lines("^%[ModManager%] DETAILS nuclearnightmare%-community%.waypoints lines="), 1, "refill before DETAILS: the clicked package's Details")
+    eq(U.byId["dt.title"].text, "Map Waypoints+", "refill before DETAILS: its title")
+    U.back("details")
+    U.typeText("bw.q", "")
+    tick()
+    U.typeText("bw.q", "whistle")   -- HUD Clock (row 1) is filtered away before the click runs
+    U.click("bw.r1.det")
+    tick()
+    eq(#lines("^%[ModManager%] DETAILS nuclearnightmare%-community%.hud%-clock "), 0, "a row filtered away before its DETAILS ran: no Details, no line")
+    ok(not U.open.details, "a row filtered away: no Details window")
+    endSession()
+end
+
 do -- No core.catalog: one WARN, no BROWSE button, no refresh.
     boot()
     local core = newCore{ catalog = false }

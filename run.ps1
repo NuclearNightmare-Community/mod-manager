@@ -65,7 +65,8 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $hostTimeout = switch ($Scenario) { 'screen' { 1200 } 'restart' { 600 } 'apply' { 1200 } 'browse' { 600 } default { 420 } }
-if ($Scenario -in 'restart', 'apply', 'browse' -and $Target -ne 'vm') { throw "The $Scenario scenario runs only in the VM (-Target vm): the host runner does not follow a game that starts itself again." }
+if ($Scenario -in 'restart', 'apply' -and $Target -ne 'vm') { throw "The $Scenario scenario runs only in the VM (-Target vm): the host runner does not follow a game that starts itself again." }
+if ($Scenario -eq 'browse' -and $Target -ne 'vm') { throw "The browse scenario runs only in the VM (-Target vm): its driver asks for 'key RIGHT', 'type <text>' and screenshots, which only the VM runner serves (the host runner serves key ENTER, UP and DOWN, clicks, moves and wheels)." }
 if ($TimeoutSec -le 0 -and $Target -eq 'host') { $TimeoutSec = $hostTimeout }
 $CoreName = 'Nucleus'
 $here     = $PSScriptRoot

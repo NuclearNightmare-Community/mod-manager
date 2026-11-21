@@ -12,7 +12,7 @@
 -- data = { rows = Catalog.model's rows, total, state = "checking" | "ok" | "copy" | "unavailable" | "refused" |
 --          "error" | "none", outcome, buildKnown, indexIssued, revokedIssued, now = <UTC seconds> }
 -- Callbacks the caller sets: onFiltered(filters, shown, matched, all) after every fill (open, a filter, a search change,
--- an update), onRefresh() (REFRESH), onDetails(n) (a row's DETAILS; default: openDetails), defer(what, fn) (core calls
+-- an update), onRefresh() (REFRESH), onDetails(id) (a row's DETAILS, the package id taken at the click; default: openDetailsFor), defer(what, fn) (core calls
 -- a control's onChange and a button's onClick inside its Blueprint hook, where no ui work may run: the caller runs fn
 -- after the hook returned; default: at once).
 --
@@ -157,7 +157,12 @@ function Browse:makeRow(n)
     c.stH = txt("st", Browse.FILL.st)
     c.w = ui.image.create{ id = p .. ".w", place = { row = row }, size = Browse.ICON }
     c.det = ui.button.create{ id = p .. ".det", place = { row = row }, icon = Browse.DETAILS_ICON, iconSize = Browse.ICON,
-        tooltip = self:str("details"), onClick = function() later(self, "DETAILS", function() self:onDetailsClick(n) end) end }
+        tooltip = self:str("details"), onClick = function()
+            -- the row's package now, at the click: a refill before the deferred run must not open another mod's Details
+            local r = self.shown[n]
+            local id = r and r.id
+            if id then later(self, "DETAILS", function() self:onDetailsClick(id) end) end
+        end }
     local d = "bw.d" .. n
     c.drow = ui.row.create{ id = d, place = { list = self.list } }
     c.descH = ui.text.create{ id = d .. ".text", text = "", place = { row = c.drow, fill = 1 }, style = { font = "small", overflow = "ellipsis" } }
@@ -283,8 +288,15 @@ function Browse:onSearch(text)
     self.filters.q = text
     refill(self, "the search")
 end
-function Browse:onDetailsClick(n)
-    if self.onDetails then self.onDetails(n) else self:openDetails(n) end
+function Browse:onDetailsClick(id)
+    if self.onDetails then self.onDetails(id) else self:openDetailsFor(id) end
+end
+-- The Details window for the shown package with this id: lines, row | nil when it is no longer shown.
+function Browse:openDetailsFor(id)
+    for n, r in ipairs(self.shown) do
+        if r.id == id then return self:openDetails(n), r end
+    end
+    return nil
 end
 
 -- ---------------------------------------------------------------- open, update
