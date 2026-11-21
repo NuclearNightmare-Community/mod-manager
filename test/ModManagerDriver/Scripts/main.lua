@@ -66,6 +66,17 @@
 --             HudClock line above Keybinds, Mods/HudClock/mod.json 0.3.0 (INAPPLIED, INLOADED, INMODSTXT, INJSON);
 --             BROWSE, "clock": HUD Clock INSTALLED without INSTALL (INROW2, ININSTALLED, INNOBUTTON2; shot
 --             install-installed); END.
+--   update:   Mod Manager v2 story 6, two sessions (VM, a fixture catalog served in the VM; -RepeatUntilEnd), counted
+--             in update-session.txt next to this file; deploy.ps1 installed core's test main.dll, HUD Clock 0.3.0
+--             (revoked in the fixture catalog) and WhistleMute. Session 1: the startup refresh's CATALOG done; the
+--             title-screen notice reads HUD CLOCK 0.3.0 WAS REVOKED (UPNOTICE, shot update-notice); its REVIEW: the
+--             revoked window (UPRV*), UPDATE TO 0.3.1, the confirm UPDATE HUD CLOCK 0.3.0 -> 0.3.1? (UPTITLE), UPDATE,
+--             "UPDATE done", NOTICE removed (UPDONE1, UPREMOVED); its BACK, MANAGE MODS: the notice line reads 1 UPDATES
+--             AVAILABLE (UPLINE, UPARROW); UPDATES: Browse, HUD Clock PENDING RESTART, the Nucleus row's UPDATE and its
+--             confirm (UPPENDING, UPCORETITLE, UPDONE2); BACK, BROWSE, "type whistle", WhistleMute's DETAILS, UNINSTALL
+--             and its confirm (UPUNTITLE, UPUNLINE, UPUNDONE, UPWAIT); BACK twice, RESTART NOW. Session 2: core 0.27.1
+--             and HUD Clock 0.3.1 run, the file only 0.3.0 had and WhistleMute's files and mods.txt line are gone, no
+--             title notice (UP* checks), UPOLD (the helper's renamed copy: reported only), the HUD Clock row; END.
 --   no-core:  (run.ps1 moves core aside) the menu has no MANAGE MODS entry.
 --   old-core: (run.ps1 sets core's installed mod.json to 0.1.0) publishes that version as <core>.version before the
 --             Mod Manager connects, as an old core would; the menu has no MANAGE MODS entry.
@@ -1756,6 +1767,265 @@ local function buildInstall()
     end
 end
 
+-- ---------------------------------------------------------------- update (Mod Manager v2 story 6; VM, fixture catalog)
+-- Two sessions, counted in update-session.txt next to this file. Session 1: the title-screen notice, REVIEW, UPDATE TO
+-- 0.3.1 and its confirm; MANAGE MODS: the notice line, UPDATES, the Nucleus update; BROWSE, WhistleMute's Details,
+-- UNINSTALL and its confirm; RESTART NOW. Session 2: what core's helper applied.
+-- A core element on the title-screen menu host (page 0 of the menu's root WidgetSwitcher), searched a few levels down.
+local function menuHostEl(id)
+    local page = try(function() return prop(menu(), "WidgetSwitcher_1"):GetChildAt(0) end)
+    if not v(page) then return nil end
+    local want = TAG .. id
+    local function walk(w, depth)
+        if not v(w) or depth > 4 then return nil end
+        if ctag(w) == want then return w end
+        local n = try(function() return w:GetChildrenCount() end) or 0
+        for i = 0, n - 1 do
+            local f = walk(try(function() return w:GetChildAt(i) end), depth + 1)
+            if f then return f end
+        end
+        return nil
+    end
+    return walk(page, 0)
+end
+local function rvRow(k) local _, c = screenOf("revoked") return childTagged(prop(childTagged(c, "rv.list"), "VBox"), "rv.r" .. k) end
+local function rvEl(k, part) return childTagged(prop(rvRow(k), "HBox"), "rv.r" .. k .. "." .. part) end
+local function winEl(win, id) local _, c = screenOf(win) return childTagged(c, id) end
+local function noticeEl(id) return childTagged(prop(childTagged(prop(mainEl("notice.list"), "VBox"), "notice"), "HBox"), id) end
+-- The Browse row (1-based) whose name reads name, or nil.
+local function bwRowNamed(name)
+    for n = 1, 130 do
+        local r = bwRow(n)
+        if not r then break end
+        if shownW(r) and textOf(bwCell(n, "name")) == name then return n end
+    end
+    return nil
+end
+local function buildUpdate()
+    local HC, NU, WM = "HUD Clock", "Nucleus (Mod Core)", "Whistle Emote Mute"
+    local SESSION = scriptDir .. "\\update-session.txt"
+    local n = 1
+    do
+        local f = io.open(SESSION, "r")
+        if f then n = (tonumber((f:read("a") or ""):match("%d+")) or 0) + 1; f:close() end
+        local g = io.open(SESSION, "w")
+        if g then g:write(tostring(n)); g:close() end
+    end
+    say("UPDATE session %d", n)
+    local function applyStatus()
+        local add = MODS_DIR .. "\\" .. CORE .. "\\Scripts\\?.lua"
+        if not package.path:find(add, 1, true) then package.path = package.path .. ";" .. add end
+        local okM, M = pcall(require, CORE:lower() .. ".apply")
+        if not (okM and type(M) == "table") then return nil, "no " .. CORE:lower() .. ".apply" end
+        return M.status()
+    end
+    local function waitLogN(plain, k0, label, sec)
+        step("wait " .. label, function() return function() local k = logCount(plain) return k ~= nil and k >= k0 end, sec, label end)
+    end
+    local function away() step("cursor away", function() return request("move 5 5"), 30, "cursor away" end) settle(1) end
+    local function closeWin(id)
+        step("close " .. id, function()
+            if not screenOf(id) then return end
+            local r = absR(closeOf(id))
+            if not check(r ~= nil, "POINT %s's BACK has a point to click", id) then return end
+            local x, y = center(r)
+            say("CLICK %s BACK at (%d,%d)", id, x, y)
+            return request(string.format("click %d %d", x, y)), 40, "close " .. id
+        end)
+        settle(1.5)
+    end
+    local function search(text)
+        clickOn("the search box", function() return bwFilter(1, "bw.q") end)
+        step("type " .. text, function() return request("type " .. text), 30, "type " .. text end)
+        settle(2)
+        step("key ENTER", function() return request("key ENTER"), 30, "key ENTER" end)
+        settle(1)
+    end
+    local UPD_DONE = "[" .. MOD .. "] UPDATE done "
+    local ARROW = "\u{2192}"
+
+    waitWorld("menu" .. n, "NewMainMenu", 120)
+    pastStartup()
+    waitFor("the entry", function() return menu() ~= nil and entryOf(menu()) ~= nil end, 60)
+    settle(2)
+    step("wait CATALOG done", function() return function() local k = logCount(DONE_LINE) return k ~= nil and k >= 1 end, 150, "CATALOG done" end)
+    settle(2)
+    if n == 1 then
+        -- 1. the title-screen notice
+        waitFor("the title notice", function() return menuHostEl("tn.text") ~= nil end, 20)
+        step("update: title notice", function()
+            local t = textOf(menuHostEl("tn.text"))
+            check(t == "HUD CLOCK 0.3.0 WAS REVOKED", "UPNOTICE the title screen reads %s", tostring(t))
+            check(shownW(menuHostEl("tn.review")), "UPREVIEWBTN the title screen shows REVIEW")
+            check((logCount("[" .. MOD .. "] NOTICE shown n=1") or 0) == 1, "UPNOTICELOG NOTICE shown n=1 logged once")
+        end)
+        away()
+        shot("update-notice")
+        -- 2. REVIEW, UPDATE TO 0.3.1, the confirm
+        clickOn("the title notice's REVIEW", function() return menuHostEl("tn.review") end)
+        waitFor("the revoked window", function() return screenOf("revoked") ~= nil and rvEl(1, "upd") ~= nil end, 15)
+        settle(2)
+        step("update: revoked window", function()
+            check(textOf(rvEl(1, "name")) == HC, "UPRVNAME the revoked window's row is %s (%s)", HC, tostring(textOf(rvEl(1, "name"))))
+            check(shownW(rvEl(1, "upd")) and shownW(rvEl(1, "un")), "UPRVBUTTONS UPDATE TO and UNINSTALL are shown")
+            check(not shownW(rvRow(2)), "UPRVONE one revoked row")
+        end)
+        away()
+        shot("update-revoked")
+        clickOn("UPDATE TO", function() return rvEl(1, "upd") end)
+        waitFor("the update confirm", function() return screenOf("install") ~= nil end, 15)
+        settle(2)
+        step("update: the confirm", function()
+            local t = textOf(winEl("install", "in.title"))
+            check(t == "UPDATE HUD CLOCK 0.3.0 " .. ARROW .. " 0.3.1?", "UPTITLE the confirm reads %s", tostring(t))
+            check(not shownW(winEl("install", "in.also")), "UPNOALSO no ALSO INSTALLS")
+            check(shownW(winEl("install", "in.ok")), "UPOK the confirm shows UPDATE")
+        end)
+        away()
+        shot("update-confirm")
+        clickOn("the confirm's UPDATE", function() return winEl("install", "in.ok") end)
+        waitLogN(UPD_DONE, 1, "UPDATE done (HUD Clock)", 300)
+        settle(2)
+        -- 3. the notice goes; MANAGE MODS: the notice line
+        step("update: HUD Clock staged", function()
+            check((logCount(UPD_DONE .. "outcome=ok ") or 0) == 1, "UPDONE1 the HUD Clock update staged ok")
+            check((logCount("[" .. MOD .. "] NOTICE removed") or 0) == 1, "UPREMOVED NOTICE removed")
+            check(not shownW(menuHostEl("tn.text")), "UPNONOTICE the title notice is gone")
+        end)
+        closeWin("revoked")
+        openMain("update")
+        step("update: notice line", function()
+            local t = textOf(noticeEl("notice.text"))
+            check(t == "1 UPDATES AVAILABLE", "UPLINE the notice line reads %s", tostring(t))
+            check(shownW(noticeEl("notice.updates")) and not shownW(noticeEl("notice.review")), "UPLINEBTN UPDATES shown, REVIEW not")
+            local arrow = false
+            for _, r in ipairs(readRows()) do
+                say("ROW %s | %s | %s", r.name, r.ver, r.icons)
+                if r.ver:find(ARROW, 1, true) then arrow = true end
+            end
+            check(arrow, "UPARROW a row's version cell reads <installed> -> <offered>")
+        end)
+        away()
+        shot("update-main")
+        -- 4. UPDATES, the Nucleus update
+        clickOn("UPDATES", function() return noticeEl("notice.updates") end)
+        waitFor("Browse (updates)", function() return screenOf("browse") ~= nil and bwEl("bw.title") ~= nil end, 15)
+        settle(3)
+        step("update: Browse updates", function()
+            say("BWROWS %s", table.concat(bwNames(), ", "))
+            local h = bwRowNamed(HC)
+            check(h ~= nil and textOf(bwCell(h, "st")) == "PENDING RESTART", "UPPENDING %s reads PENDING RESTART (%s)", HC, h and tostring(textOf(bwCell(h, "st"))) or "no row")
+            check(h ~= nil and not shownW(bwDesc(h, "inst")), "UPPENDBTN no UPDATE on the staged row")
+            local c = bwRowNamed(NU)
+            check(c ~= nil and shownW(bwDesc(c, "inst")), "UPCOREROW %s shows UPDATE", NU)
+        end)
+        clickOn("Nucleus UPDATE", function() local c = bwRowNamed(NU) return c and bwDesc(c, "inst") end)
+        waitFor("the Nucleus update confirm", function() return screenOf("install") ~= nil end, 15)
+        settle(2)
+        step("update: the Nucleus confirm", function()
+            local t = textOf(winEl("install", "in.title")) or ""
+            check(t:find("UPDATE NUCLEUS (MOD CORE) ", 1, true) == 1 and t:find(ARROW .. " 0.27.1?", 1, true) ~= nil, "UPCORETITLE the confirm reads %s", t)
+        end)
+        clickOn("the Nucleus confirm's UPDATE", function() return winEl("install", "in.ok") end)
+        waitLogN(UPD_DONE, 2, "UPDATE done (Nucleus)", 300)
+        settle(2)
+        step("update: Nucleus staged", function()
+            check((logCount(UPD_DONE .. "outcome=ok ") or 0) == 2, "UPDONE2 the Nucleus update staged ok")
+        end)
+        closeWin("browse")
+        -- 5. BROWSE, WhistleMute's Details, UNINSTALL
+        clickOn("BROWSE", function() return mainEl("browse") end)
+        waitFor("Browse", function() return screenOf("browse") ~= nil and bwEl("bw.title") ~= nil end, 15)
+        settle(2)
+        search("whistle")
+        step("update: WhistleMute row", function()
+            check(bwRowNamed(WM) ~= nil, "UPWMROW 'whistle' shows %s (%s)", WM, table.concat(bwNames(), ", "))
+        end)
+        clickOn("DETAILS " .. WM, function() local r = bwRowNamed(WM) return r and bwCell(r, "det") end)
+        waitFor("Details", function() return screenOf("details") ~= nil and winEl("details", "dt.uninstall") ~= nil end, 15)
+        settle(2)
+        step("update: Details", function()
+            check(shownW(winEl("details", "dt.uninstall")), "UPDTUN Details shows UNINSTALL")
+        end)
+        clickOn("UNINSTALL", function() return winEl("details", "dt.uninstall") end)
+        waitFor("the uninstall confirm", function() return screenOf("uninstall") ~= nil end, 15)
+        settle(2)
+        step("update: the uninstall confirm", function()
+            local t = textOf(winEl("uninstall", "un.title"))
+            check(t == "UNINSTALL WHISTLE EMOTE MUTE 0.2.1?", "UPUNTITLE the confirm reads %s", tostring(t))
+            local l = textOf(winEl("uninstall", "un.line"))
+            check(l == "REMOVES ITS FILES AND ITS MODS.TXT LINE", "UPUNLINE the confirm's line reads %s", tostring(l))
+        end)
+        away()
+        shot("update-uninstall")
+        clickOn("the confirm's UNINSTALL", function() return winEl("uninstall", "un.ok") end)
+        waitLogN("[" .. MOD .. "] UNINSTALL done ", 1, "UNINSTALL done", 300)
+        settle(2)
+        step("update: all staged", function()
+            check((logCount("[" .. MOD .. "] UNINSTALL done outcome=ok ") or 0) == 1, "UPUNDONE the uninstall staged ok")
+            local s, why = applyStatus()
+            check(s ~= nil and s.staged == "waiting", "UPWAIT core's helper waits for the game to exit (%s)", s and tostring(s.staged) or tostring(why))
+        end)
+        away()
+        shot("update-staged")
+        closeWin("details")
+        closeWin("browse")
+        step("update: RESTART NOW shown", function()
+            check(shownW(mainEl("restart")), "UPRESTART RESTART NOW is shown")
+        end)
+        step("update: click RESTART NOW", function()
+            if S.failures > 0 then
+                say("RESTART not clicked: %d check(s) failed in session 1", S.failures)
+                finish()
+                return
+            end
+            local r = absR(mainEl("restart"))
+            if not check(r ~= nil, "UPPOINT RESTART NOW has a point to click") then finish() return end
+            local x, y = center(r)
+            say("CLICK RESTART NOW at (%d,%d)", x, y)
+            request(string.format("click %d %d", x, y))
+            return after(120), 130, "the game to close after RESTART NOW"
+        end)
+        step("update: still running", function() check(false, "UPQUIT the game did not close within 120 s of the RESTART NOW click") end)
+    else
+        waitLogN("[HudClock]", 1, "HUD Clock's log line", 60)
+        step("update: session 2", function()
+            local s, why = applyStatus()
+            check(s ~= nil and s.staged == "none", "UPAPPLIED nothing staged any more (%s)", s and string.format("staged=%s result=%s reason=%s", tostring(s.staged), tostring(s.result), tostring(s.reason)) or tostring(why))
+            check((logCount("[" .. CORE .. "] READY version=0.27.1 ") or 0) >= 1, "UPCORE %s 0.27.1 runs (READY version=0.27.1)", CORE)
+            check((logCount("[HudClock]") or 0) >= 1, "UPLOADED [HudClock] logs: HUD Clock runs")
+            local j = readFile("HudClock\\mod.json") or ""
+            check(j:find('"version"%s*:%s*"0%.3%.1"') ~= nil, "UPJSON Mods/HudClock/mod.json is 0.3.1")
+            check(readFile("HudClock\\Scripts\\old-0.3.0.txt") == nil, "UPOLDFILE the file only 0.3.0 had is gone")
+            check(readFile("WhistleMute\\mod.json") == nil and readFile("WhistleMute\\Scripts\\main.lua") == nil, "UPWMGONE WhistleMute's files are gone")
+            local t = readFile("mods.txt") or ""
+            check(not t:find("WhistleMute", 1, true), "UPWMLINE mods.txt has no WhistleMute line")
+            local ih, ik = t:find("HudClock : 1", 1, true), t:find("Keybinds : 1", 1, true)
+            check(ih ~= nil and ik ~= nil and ih < ik, "UPMODSTXT mods.txt keeps HudClock : 1 above Keybinds : 1")
+            check(not shownW(menuHostEl("tn.text")), "UPNONOTICE2 no title notice")
+            -- The helper renamed its running copy to bin\<Core>Restart.<txn>.old (core's self-update); only a later
+            -- helper start deletes it (none starts while nothing is staged), so this is reported, not required.
+            local r = readFile("..\\" .. CORE .. "Data\\apply-result.txt") or ""
+            local txn = r:match("txn\t(%x+)")
+            local state = "unknown"
+            if txn then state = readFile(CORE .. "\\bin\\" .. CORE .. "Restart." .. txn .. ".old") ~= nil and "present" or "absent" end
+            say("UPOLD %s txn=%s", state, tostring(txn))
+        end)
+        openMain("session 2")
+        step("update: rows", function()
+            local hc
+            for _, r in ipairs(readRows()) do
+                say("ROW %s | %s | %s", r.name, r.ver, r.icons)
+                if r.name == HC then hc = r end
+            end
+            check(hc ~= nil and hc.ver == "0.3.1", "UPROW2 %s's row reads 0.3.1 (%s)", HC, hc and hc.ver or "no row")
+        end)
+        away()
+        shot("update-session2")
+        step("update: end", function() finish() end)
+    end
+end
+
 -- ---------------------------------------------------------------- no-core and old-core: no entry
 local function buildNoEntry()
     waitWorld("menu1", "NewMainMenu", 120)
@@ -1802,7 +2072,7 @@ local function tick()
     busy = false
 end
 
-local build = ({ screen = buildScreen, restart = buildRestart, apply = buildApply, browse = buildBrowse, install = buildInstall, ["no-core"] = buildNoEntry, ["old-core"] = buildNoEntry })[SCENARIO]
+local build = ({ screen = buildScreen, restart = buildRestart, apply = buildApply, browse = buildBrowse, install = buildInstall, update = buildUpdate, ["no-core"] = buildNoEntry, ["old-core"] = buildNoEntry })[SCENARIO]
 if not build then
     say("END result=FAIL checks=0 failures=1 reason=unknown-scenario %s", SCENARIO)
     return

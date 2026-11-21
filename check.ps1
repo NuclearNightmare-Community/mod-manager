@@ -72,8 +72,19 @@
   pkg lines (equal without a search, a subset with one), the five mods of this build present, each package's state
   agreeing with the driver's ROW lines (named through -CatalogIndex: installed or update when a ROW line has its display
   name, else available), the second CATALOG done after DETAILS.
+  update (Mod Manager v2 story 6; VM, a fixture catalog served in the VM, two sessions split at "[run.ps1] SESSION 2"):
+  the whole log has no crash or driver FAIL, one RELAUNCH line (same command line, userdir), "RUN finished", the
+  "[run.ps1] FIXTURE server" line, no ERROR line anywhere. Session 1: core's test main.dll read catalog-test.json,
+  CATALOG done ok from the network (the fixture server), "REVOKED nuclearnightmare-community.hud-clock v=0.3.0
+  action=disable fix=0.3.1", "NOTICE shown n=1" then "NOTICE removed", "REVIEW open n=1", two "UPDATE ask" (HUD Clock to
+  0.3.1, core to its fixture version) each with "UPDATE stage job=<n>" and "UPDATE done outcome=ok", "UNINSTALL ask
+  nuclearnightmare-community.whistle-mute", "UNINSTALL done outcome=ok ... files=3 kept=0", core's stage and unstage job
+  lines, the driver's UP* checks, "RESTART mode=direct", no END line. Session 2: "APPLY status staged=none
+  result=applied", "APPLY result applied", "APPLY ack ok", core's READY at the fixture version, no test main.dll, a
+  "[HudClock]" line, no NOTICE shown, the driver's UP* checks, END result=PASS; soft: "UPOLD absent" (the helper's
+  renamed copy bin\<Core>Restart.<txn>.old is deleted only by a later helper start).
   Exit code 1 when any check fails; otherwise prints "All checks passed."
-  Scenarios: screen, no-core, old-core, restart, apply, browse, install (run.ps1 drives them); unit needs no log: it runs test.ps1.
+  Scenarios: screen, no-core, old-core, restart, apply, browse, install, update (run.ps1 drives them); unit needs no log: it runs test.ps1.
   -Target vm: a log from run.ps1 -Target vm. The VM's game shares the CPU with the host, so core's "hud slow tick"
   WARN under the Mod Manager's tag is soft there.
 .EXAMPLE
@@ -82,7 +93,7 @@
 param(
     [string] $Instance,
     [string] $Log,
-    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply', 'browse', 'install', 'unit')]
+    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply', 'browse', 'install', 'update', 'unit')]
     [string] $Scenario = 'screen',
     [ValidateSet('host', 'vm')] [string] $Target = 'host',
     [string] $CoreManifest, # Nucleus's deployed mod.json; default: -Instance's, else the workspace's mods/Nucleus/build/package
@@ -223,6 +234,16 @@ $expect = @{
         '^\[run\.ps1\] RUN finished\s*$'
         '^\[run\.ps1\] FILES (unchanged|changed: mods\.txt sha256 [0-9A-F]{64} -> [0-9A-F]{64})$'
         # no ERROR line from any mod (the Mod Manager, core, HUD Clock, the driver)
+        '!\[[A-Za-z]+\] ERROR '
+        "#1|\[$D\] END result="
+    )
+    # Mod Manager v2 story 6: the patterns of the whole log (each session below is checked on its own part).
+    'update' = @(
+        '^\[run\.ps1\] SESSION 2 \(relaunched by the game\)\s*$'
+        '#1|^\[run\.ps1\] SESSION '
+        '#1|^\[run\.ps1\] RELAUNCH old=\d+ new=\d+ cmdline=same userdir=yes\s*$'
+        '^\[run\.ps1\] RUN finished\s*$'
+        '^\[run\.ps1\] FIXTURE server pid=\d+ port=\d+ cert=[0-9a-f]{64} config=\S+/catalog-test\.json\s*$'
         '!\[[A-Za-z]+\] ERROR '
         "#1|\[$D\] END result="
     )
@@ -456,6 +477,64 @@ if ($Scenario -eq 'install') {
         "\[$M\] BROWSE pkg $HC v=0\.3\.0 \S+ \S+ state=installed core=ok\s*$"
         "!\[$M\] INSTALL "
         "\[$D\] OK INAPPLIED ", "\[$D\] OK INLOADED ", "\[$D\] OK INMODSTXT ", "\[$D\] OK INJSON ", "\[$D\] OK INROW2 ", "\[$D\] OK ININSTALLED ", "\[$D\] OK INNOBUTTON2 "
+        "\[$D\] END result=PASS"
+        "!\[$M\] RESTART mode="
+    )) $s2 'session 2: '
+}
+
+if ($Scenario -eq 'update') {
+    # Mod Manager v2 story 6: session 1 resolves the revoked HUD Clock, updates core and uninstalls WhistleMute, then
+    # RESTART NOW; session 2 is the relaunched game after core's helper applied it all.
+    $cut = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match '^\[run\.ps1\] SESSION 2 ') { $cut = $i; break } }
+    $s1 = if ($cut -gt 0) { @($lines[0..($cut - 1)]) } elseif ($cut -lt 0) { $lines } else { @() }
+    $s2 = if ($cut -ge 0 -and $cut + 1 -lt $lines.Count) { @($lines[($cut + 1)..($lines.Count - 1)]) } else { @() }
+    $HC = 'nuclearnightmare-community\.hud-clock'; $WM = 'nuclearnightmare-community\.whistle-mute'; $CI = 'nuclearnightmare-community\.' + $K.ToLowerInvariant()
+    $marker = 'NN-CORE-CATALOG-TEST-BUILD-NEVER-PACKAGE: catalog-test\.json read'
+    $each = $running + @("\[$D\] SCENARIO update\s*$")
+    Test-Patterns ($each + @(
+        "#1|\[$D\] UPDATE session 1\s*$"
+        "\[$K\] native: catalog: $marker"
+        "\[$M\] CATALOG done outcome=ok source=network "
+        "\[$M\] REVOKED $HC v=0\.3\.0 action=disable fix=0\.3\.1\s*$"
+        "#1|\[$M\] NOTICE shown n=1\s*$"
+        "#1|\[$M\] NOTICE removed\s*$"
+        "\[$M\] REVIEW open n=1\s*$"
+        "#1|\[$M\] UPDATE ask $HC set=$HC@0\.3\.1\s*$"
+        "#1|\[$M\] UPDATE ask $CI set=$CI@\S+\s*$"
+        "#2|\[$M\] UPDATE stage job=\d+\s*$"
+        "#2|\[$M\] UPDATE done outcome=ok txn=[0-9a-f]{32} owners=1 ops=\d+\s*$"
+        "!\[$M\] (UPDATE|UNINSTALL) (refuse|cancel) "
+        "#1|\[$M\] UNINSTALL ask $WM\s*$"
+        "#1|\[$M\] UNINSTALL stage job=\d+\s*$"
+        "#1|\[$M\] UNINSTALL done outcome=ok txn=[0-9a-f]{32} files=3 kept=0\s*$"
+        "\[$M\] APPLY start (ok|already started)\s*$"
+        "\[$K\] native: catalog: stage job \d+ started \($HC 0\.3\.1\)"
+        "\[$K\] native: catalog: stage job \d+ done: ok: "
+        "\[$K\] native: catalog: unstage job \d+ "
+        "\[$D\] OK UPNOTICE ", "\[$D\] OK UPREVIEWBTN ", "\[$D\] OK UPRVNAME ", "\[$D\] OK UPRVBUTTONS ", "\[$D\] OK UPTITLE "
+        "\[$D\] OK UPDONE1 ", "\[$D\] OK UPREMOVED ", "\[$D\] OK UPNONOTICE ", "\[$D\] OK UPLINE ", "\[$D\] OK UPARROW "
+        "\[$D\] OK UPPENDING ", "\[$D\] OK UPCOREROW ", "\[$D\] OK UPCORETITLE ", "\[$D\] OK UPDONE2 ", "\[$D\] OK UPWMROW "
+        "\[$D\] OK UPUNTITLE ", "\[$D\] OK UPUNLINE ", "\[$D\] OK UPUNDONE ", "\[$D\] OK UPWAIT ", "\[$D\] OK UPRESTART "
+        "\[$D\] CLICK RESTART NOW at "
+        "#1|\[$M\] RESTART mode=direct pending=[1-9]\d*\s*$"
+        "!\[$M\] WARN RESTART NOW"
+        "!\[$D\] END result="
+    )) $s1 'session 1: '
+    Test-Patterns ($each + @(
+        "#1|\[$D\] UPDATE session 2\s*$"
+        "!\[$K\] native: catalog: $marker"
+        "\[$K\] READY version=\d+\.\d+\.\d+ "
+        "\[HudClock\] "
+        "#1|\[$M\] APPLY status staged=none result=applied "
+        "#1|\[$M\] APPLY result applied "
+        "#1|\[$M\] APPLY ack ok\s*$"
+        "!\[$M\] APPLY start "
+        "!\[$M\] NOTICE shown "
+        "!\[$M\] (UPDATE|UNINSTALL|INSTALL) "
+        "\[$D\] OK UPAPPLIED ", "\[$D\] OK UPCORE ", "\[$D\] OK UPLOADED ", "\[$D\] OK UPJSON ", "\[$D\] OK UPOLDFILE ", "\[$D\] OK UPWMGONE "
+        "\[$D\] OK UPWMLINE ", "\[$D\] OK UPMODSTXT ", "\[$D\] OK UPNONOTICE2 ", "\[$D\] OK UPROW2 "
+        "?\[$D\] UPOLD absent "
         "\[$D\] END result=PASS"
         "!\[$M\] RESTART mode="
     )) $s2 'session 2: '

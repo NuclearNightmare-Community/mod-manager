@@ -492,6 +492,66 @@ Expect (InstallLog -p2 ($i2 -replace 'result=applied', 'result=failed')) 'instal
 Expect (InstallLog -p2 ($i2 + (L 'HudClock' 'ERROR boom'))) 'install' 1 'install: an ERROR line fails' '' 'vm'
 Expect ($igood -replace 'RUN finished', 'RUN timeout (hang?)') 'install' 1 'install: a run that did not reach END fails' '' 'vm'
 
+# ---------------------------------------------------------------- update (Mod Manager v2 story 6): two sessions in one log
+$WMID = 'nuclearnightmare-community.whistle-mute'; $NUID = 'nuclearnightmare-community.nucleus'
+$TX = '0123456789abcdef0123456789abcdef'
+function UpdateSession([int] $n) {
+    $l = (Start-Log) + @(
+        (L $D 'SCENARIO update'), (L $D "UPDATE session $n"), (L $D 'LOADED 90 steps'),
+        (L $M 'CONNECT ok Nucleus 0.8.0 (pong 0.8.0 boot=1)'), (L $M 'CATALOG refresh job=1'), (L $M "READY entry=manage need=$((Get-Content (Join-Path $repo 'mod.json') -Raw | ConvertFrom-Json).dependsOn[0].version)"),
+        (L $M "APPLY status staged=none result=$(if ($n -eq 1) { 'none' } else { 'applied' }) changes=0 attempts=0"))
+    if ($n -eq 1) {
+        $l += L 'Nucleus' 'native: catalog: NN-CORE-CATALOG-TEST-BUILD-NEVER-PACKAGE: catalog-test.json read (keys 3, proxy 127.0.0.1:5, pinned certificate yes)'
+        $l += L $M 'CATALOG done outcome=ok source=network packages=3 index_issued=2026-11-21T00:59:08Z'
+        $l += L $M "REVOKED $HCID v=0.3.0 action=disable fix=0.3.1"
+        $l += L $M 'NOTICE shown n=1'
+        $l += L $M 'REVIEW open n=1'
+        $l += L $M "UPDATE ask $HCID set=$HCID@0.3.1"
+        $l += L $M 'UPDATE stage job=2'
+        $l += L 'Nucleus' "native: catalog: stage job 2 started ($HCID 0.3.1)"
+        $l += L 'Nucleus' "native: catalog: stage job 2 done: ok: 1 mod staged; txn $TX"
+        $l += L $M "UPDATE done outcome=ok txn=$TX owners=1 ops=5"
+        $l += L $M 'APPLY start ok'
+        $l += L $M 'NOTICE removed'
+        $l += L $M "UPDATE ask $NUID set=$NUID@0.27.1"
+        $l += L $M 'UPDATE stage job=3'
+        $l += L 'Nucleus' "native: catalog: stage job 3 started ($NUID 0.27.1)"
+        $l += L $M "UPDATE done outcome=ok txn=$TX owners=1 ops=60"
+        $l += L $M 'APPLY start already started'
+        $l += L $M "UNINSTALL ask $WMID"
+        $l += L $M 'UNINSTALL stage job=4'
+        $l += L 'Nucleus' "native: catalog: unstage job 4 started ($WMID 0.2.1)"
+        $l += L $M "UNINSTALL done outcome=ok txn=$TX files=3 kept=0"
+        foreach ($k in 'UPNOTICE', 'UPREVIEWBTN', 'UPRVNAME', 'UPRVBUTTONS', 'UPTITLE', 'UPDONE1', 'UPREMOVED', 'UPNONOTICE', 'UPLINE', 'UPARROW', 'UPPENDING', 'UPCOREROW', 'UPCORETITLE', 'UPDONE2', 'UPWMROW', 'UPUNTITLE', 'UPUNLINE', 'UPUNDONE', 'UPWAIT', 'UPRESTART') { $l += L $D "OK $k x" }
+        $l += L $D 'CLICK RESTART NOW at (10,10)'
+        $l += L $M 'RESTART mode=direct pending=3'
+    } else {
+        $l += L $M 'CATALOG done outcome=serial-rollback source=- packages=0 index_issued=-'
+        $l += L 'HudClock' 'CONNECT ok Nucleus 0.27.1 (pong 0.27.1 boot=1)'
+        $l += L $M 'APPLY result applied reason=- path=- attempts=0'
+        $l += L $M 'APPLY ack ok'
+        $l += L $D "UPOLD absent txn=$TX"
+        foreach ($k in 'UPAPPLIED', 'UPCORE', 'UPLOADED', 'UPJSON', 'UPOLDFILE', 'UPWMGONE', 'UPWMLINE', 'UPMODSTXT', 'UPNONOTICE2', 'UPROW2') { $l += L $D "OK $k x" }
+        $l += L $D 'END result=PASS checks=60 failures=0'
+    }
+    return $l
+}
+$u1 = UpdateSession 1; $u2 = UpdateSession 2
+$utail = @("[run.ps1] FIXTURE server pid=7 port=50123 cert=$('ab' * 32) config=NuclearNightmare/Binaries/Win64/ue4ss/NucleusData/catalog-test.json") + $itail
+function UpdateLog($p1 = $u1, $p2 = $u2, $tl = $utail) { @($p1) + $iS2 + @($p2) + @($tl) }
+$ugood = UpdateLog
+Expect $ugood 'update' 0 'update: passes' 'All checks passed' 'vm'
+Expect (UpdateLog -p2 ($u2 -replace 'UPOLD absent', 'UPOLD present')) 'update' 0 'update: the helper''s .old still there is only a warning' 'warn: session 2: .*UPOLD absent' 'vm'
+Expect (UpdateLog -tl $itail) 'update' 1 'update: no fixture server fails' 'FIXTURE server' 'vm'
+Expect (UpdateLog -p1 ($u1 | Where-Object { $_ -notmatch 'NOTICE shown' })) 'update' 1 'update: no title notice fails' 'session 1: ' 'vm'
+Expect (UpdateLog -p1 ($u1 -replace 'UNINSTALL done outcome=ok', 'UNINSTALL done outcome=not-in-catalog')) 'update' 1 'update: a refused uninstall fails' 'session 1: ' 'vm'
+Expect (UpdateLog -p1 ($u1 | Where-Object { $_ -notmatch "UPDATE ask $NUID" })) 'update' 1 'update: no Nucleus update fails' 'session 1: ' 'vm'
+Expect (UpdateLog -p1 ($u1 | Where-Object { $_ -notmatch 'catalog-test\.json read' })) 'update' 1 'update: no test main.dll in session 1 fails' 'session 1: ' 'vm'
+Expect (UpdateLog -p2 ($u2 + (L 'Nucleus' 'native: catalog: NN-CORE-CATALOG-TEST-BUILD-NEVER-PACKAGE: catalog-test.json read (x)'))) 'update' 1 'update: the test main.dll still in session 2 fails' 'session 2: ' 'vm'
+Expect (UpdateLog -p2 ($u2 + (L $M 'NOTICE shown n=1'))) 'update' 1 'update: a notice in session 2 fails' 'session 2: ' 'vm'
+Expect (UpdateLog -p2 ($u2 | Where-Object { $_ -notmatch 'OK UPWMGONE' })) 'update' 1 'update: WhistleMute not removed fails' 'session 2: ' 'vm'
+Expect (UpdateLog -p2 ($u2 + (L 'Nucleus' 'ERROR boom'))) 'update' 1 'update: an ERROR line fails' '' 'vm'
+
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ("check_test: {0} passed, {1} failed" -f $script:passed, $script:failed)
 exit $(if ($script:failed) { 1 } else { 0 })
