@@ -1,7 +1,8 @@
 -- Unit tests for Scripts/catalog.lua (pure): decode with its caps and type checks, this game's build, the offered
 -- version (build, revocation, dependsOn satisfiable recursively, other-build), installed states (update, installed,
 -- conflict, available), needsCore, the caps (512 packages, 64 versions, 32 dependsOn), search terms, the four filters,
--- the 120 cap, ages and the Details word wrap. Fixtures: test/unit/fixtures/catalog-*.json (our own made-up payloads).
+-- the 120 cap, ages and the Details word wrap; v2 story 5: the install set (dependencies first, new and update, conflict,
+-- downgrade, unsatisfiable, too-many, cycles, depth) and the download size. Fixtures: test/unit/fixtures/catalog-*.json (our own made-up payloads).
 -- Run from the repo root:  texlua test/unit/catalog_test.lua
 local ROOT = (arg and arg[0] or ""):match("^(.*)[/\\]test[/\\]unit[/\\][^/\\]+$") or "."
 package.path = ROOT .. "/Scripts/?.lua;" .. ROOT .. "/test/unit/?.lua;" .. package.path
@@ -235,6 +236,102 @@ do -- A full-length description (280 characters): Details and search see all of 
     eq(#Catalog.wrap(r[1].description, 72, 5), 4, "Details wraps all 280 characters")
     local big = Catalog.model({ packages = { { id = "x.big", name = "Big", kind = "mod", categories = { "ui" }, description = string.rep("b", 400), versions = vs } } }, nil, {}, "1.0.0", B)
     eq(#big[1].description, Catalog.MAX_DESCRIPTION_KEPT, "an over-long description is kept to 360 characters")
+end
+
+-- ---------------------------------------------------------------- v2 story 5: the install set
+do
+    local function V(v, deps, size, build)
+        return { version = v, scope = "client", game = { version = "V8.2.3", build = build or B }, dependsOn = deps or {}, sha256 = string.rep("c", 64), size = size or 1000 }
+    end
+    local function P(id, name, versions) return { id = id, name = name, kind = "mod", categories = { "ui" }, description = name .. ".", versions = versions } end
+    local function D(id, need) return { id = id, version = need } end
+    local CORE = NN .. "nucleus"
+    local index = { packages = {
+        P(CORE, "Nucleus", { V("0.30.0", {}, 700000), V("0.25.0", {}, 690000) }),
+        P(NN .. "hud-clock", "HudClock", { V("0.3.0", { D(CORE, ">=0.9.0") }, 8620) }),
+        P("x.alpha", "Alpha", { V("1.0.0", {}, 2048) }),
+        P("x.target", "Target", { V("2.0.0", { D("x.alpha", ">=1.0.0"), D(CORE, ">=0.30.0") }, 4096) }),
+        P("x.deep", "Deep", { V("1.0.0", { D("x.target", ">=2.0.0") }, 10) }),
+        P("x.taken", "Taken", { V("1.0.0", {}, 10) }),
+        P("x.usestaken", "UsesTaken", { V("1.0.0", { D("x.taken", ">=1.0.0") }, 10) }),
+        P("x.newer", "Newer", { V("1.0.0", {}, 10) }),
+        P("x.cyc-a", "CycA", { V("1.0.0", { D("x.cyc-b", ">=1.0.0") }, 10) }),
+        P("x.cyc-b", "CycB", { V("1.0.0", { D("x.cyc-a", ">=1.0.0") }, 10) }),
+        P("x.offsite", "Offsite", { V("1.0.0", { D("x.notlisted", ">=1.0.0") }, 10) }),
+    } }
+    -- 17 mods in a chain: x.c1 needs x.c2 ... x.c17 (more than 16 in one set), and a chain past depth 8
+    for i = 1, 17 do
+        index.packages[#index.packages + 1] = P("x.c" .. i, "C" .. i, { V("1.0.0", i < 17 and { D("x.c" .. (i + 1), ">=1.0.0") } or {}, 10) })
+    end
+    local inst = {
+        { folder = "Nucleus", id = CORE, version = "0.25.0" },
+        { folder = "Taken", id = "someone.else", version = "1.0.0" },
+        { folder = "Newer", id = "x.newer", version = "2.0.0" },
+        { folder = "NotListed", id = "x.notlisted", version = "1.2.0" },
+    }
+    local rows = Catalog.model(index, nil, inst, "0.25.0", B)
+    local function setStr(set) local t = {} for i, e in ipairs(set) do t[i] = e.id .. "@" .. e.version .. ":" .. e.flag .. (e.from and ("<" .. e.from) or "") end return table.concat(t, ",") end
+
+    local set, why = Catalog.installSet(rows, NN .. "hud-clock")
+    eq(set and setStr(set), NN .. "hud-clock@0.3.0:new", "installSet: plain: the installed Nucleus meets >=0.9.0, only the target")
+    eq(set and set[1].size, 8620, "installSet: the index size is kept")
+    set, why = Catalog.installSet(rows, "x.target")
+    eq(set and setStr(set), "x.alpha@1.0.0:new," .. CORE .. "@0.30.0:update<0.25.0,x.target@2.0.0:new", "installSet: a missing and a too-old dependency, dependencies first", why)
+    eq(set and set[2].name, "Nucleus", "installSet: the dependency's name")
+    set = Catalog.installSet(rows, "x.deep")
+    eq(set and setStr(set), "x.alpha@1.0.0:new," .. CORE .. "@0.30.0:update<0.25.0,x.target@2.0.0:new,x.deep@1.0.0:new", "installSet: recursive")
+    local s2, why2, info = Catalog.installSet(rows, "x.usestaken")
+    ok(s2 == nil and why2 == "conflict" and info.name == "Taken", "installSet: a dependency's folder in use: conflict", why2)
+    s2, why2, info = Catalog.installSet(rows, "x.taken")
+    ok(s2 == nil and why2 == "conflict", "installSet: the target's own folder in use: conflict", why2)
+    s2, why2, info = Catalog.installSet(rows, "x.newer")
+    ok(s2 == nil and why2 == "downgrade" and info.name == "Newer", "installSet: the target installed newer than offered: downgrade", why2)
+    local dg = { { id = "x.w", name = "W", state = "available", offered = { version = "1.0.0", deps = { { id = "x.n", need = ">=3.0.0" } } } },
+        { id = "x.n", name = "N", state = "installed", installedVersion = "2.0.0", offered = { version = "1.0.0", deps = {} } } }
+    s2, why2, info = Catalog.installSet(dg, "x.w")
+    ok(s2 == nil and why2 == "downgrade" and info.name == "W" and info.dep == "N" and info.need == ">=3.0.0", "installSet: a dependency offered only below its installed version: downgrade", why2)
+    s2, why2 = Catalog.installSet(rows, "x.c1")
+    ok(s2 == nil and (why2 == "too-many" or why2 == "unsatisfiable"), "installSet: a 17-mod chain is refused", why2)
+    s2, why2 = Catalog.installSet(rows, "x.offsite")
+    eq(s2 and setStr(s2), "x.offsite@1.0.0:new", "installSet: a dependency outside the catalog, installed and met, is skipped", why2)
+    s2, why2, info = Catalog.installSet(rows, "nobody.nothing")
+    ok(s2 == nil and why2 == "unsatisfiable", "installSet: an unknown id: unsatisfiable", why2)
+    -- the model only offers satisfiable versions; installSet still checks, on rows it is handed
+    local fake = { { id = "x.t", name = "T", state = "available", offered = { version = "1.0.0", deps = { { id = "x.d", need = ">=3.0.0" } } }, deps = { { id = "x.d", need = ">=3.0.0", met = false } } },
+        { id = "x.d", name = "D", state = "available", offered = { version = "2.0.0", deps = {} } } }
+    s2, why2, info = Catalog.installSet(fake, "x.t")
+    ok(s2 == nil and why2 == "unsatisfiable" and info.name == "T" and info.dep == "D" and info.need == ">=3.0.0", "installSet: no offered version meets the need: unsatisfiable, naming both", why2)
+    fake[2].offered = nil
+    s2, why2 = Catalog.installSet(fake, "x.t")
+    eq(why2, "unsatisfiable", "installSet: a dependency with no offered version: unsatisfiable")
+    -- a cycle in rows handed in: ends, and the version being chosen must meet the need
+    local cyc = { { id = "x.a", name = "A", state = "available", offered = { version = "1.0.0", deps = { { id = "x.b", need = ">=1.0.0" } } } },
+        { id = "x.b", name = "B", state = "available", offered = { version = "1.0.0", deps = { { id = "x.a", need = ">=1.0.0" } } } } }
+    s2 = Catalog.installSet(cyc, "x.a")
+    eq(s2 and setStr(s2), "x.b@1.0.0:new,x.a@1.0.0:new", "installSet: a cycle ends (visited set), each once")
+    -- more than 16: a target with 16 dependencies
+    local many = { { id = "x.top", name = "Top", state = "available", offered = { version = "1.0.0", deps = {} } } }
+    for i = 1, 16 do
+        many[#many + 1] = { id = "x.d" .. i, name = "D" .. i, state = "available", offered = { version = "1.0.0", deps = {} } }
+        many[1].offered.deps[i] = { id = "x.d" .. i, need = ">=1.0.0" }
+    end
+    s2, why2 = Catalog.installSet(many, "x.top")
+    eq(why2, "too-many", "installSet: 17 in one set: too-many")
+    table.remove(many[1].offered.deps)
+    s2 = Catalog.installSet(many, "x.top")
+    eq(s2 and #s2, 16, "installSet: 16 in one set is fine")
+    -- depth: a chain of 10
+    local chain = {}
+    for i = 1, 10 do chain[i] = { id = "x.k" .. i, name = "K" .. i, state = "available", offered = { version = "1.0.0", deps = i < 10 and { { id = "x.k" .. (i + 1), need = ">=1.0.0" } } or {} } } end
+    s2, why2 = Catalog.installSet(chain, "x.k1")
+    eq(why2, "unsatisfiable", "installSet: deeper than 8: unsatisfiable")
+    -- sizes
+    local z = Catalog.sizeText(8620)
+    ok(z.key == "sizeKB" and z.n == 9, "sizeText: 8620 bytes is 9 KB (rounded up)")
+    z = Catalog.sizeText(1572864)
+    ok(z.key == "sizeMB" and z.n == "1.5", "sizeText: 1.5 MB")
+    z = Catalog.sizeText(0)
+    ok(z.key == "sizeKB" and z.n == 1, "sizeText: nothing known reads 1 KB")
 end
 
 io.stdout:write(("catalog_test: %d passed, %d failed\n"):format(passed, failed))

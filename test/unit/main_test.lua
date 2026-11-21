@@ -193,7 +193,8 @@ local function newCore(o)
     core.settings = FakeUi.settings({ ModManagerFixture = { settings = settings } })
     -- v2 story 4: a core.catalog that is always busy (no job, no scan, nothing logged but one INFO line), so the
     -- earlier stories' tests see what they saw before; o.catalog = false: none; the Browse tests set their own.
-    if o.catalog ~= false then core.catalog = o.catalog or { refresh = function() return nil, "busy" end, poll = function() return nil, "unknown job" end } end
+    if o.catalog ~= false then core.catalog = o.catalog or { refresh = function() return nil, "busy" end, poll = function() return nil, "unknown job" end,
+        stage = function() return nil, "busy" end } end
     return core
 end
 -- Story 8: core.restart. o.mode: what mode() answers ("direct" by default; false: nil, "unsupported launch");
@@ -231,24 +232,24 @@ do -- Nucleus missing: exactly one [ModManager] line, the bootstrap's own.
     eq(#W.connects, 0, "no core: no connect")
     restore()
 end
-do -- Nucleus present: connect{ mod = "ModManager", need = ">=0.25.0" }, nothing logged before it answers.
+do -- Nucleus present: connect{ mod = "ModManager", need = ">=0.26.0" }, nothing logged before it answers.
     boot()
     eq(#W.connects, 1, "connect called once")
     local c = W.connects[1]
-    ok(c.mod == "ModManager" and c.need == ">=0.25.0", "connect{ mod = 'ModManager', need = '>=0.25.0' }", tostring(c.mod) .. " " .. tostring(c.need))
+    ok(c.mod == "ModManager" and c.need == ">=0.26.0", "connect{ mod = 'ModManager', need = '>=0.26.0' }", tostring(c.mod) .. " " .. tostring(c.need))
     eq(#W.printed, 0, "nothing printed during main.lua")
-    c.onFail("Nucleus 0.20.0 is older than ModManager needs (>=0.25.0). Update Nucleus.")
+    c.onFail("Nucleus 0.20.0 is older than ModManager needs (>=0.26.0). Update Nucleus.")
     eq(#W.printed, 0, "onFail adds no line (connect's is the only one)")
     eq(W.iterations, 0, "onFail scans nothing")
     eq(#W.writes, 0, "onFail writes nothing")
     restore()
 end
-do -- mod.json and main.lua agree on the need; 0.6.0 (v2 story 4: core.ui.textbox needs Nucleus 0.25.0).
+do -- mod.json and main.lua agree on the need; 0.7.0 (v2 story 5: core.catalog.stage needs Nucleus 0.26.0).
     local mj = assert(realOpen(ROOT .. "/mod.json", "rb")):read("a")
-    ok(mj:find('"version": ">=0.25.0"', 1, true) and mj:find('"id": "nuclearnightmare-community.nucleus"', 1, true), "mod.json dependsOn nuclearnightmare-community.nucleus >=0.25.0")
-    ok(mj:find('"version": "0.6.0"', 1, true), "mod.json version 0.6.0")
+    ok(mj:find('"version": ">=0.26.0"', 1, true) and mj:find('"id": "nuclearnightmare-community.nucleus"', 1, true), "mod.json dependsOn nuclearnightmare-community.nucleus >=0.26.0")
+    ok(mj:find('"version": "0.7.0"', 1, true), "mod.json version 0.7.0")
     local src = assert(realOpen(MAIN, "rb")):read("a")
-    ok(src:find('local CORE, NEED, ME = "Nucleus", ">=0.25.0", "ModManager"', 1, true), "main.lua NEED = dependsOn")
+    ok(src:find('local CORE, NEED, ME = "Nucleus", ">=0.26.0", "ModManager"', 1, true), "main.lua NEED = dependsOn")
 end
 
 -- ---------------------------------------------------------------- start
@@ -277,7 +278,7 @@ do -- The entry, READY, a click, the window, the gear, warnings once, faults onc
     eq(#U.entries, 1, "one menu entry")
     local e = U.entries[1]
     ok(e.id == "manage" and e.style == "options" and e.label.en == "MANAGE MODS" and type(e.onClick) == "function", "entry{ id = 'manage', label = { en = 'MANAGE MODS' }, style = 'options' }")
-    eq(#lines("^%[ModManager%] READY entry=manage need=>=0%.25%.0$"), 1, "one READY line after onReady")
+    eq(#lines("^%[ModManager%] READY entry=manage need=>=0%.26%.0$"), 1, "one READY line after onReady")
     eq(W.iterations, 1, "onReady scans once (the session baseline)")
     eq(U.count("screen.open"), 0, "no window before a click")
     eq(#W.writes, 0, "onReady writes nothing")
@@ -1194,6 +1195,8 @@ local function fakeCatalog(o)
             return F.refreshes
         end,
         poll = function(job) F.polls = F.polls + 1 return o.poll(F.polls, job) end,
+        -- v2 story 5: stage(list) answers o.stage(n, list) (a job 101, 102, ... by default)
+        stage = function(list) F.stages = (F.stages or 0) + 1 F.staged = list if o.stage then return o.stage(F.stages, list) end return 100 + F.stages end,
     }
     return F
 end
@@ -1504,6 +1507,245 @@ do -- No core.catalog: one WARN, no BROWSE button, no refresh.
     eq(core.ui.byId.browse, nil, "no core.catalog: no BROWSE button")
     eq(#lines("WARN"), 1, "no core.catalog: only that WARN")
     eq(#lines("CATALOG"), 0, "no core.catalog: no refresh")
+    restore()
+end
+
+-- ---------------------------------------------------------------- v2 story 5: INSTALL
+local NNC = "nuclearnightmare-community."
+-- A session for INSTALL: the startup refresh answers payload (catalog-ok.json unless o.payload), core.restart and
+-- core.apply are there, W.queue on. o.stage(n, list) answers core.catalog.stage; o.stagePoll(n, job) the stage job's polls.
+local function installSession(o)
+    o = o or {}
+    boot()
+    W.queue = {}
+    os.time = function() return NOW end
+    local sp = 0
+    local F = fakeCatalog{
+        stage = o.stage,
+        poll = function(_, job)
+            if job < 100 then return done("ok", o.payload or fixture("catalog-ok.json"))() end -- refreshes; stage jobs are 101, 102, ...
+            sp = sp + 1
+            return o.stagePoll(sp, job)
+        end,
+    }
+    local core = newCore{ catalog = F.api }
+    fakeRestart(core)
+    local A = fakeApply(core, o.apply)
+    connect(core)
+    tick() -- the refresh's done
+    return core, core.ui, F, A
+end
+local function stageOk(owners, ops)
+    return function()
+        local list = {}
+        for i, id in ipairs(owners) do list[i] = { id = id, version = "1.0.0", name = "N", files = 2, bytes = 10 } end
+        return "done", { outcome = "ok", message = "staged", payload = { txn = "0123456789abcdef0123456789abcdef", owners = list, ops = ops or 4 } }
+    end
+end
+local function rowNamed(U, name)
+    for n = 1, 200 do
+        local el = U.byId["bw.r" .. n .. ".name"]
+        if not el then return nil end
+        if el.text == name and U.byId["bw.r" .. n].visible then return n end
+    end
+end
+
+do -- A plain install: HUD Clock (the installed Nucleus 0.12.1 meets >=0.9.0): the confirm, the stage, RESTART NOW.
+    local core, U, F, A = installSession{ stagePoll = function(n) if n == 1 then return "running" end return stageOk({ NNC .. "hud-clock" })() end }
+    U = openBrowse(core)
+    local n = rowNamed(U, "HUD Clock")
+    ok(n and U.byId["bw.r" .. n .. ".inst"].visible and U.byId["bw.r" .. n .. ".inst"].label == "INSTALL", "plain: an available row has INSTALL")
+    local m = rowNamed(U, "Mod Manager")
+    eq(U.byId["bw.r" .. m .. ".inst"].visible, false, "plain: an update row has no INSTALL (story 6)")
+    eq(U.byId["bw.r" .. rowNamed(U, "Nucleus (Mod Core)") .. ".inst"].visible, false, "plain: an installed row has no INSTALL")
+    local h0 = #U.hookCalls
+    ok(U.click("bw.r" .. n .. ".inst"), "plain: INSTALL clicked")
+    eq(#U.hookCalls, h0, "plain: INSTALL does no ui work inside core's hook")
+    tick()
+    ok(U.open.install, "plain: the confirm window (id install) opens")
+    eq(U.byId["in.title"].text, "INSTALL HUD CLOCK 0.3.0?", "plain: the title")
+    eq(U.byId["in.also"].visible, false, "plain: no ALSO INSTALLS")
+    eq(U.byId["in.l1"].visible, false, "plain: no dependency lines")
+    eq(U.byId["in.more"].visible, false, "plain: no AND MORE")
+    eq(U.byId["in.size"].text, "DOWNLOAD 1 KB", "plain: the download size")
+    local okBtn = U.byId["in.ok"]
+    ok(okBtn.kind == "button" and okBtn.label == "INSTALL" and okBtn.visible and okBtn.enabled, "plain: INSTALL is one of core's buttons (focusable: keys and a gamepad reach it and BACK)")
+    eq(#lines("^%[ModManager%] INSTALL ask nuclearnightmare%-community%.hud%-clock set=nuclearnightmare%-community%.hud%-clock@0%.3%.0$"), 1, "plain: INSTALL ask")
+    eq(F.stages, nil, "plain: nothing staged before the confirm")
+    U.click("in.ok")
+    tick()
+    ok(not U.open.install, "plain: the confirm closes")
+    eq(F.stages, 1, "plain: one stage call")
+    ok(F.staged and #F.staged == 1 and F.staged[1].id == NNC .. "hud-clock" and F.staged[1].version == "0.3.0", "plain: core.catalog.stage({ { id, version } })")
+    eq(#lines("^%[ModManager%] INSTALL stage job=101$"), 1, "plain: INSTALL stage job")
+    eq(U.byId["bw.status"].text, "DOWNLOADING HUD CLOCK...", "plain: DOWNLOADING while it runs")
+    eq(U.byId["bw.r" .. n .. ".inst"].enabled, false, "plain: INSTALL disabled while it runs")
+    U.click("bw.r" .. n .. ".inst")
+    tick() -- the first poll: running
+    eq(#lines("INSTALL ask"), 1, "plain: a disabled INSTALL asks nothing")
+    eq(#lines("INSTALL done"), 0, "plain: not done yet")
+    tick() -- done
+    eq(#lines("^%[ModManager%] INSTALL done outcome=ok txn=0123456789abcdef0123456789abcdef owners=1 ops=4$"), 1, "plain: INSTALL done")
+    eq(A.calls.start, 1, "plain: core.apply.start()")
+    eq(#lines("^%[ModManager%] APPLY start ok$"), 1, "plain: APPLY start ok")
+    eq(U.byId["bw.status"].text, "HUD CLOCK INSTALLS WHEN THE GAME RESTARTS", "plain: the result message")
+    eq(U.byId["bw.r" .. n .. ".st"].text, "PENDING RESTART", "plain: the row reads PENDING RESTART")
+    eq(U.byId["bw.r" .. n .. ".inst"].visible, false, "plain: and has no INSTALL")
+    ok(U.byId.quit.visible and U.byId.restart.visible, "plain: QUIT GAME and RESTART NOW show (the staged change is pending)")
+    eq(U.byId.msg.text, "HUD CLOCK INSTALLS WHEN THE GAME RESTARTS", "plain: the main window's message line too")
+    -- Details of a staged row: no INSTALL
+    U.click("bw.r" .. n .. ".det") tick()
+    eq(U.byId["dt.install"].visible, false, "plain: Details of a staged mod has no INSTALL")
+    eq(W.async, 0, "plain: never LoopAsync or ExecuteInGameThread")
+    eq(#lines("WARN"), 0, "plain: no WARN")
+    endSession()
+end
+
+do -- Missing and too-old dependencies: Target needs Alpha (absent) and Nucleus >=0.22.0 (0.12.1 installed).
+    local p = fixture("catalog-ok.json")
+    local function ver(v, deps) return { version = v, scope = "client", game = { version = "V8.2.3", build = "26601774" }, ue4ss = "x", dependsOn = deps,
+        url = "https://github.com/x/y/releases/download/v1/x.zip", sha256 = string.rep("d", 64), size = 3000000, published = "2026-11-20T00:00:00Z" } end
+    local function pk(id, name, deps) return { id = id, name = name, kind = "mod", description = name .. " for tests.", categories = { "ui" }, publisher = "P",
+        repo = "x/y", license = "MIT", versions = { ver("1.0.0", deps) } } end
+    local pk1 = pk("x.alpha", "Alpha", {})
+    local pk2 = pk("x.target", "Target", { { id = "x.alpha", version = ">=1.0.0" }, { id = NNC .. "nucleus", version = ">=0.22.0" } })
+    local many = {}
+    for i = 1, 10 do many[i] = { id = "x.dep" .. i, version = ">=1.0.0" } end
+    local pk3 = pk("x.big", "Big", many)
+    table.insert(p.index.packages, pk1); table.insert(p.index.packages, pk2); table.insert(p.index.packages, pk3)
+    for i = 1, 10 do table.insert(p.index.packages, pk("x.dep" .. i, "Dep" .. i, {})) end
+    local core, U, F = installSession{ payload = p, stagePoll = stageOk({ "x.alpha", NNC .. "nucleus", "x.target" }, 9) }
+    U = openBrowse(core)
+    U.typeText("bw.q", "target") tick()
+    U.click("bw.r1.inst") tick()
+    eq(U.byId["in.title"].text, "INSTALL TARGET 1.0.0?", "deps: the title")
+    eq(U.byId["in.also"].visible, true, "deps: ALSO INSTALLS:")
+    eq(U.byId["in.also"].text, "ALSO INSTALLS:", "deps: its text")
+    eq(U.byId["in.l1"].text, "ALPHA 1.0.0 (NEW)", "deps: the missing one (NEW)")
+    eq(U.byId["in.l2"].text, "NUCLEUS (MOD CORE) 0.22.0 (UPDATE FROM 0.12.1)", "deps: the too-old one (UPDATE FROM)")
+    eq(U.byId["in.l3"].visible, false, "deps: two lines")
+    eq(U.byId["in.size"].text, "DOWNLOAD 5.7 MB", "deps: the summed index sizes (3000000 + 100 + 3000000 bytes)")
+    eq(#lines("^%[ModManager%] INSTALL ask x%.target set=x%.alpha@1%.0%.0,nuclearnightmare%-community%.nucleus@0%.22%.0,x%.target@1%.0%.0$"), 1, "deps: INSTALL ask, dependencies first")
+    U.click("in.ok") tick()
+    ok(#F.staged == 3 and F.staged[1].id == "x.alpha" and F.staged[2].id == NNC .. "nucleus" and F.staged[2].version == "0.22.0" and F.staged[3].id == "x.target",
+        "deps: one stage of three, dependencies first")
+    tick()
+    eq(#lines("^%[ModManager%] INSTALL done outcome=ok txn=%x+ owners=3 ops=9$"), 1, "deps: done with three owners")
+    -- ten dependencies: eight lines, then AND 2 MORE
+    U.typeText("bw.q", "big") tick()
+    U.click("bw.r1.inst") tick()
+    eq(U.byId["in.l8"].text, "DEP8 1.0.0 (NEW)", "many: the eighth line")
+    eq(U.byId["in.more"].visible, true, "many: AND MORE shows")
+    eq(U.byId["in.more"].text, "AND 2 MORE", "many: AND 2 MORE")
+    U.back("install") tick()
+    eq(#lines("^%[ModManager%] INSTALL cancel x%.big %(close%)$"), 1, "BACK: cancelled, logged")
+    U.click("in.ok") tick()
+    eq(F.stages, 1, "BACK: a stale confirm click stages nothing")
+    endSession()
+end
+
+do -- Refused by the resolver: no confirm, the message, INSTALL refuse.
+    local p = fixture("catalog-ok.json")
+    local function ver(deps) return { version = "1.0.0", scope = "client", game = { version = "V8.2.3", build = "26601774" }, dependsOn = deps, sha256 = string.rep("e", 64), size = 10 } end
+    table.insert(p.index.packages, { id = "x.uses", name = "Uses", kind = "mod", description = "Uses a taken folder.", categories = { "ui" }, versions = { ver({ { id = "x.held", version = ">=1.0.0" } }) } })
+    -- ModManagerBase's folder holds nuclearnightmare-community.mod-manager-base; x.held is named ModManagerBase: conflict
+    table.insert(p.index.packages, { id = "x.held", name = "ModManagerBase", displayName = "Held", kind = "mod", description = "Held.", categories = { "ui" }, versions = { ver({}) } })
+    local many = {}
+    for i = 1, 16 do many[i] = { id = "x.d" .. i, version = ">=1.0.0" }; table.insert(p.index.packages, { id = "x.d" .. i, name = "D" .. i, kind = "mod", description = "D.", categories = { "ui" }, versions = { ver({}) } }) end
+    table.insert(p.index.packages, { id = "x.huge", name = "Huge", kind = "mod", description = "Needs sixteen.", categories = { "ui" }, versions = { ver(many) } })
+    local core, U, F = installSession{ payload = p, stagePoll = stageOk({}) }
+    U = openBrowse(core)
+    U.typeText("bw.q", "uses") tick()
+    U.click("bw.r1.inst") tick()
+    ok(not U.open.install, "conflict: no confirm")
+    eq(U.byId["bw.status"].text, "CAN'T INSTALL HELD (CONFLICT)", "conflict: the message")
+    eq(#lines("^%[ModManager%] INSTALL refuse x%.uses reason=conflict$"), 1, "conflict: INSTALL refuse")
+    U.typeText("bw.q", "sixteen") tick()
+    U.click("bw.r1.inst") tick()
+    eq(U.byId["bw.status"].text, "CAN'T INSTALL HUGE (TOO-MANY)", "too-many: the message")
+    eq(#lines("^%[ModManager%] INSTALL refuse x%.huge reason=too%-many$"), 1, "too-many: INSTALL refuse")
+    -- unsatisfiable (the resolver's answer; the model offers only satisfiable versions, so it is stubbed here)
+    local Cat = package.loaded["catalog"]
+    local real = Cat.installSet
+    Cat.installSet = function() return nil, "unsatisfiable", { name = "HUD Clock", dep = "Nucleus (Mod Core)", need = ">=9.0.0" } end
+    U.typeText("bw.q", "clock") tick()
+    U.click("bw.r1.inst") tick()
+    Cat.installSet = real
+    eq(U.byId["bw.status"].text, "CAN'T INSTALL: HUD CLOCK NEEDS NUCLEUS (MOD CORE) >=9.0.0", "unsatisfiable: the message")
+    eq(#lines("^%[ModManager%] INSTALL refuse nuclearnightmare%-community%.hud%-clock reason=unsatisfiable$"), 1, "unsatisfiable: INSTALL refuse")
+    eq(F.stages, nil, "resolver refusals: nothing staged")
+    endSession()
+end
+
+do -- Stage outcomes other than ok: the message, nothing pending, INSTALL again.
+    for _, c in ipairs({ { "hash-mismatch", "INSTALL REFUSED (hash-mismatch)" }, { "bad-zip", "INSTALL REFUSED (bad-zip)" },
+        { "folder-in-use", "INSTALL REFUSED (folder-in-use)" }, { "error", "INSTALL FAILED" } }) do
+        local core, U, F, A = installSession{ stagePoll = function() return "done", { outcome = c[1], message = "why", payload = { failed = NNC .. "hud-clock" } } end }
+        U = openBrowse(core)
+        local n = rowNamed(U, "HUD Clock")
+        U.click("bw.r" .. n .. ".inst") tick()
+        U.click("in.ok") tick()
+        tick()
+        eq(U.byId["bw.status"].text, c[2], c[1] .. ": the message")
+        eq(#lines("^%[ModManager%] INSTALL done outcome=" .. c[1]:gsub("%-", "%%-") .. " txn=%- owners=0 ops=%-$"), 1, c[1] .. ": INSTALL done")
+        eq(A.calls.start, 0, c[1] .. ": no helper started")
+        ok(U.byId["bw.r" .. n .. ".inst"].visible and U.byId["bw.r" .. n .. ".inst"].enabled, c[1] .. ": INSTALL is offered again")
+        eq(U.byId.restart.visible, false, c[1] .. ": nothing pending")
+        endSession()
+    end
+    -- refused before a job: busy, applying
+    for _, c in ipairs({ { "busy", "CATALOG BUSY" }, { "applying", "INSTALL REFUSED (applying)" }, { "no verified index", "INSTALL REFUSED (no verified index)" } }) do
+        local core, U = installSession{ stage = function() return nil, c[1] end, stagePoll = stageOk({}) }
+        U = openBrowse(core)
+        U.click("bw.r" .. rowNamed(U, "HUD Clock") .. ".inst") tick()
+        U.click("in.ok") tick()
+        eq(U.byId["bw.status"].text, c[2], "stage nil, " .. c[1] .. ": the message")
+        eq(#lines("^%[ModManager%] INSTALL stage job=" .. c[1]:gsub("%-", "%%-") .. "$"), 1, "stage nil, " .. c[1] .. ": logged")
+        endSession()
+    end
+    -- a poll that never finishes: 10 minutes, then INSTALL FAILED
+    local core, U, F = installSession{ stagePoll = function() return "running" end }
+    U = openBrowse(core)
+    U.click("bw.r" .. rowNamed(U, "HUD Clock") .. ".inst") tick()
+    U.click("in.ok") tick()
+    for _ = 1, 2400 do tick() end
+    eq(U.byId["bw.status"].text, "INSTALL FAILED", "poll cap: INSTALL FAILED after 10 minutes")
+    eq(#lines("^%[ModManager%] INSTALL done outcome=error "), 1, "poll cap: done as error")
+    local before = F.polls
+    tick() tick()
+    eq(F.polls, before, "poll cap: the chain stopped")
+    endSession()
+end
+
+do -- A second install before the restart: both pending (core merges them into one staged change).
+    local core, U, F, A = installSession{ stagePoll = function(n) if n == 1 then return stageOk({ NNC .. "hud-clock" })() end return stageOk({ NNC .. "whistle-mute" })() end }
+    U = openBrowse(core)
+    U.click("bw.r" .. rowNamed(U, "HUD Clock") .. ".inst") tick()
+    U.click("in.ok") tick() tick()
+    U.click("bw.r" .. rowNamed(U, "Whistle Emote Mute") .. ".inst") tick()
+    U.click("in.ok") tick() tick()
+    eq(U.byId["bw.r" .. rowNamed(U, "HUD Clock") .. ".st"].text, "PENDING RESTART", "merge: the first stays pending")
+    eq(U.byId["bw.r" .. rowNamed(U, "Whistle Emote Mute") .. ".st"].text, "PENDING RESTART", "merge: the second pending too")
+    eq(#lines("INSTALL done outcome=ok"), 2, "merge: two stages")
+    eq(A.calls.start, 2, "merge: the helper asked twice (already started is fine)")
+    -- a refresh keeps the marks
+    U.click("bw.refresh") tick() tick()
+    eq(U.byId["bw.r" .. rowNamed(U, "HUD Clock") .. ".st"].text, "PENDING RESTART", "merge: a refresh keeps PENDING RESTART")
+    endSession()
+end
+
+do -- APPLY start "already started" counts as fine; core without core.catalog.stage: one WARN, no INSTALL flow.
+    local core, U, F, A = installSession{ apply = { start = { false, "already started" } }, stagePoll = stageOk({ NNC .. "hud-clock" }) }
+    U = openBrowse(core)
+    U.click("bw.r" .. rowNamed(U, "HUD Clock") .. ".inst") tick()
+    U.click("in.ok") tick() tick()
+    eq(#lines("^%[ModManager%] APPLY start already started$"), 1, "already started: logged")
+    eq(U.byId["bw.status"].text, "HUD CLOCK INSTALLS WHEN THE GAME RESTARTS", "already started: still the result message")
+    endSession()
+    boot()
+    local c2 = newCore{ catalog = { refresh = function() return nil, "busy" end, poll = function() return nil, "unknown job" end } }
+    connect(c2)
+    eq(#lines("^%[ModManager%] WARN Nucleus has no core%.catalog%.stage: Browse has no INSTALL$"), 1, "no stage: one WARN")
     restore()
 end
 

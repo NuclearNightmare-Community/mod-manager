@@ -23,6 +23,17 @@
 --   Catalog.age(iso, nowUtc) -> { key, n } | nil   key "justNow" | "hoursAgo" | "daysAgo" (strings.lua), n the count
 --   Catalog.wrap(text, width, maxLines) -> { line, ... }   words wrapped by character count; a word longer than width is
 --       split; text past maxLines ends the last line with "..."
+--   v2 story 5:
+--   Catalog.installSet(rows, targetId) -> set | nil, reason, info
+--       What INSTALL stages for a package of Catalog.model's rows: its offered version, after every dependency the
+--       installed version doesn't satisfy (semver.satisfies), checked recursively (depth MAX_DEPTH, a visited set).
+--       set = { { id, version, name, size, flag = "new" | "update", from = <installed version | nil> }, ... },
+--       dependencies first, the target last. reason: "unsatisfiable" (no offered version meets a need, or the target
+--       has none), "conflict" (the folder of the target or a dependency holds another id), "downgrade" (only a version
+--       lower than the installed one is offered), "too-many" (more than MAX_SET). info = { name = <the package that
+--       needs it>, dep = <the dependency's name>, need = <the need> } (dep and need for unsatisfiable and downgrade).
+--   Catalog.sizeText(bytes) -> { key = "sizeKB" | "sizeMB", n }   the download size: KB (rounded up) under 1 MB, else
+--       MB with one decimal (n a string, "1.5"; strings.lua)
 local CORE = "Nucleus"
 local J = require(CORE:lower() .. ".json")
 local SV = require(CORE:lower() .. ".semver")
@@ -43,6 +54,7 @@ Catalog.MAX_DESCRIPTION = 256     -- a row's displayed copy
 Catalog.MAX_DESCRIPTION_KEPT = 360 -- what Details and search see (a valid description is at most 280)
 Catalog.MAX_FIELD = 64         -- a version, a scope, a publisher, a license, a game version or build, in the UI
 Catalog.CORE_ID = "nuclearnightmare-community.nucleus"
+Catalog.MAX_SET = 16           -- v2 story 5: core.catalog.stage takes at most 16 pairs
 -- The fixed category list (spec-mod-manager-v2/categories.md), in its order; strings.lua has cat.<id> for each.
 Catalog.CATEGORIES = { "gameplay", "content", "visuals", "audio", "ui", "qol", "tools", "library", "performance",
     "multiplayer", "localization", "overhaul", "bug-fixes", "maps" }
@@ -176,7 +188,7 @@ local function readVersion(v)
         end
     end
     return { version = v.version, build = v.game.build, gameVersion = str(v.game.version), scope = scope, deps = deps,
-        sha256 = str(v.sha256) }
+        sha256 = str(v.sha256), size = (math.type(v.size) == "integer" and v.size >= 0) and v.size or nil }
 end
 
 -- Revocation: id (normalized), version and sha256 (without case), whatever the action.
@@ -332,6 +344,74 @@ function Catalog.model(index, revoked, installedRows, coreVersion, build)
     end
     for _, row in ipairs(rows) do row.versions = nil end -- only the shown version is kept
     return rows, warns, total
+end
+
+-- ---------------------------------------------------------------- v2 story 5: the install set
+function Catalog.installSet(rows, targetId)
+    local byId = {}
+    for _, r in ipairs(rows or {}) do if type(r) == "table" and type(r.id) == "string" then byId[r.id] = r end end
+    local target = byId[targetId]
+    local function nameOf(id) local r = byId[id] return r and r.name ~= "" and r.name or token(id) end
+    if not target or not target.offered then return nil, "unsatisfiable", { name = nameOf(targetId) } end
+    if target.state == "conflict" then return nil, "conflict", { name = target.name } end
+    local function installed(r)
+        local v = r and r.installedVersion
+        return type(v) == "string" and v ~= "" and v or nil
+    end
+    local ti = installed(target)
+    if ti and (SV.compare(target.offered.version, ti) or 0) < 0 then return nil, "downgrade", { name = target.name } end
+    local set, chosen, visiting = {}, {}, {}
+    local fail
+    local function add(r)
+        local inst = installed(r)
+        local e = { id = r.id, version = r.offered.version, name = r.name, size = r.offered.size,
+            flag = r.installedVersion ~= nil and "update" or "new", from = r.installedVersion ~= nil and (inst or "-") or nil }
+        set[#set + 1] = e
+        chosen[r.id] = e
+    end
+    local function visit(r, depth)
+        if depth > Catalog.MAX_DEPTH then fail = { "unsatisfiable", { name = r.name } } return end
+        visiting[r.id] = true
+        for _, d in ipairs(r.offered.deps or {}) do
+            local dep = byId[d.id]
+            local inst = installed(dep)
+            if inst and SV.satisfies(inst, d.need) then -- the installed version will do
+            elseif chosen[d.id] then
+                if not SV.satisfies(chosen[d.id].version, d.need) then fail = { "unsatisfiable", { name = r.name, dep = nameOf(d.id), need = d.need } } end
+            elseif visiting[d.id] then -- a cycle: the version being chosen must meet this need too
+                if not (dep.offered and SV.satisfies(dep.offered.version, d.need)) then fail = { "unsatisfiable", { name = r.name, dep = nameOf(d.id), need = d.need } } end
+            elseif not dep then
+                -- not in the catalog: only an installed copy (outside it) can meet the need; model's met says whether it does
+                local met = false
+                for _, x in ipairs(r.deps or {}) do if x.id == d.id and x.met then met = true end end
+                if not met then fail = { "unsatisfiable", { name = r.name, dep = nameOf(d.id), need = d.need } } end
+            elseif dep.state == "conflict" then
+                fail = { "conflict", { name = dep.name, dep = dep.name, need = d.need } }
+            else
+                local o = dep.offered
+                local lower = inst and o and (SV.compare(o.version, inst) or 0) < 0
+                if lower then fail = { "downgrade", { name = r.name, dep = dep.name, need = d.need } }
+                elseif not (o and SV.satisfies(o.version, d.need)) then fail = { "unsatisfiable", { name = r.name, dep = dep.name, need = d.need } }
+                else
+                    visit(dep, depth + 1)
+                    if not fail then add(dep) end
+                end
+            end
+            if fail then break end
+        end
+        visiting[r.id] = nil
+    end
+    visit(target, 0)
+    if fail then return nil, fail[1], fail[2] end
+    add(target)
+    if #set > Catalog.MAX_SET then return nil, "too-many", { name = target.name } end
+    return set
+end
+
+function Catalog.sizeText(bytes)
+    bytes = (math.type(bytes) == "integer" and bytes > 0) and bytes or 0
+    if bytes < 1024 * 1024 then return { key = "sizeKB", n = math.max(1, (bytes + 1023) // 1024) } end
+    return { key = "sizeMB", n = string.format("%.1f", bytes / (1024 * 1024)) }
 end
 
 -- ---------------------------------------------------------------- search and filters

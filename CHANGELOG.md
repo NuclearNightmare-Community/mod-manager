@@ -2,6 +2,18 @@
 
 All notable changes to the Mod Manager are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-11-21
+
+### Added
+
+- INSTALL (Mod Manager v2 story 5). Browse's rows of mods that aren't installed get an **INSTALL** button (beside the description), and so does their DETAILS window. INSTALL works out everything needed: the mod's version for this build and every dependency that is missing or too old (checked recursively, dependencies first, at most 16), and asks in one window: `INSTALL <NAME> <VERSION>?`, `ALSO INSTALLS:` (`<NAME> <VERSION> (NEW)` or `(UPDATE FROM <v>)`, at most 8 lines, then `AND <n> MORE`) and `DOWNLOAD <size>`. Confirming hands the list to Nucleus (`core.catalog.stage`), which downloads, verifies and opens each mod and stages its files; the Mod Manager polls it from the game thread, shows `DOWNLOADING <NAME>...`, then starts Nucleus's helper, marks the rows `PENDING RESTART` and shows `<NAME> INSTALLS WHEN THE GAME RESTARTS` with QUIT GAME and RESTART NOW: the mod is put in place when the game closes. A refusal changes nothing and says why (`INSTALL REFUSED (<outcome>)`, `INSTALL FAILED`, `CATALOG BUSY`, `CAN'T INSTALL: <NAME> NEEDS <DEP> <need>`, `CAN'T INSTALL <NAME> (<REASON>)`). A second install before the restart joins the same change.
+- `Scripts/catalog.lua` `installSet` and `sizeText`; log lines `INSTALL ask|refuse|cancel|stage|done|message` and `APPLY start` after an install; the `install` test scenario (VM, the live catalog, two sessions: install HUD Clock, RESTART NOW, HUD Clock runs).
+
+### Changed
+
+- Needs Nucleus 0.26.0 or newer (`>=0.26.0`, was `>=0.25.0`), which stages installs (`core.catalog.stage`). Without it Browse has no INSTALL (one `WARN`).
+- The `mod.json` description says the catalog's mods can be installed too.
+
 ## [0.6.0] - 2026-11-21
 
 ### Added

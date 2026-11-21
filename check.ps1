@@ -56,6 +56,14 @@
   path=<A's Scripts\main.lua> attempts=1", "APPLY ack ok", the AP*4 checks (A byte-identical, none of C's files, C
   still pending, the buttons shown), END result=PASS. Any detection, event or block fails the run with a line saying
   the story stops blocked with that evidence.
+  install (Mod Manager v2 story 5; VM, the live catalog, two sessions split at "[run.ps1] SESSION 2 (relaunched by the
+  game)"): the whole log has no crash or driver FAIL, one RELAUNCH line with the same command line and the userdir,
+  "RUN finished", no ERROR line anywhere. Session 1: CATALOG done ok from the network, "INSTALL ask
+  nuclearnightmare-community.hud-clock set=nuclearnightmare-community.hud-clock@0.3.0", "INSTALL stage job=<n>",
+  "INSTALL done outcome=ok ... owners=1", "APPLY start ok" (or already started), core's stage job lines, the driver's
+  IN* checks (the confirm, PENDING RESTART, RESTART NOW), "RESTART mode=direct", no END line. Session 2: "APPLY status
+  staged=none result=applied", "APPLY result applied" and "APPLY ack ok", a "[HudClock]" line, "BROWSE pkg
+  nuclearnightmare-community.hud-clock v=0.3.0 ... state=installed", the driver's IN*2 checks, END result=PASS.
   browse (Mod Manager v2 story 4; VM, the live catalog): two refreshes (startup and REFRESH), each "CATALOG done
   outcome=ok source=network", "BUILD <this repo's mod.json game.build> from=index|manifest", BROWSE open with at least five
   packages and state=ok, no base or installer package, Nucleus and the Mod Manager installed with their Nucleus need met,
@@ -65,7 +73,7 @@
   agreeing with the driver's ROW lines (named through -CatalogIndex: installed or update when a ROW line has its display
   name, else available), the second CATALOG done after DETAILS.
   Exit code 1 when any check fails; otherwise prints "All checks passed."
-  Scenarios: screen, no-core, old-core, restart, apply, browse (run.ps1 drives them); unit needs no log: it runs test.ps1.
+  Scenarios: screen, no-core, old-core, restart, apply, browse, install (run.ps1 drives them); unit needs no log: it runs test.ps1.
   -Target vm: a log from run.ps1 -Target vm. The VM's game shares the CPU with the host, so core's "hud slow tick"
   WARN under the Mod Manager's tag is soft there.
 .EXAMPLE
@@ -74,7 +82,7 @@
 param(
     [string] $Instance,
     [string] $Log,
-    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply', 'browse', 'unit')]
+    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply', 'browse', 'install', 'unit')]
     [string] $Scenario = 'screen',
     [ValidateSet('host', 'vm')] [string] $Target = 'host',
     [string] $CoreManifest, # Nucleus's deployed mod.json; default: -Instance's, else the workspace's mods/Nucleus/build/package
@@ -106,7 +114,7 @@ if (-not $CoreManifest) {
 $lines = @(Get-Content $Log)
 Write-Host "--- $name lines ($Scenario) ---"
 $lines | Where-Object {
-    $_ -match "\[$M\]|\[$D\]|^\[run\.ps1\]|\[${M}Restart\]|\[${M}Apply[ABC]\]|\[$K\] native: (restart|apply)" -or
+    $_ -match "\[$M\]|\[$D\]|^\[run\.ps1\]|\[${M}Restart\]|\[${M}Apply[ABC]\]|\[$K\] native: (restart|apply|catalog: stage)|\[HudClock\]" -or
     $_ -match 'Error executing script|threw an exception|removing hook|Unhandled Exception|stack traceback|\[script_hook\]'
 } | ForEach-Object { $_ -replace '^\[[^\]]+\]\s*', '' -replace '^\[Lua\]\s*', '' }
 
@@ -206,6 +214,17 @@ $expect = @{
         "\[$D\] OK BWDONE startup ", "\[$D\] OK BWROWS ", "\[$D\] OK BWOPEN ", "\[$D\] OK BWLIST ", "\[$D\] OK BWCAT ", "\[$D\] OK BWSHOW "
         "\[$D\] OK BWRESET ", "\[$D\] OK BWSEARCH ", "\[$D\] OK BWDETAILS ", "\[$D\] OK BWDONE after REFRESH "
         '^\[run\.ps1\] FILES unchanged$'
+    )
+    # Mod Manager v2 story 5: the patterns of the whole log (each session below is checked on its own part).
+    'install' = @(
+        '^\[run\.ps1\] SESSION 2 \(relaunched by the game\)\s*$'
+        '#1|^\[run\.ps1\] SESSION '
+        '#1|^\[run\.ps1\] RELAUNCH old=\d+ new=\d+ cmdline=same userdir=yes\s*$'
+        '^\[run\.ps1\] RUN finished\s*$'
+        '^\[run\.ps1\] FILES (unchanged|changed: mods\.txt sha256 [0-9A-F]{64} -> [0-9A-F]{64})$'
+        # no ERROR line from any mod (the Mod Manager, core, HUD Clock, the driver)
+        '!\[[A-Za-z]+\] ERROR '
+        "#1|\[$D\] END result="
     )
     'no-core' = @(
         '^\[run\.ps1\] FILES unchanged$'
@@ -398,6 +417,48 @@ if ($Scenario -eq 'apply') {
     if ($gate) {
         Fail "Windows Defender, Controlled Folder Access or Code Integrity reported something: stop the story as blocked with this evidence (never add an exclusion or change the helper to avoid it): $($gate -join ' / ')"
     } else { Pass 'no Defender detection or event, no Controlled Folder Access event, no Code Integrity block' }
+}
+
+if ($Scenario -eq 'install') {
+    # Mod Manager v2 story 5: session 1 installs HUD Clock and ends with RESTART NOW; session 2 is the relaunched game.
+    $cut = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match '^\[run\.ps1\] SESSION 2 ') { $cut = $i; break } }
+    $s1 = if ($cut -gt 0) { @($lines[0..($cut - 1)]) } elseif ($cut -lt 0) { $lines } else { @() }
+    $s2 = if ($cut -ge 0 -and $cut + 1 -lt $lines.Count) { @($lines[($cut + 1)..($lines.Count - 1)]) } else { @() }
+    $HC = 'nuclearnightmare-community\.hud-clock'
+    $each = $running + @("\[$D\] SCENARIO install\s*$", "\[$M\] CATALOG done outcome=ok source=network ")
+    Test-Patterns ($each + @(
+        "#1|\[$D\] INSTALL session 1\s*$"
+        "!\[HudClock\] "
+        "\[$M\] BROWSE pkg $HC v=0\.3\.0 \S+ \S+ state=available core=ok\s*$"
+        "#1|\[$M\] INSTALL ask $HC set=$HC@0\.3\.0\s*$"
+        "#1|\[$M\] INSTALL stage job=\d+\s*$"
+        "#1|\[$M\] INSTALL done outcome=ok txn=[0-9a-f]{32} owners=1 ops=4\s*$"
+        "!\[$M\] INSTALL (refuse|cancel) "
+        "#1|\[$M\] APPLY start (ok|already started)\s*$"
+        "\[$K\] native: catalog: stage job \d+ started \($HC 0\.3\.0\)"
+        "\[$K\] native: catalog: stage job \d+ done: ok: "
+        "\[$K\] native: apply: helper started \(mode=direct"
+        "\[$D\] OK INROW ", "\[$D\] OK INSTATE ", "\[$D\] OK INBUTTON ", "\[$D\] OK INTITLE ", "\[$D\] OK INNOALSO ", "\[$D\] OK INSIZE ", "\[$D\] OK INOK "
+        "\[$D\] OK INDONE ", "\[$D\] OK INWAIT ", "\[$D\] OK INPENDING ", "\[$D\] OK INNOBUTTON ", "\[$D\] OK INMSG ", "\[$D\] OK INRESTART "
+        "\[$D\] CLICK RESTART NOW at "
+        "#1|\[$M\] RESTART mode=direct pending=[1-9]\d*\s*$"
+        "!\[$M\] WARN RESTART NOW"
+        "!\[$D\] END result="
+    )) $s1 'session 1: '
+    Test-Patterns ($each + @(
+        "#1|\[$D\] INSTALL session 2\s*$"
+        "\[HudClock\] "
+        "#1|\[$M\] APPLY status staged=none result=applied "
+        "#1|\[$M\] APPLY result applied "
+        "#1|\[$M\] APPLY ack ok\s*$"
+        "!\[$M\] APPLY start "
+        "\[$M\] BROWSE pkg $HC v=0\.3\.0 \S+ \S+ state=installed core=ok\s*$"
+        "!\[$M\] INSTALL "
+        "\[$D\] OK INAPPLIED ", "\[$D\] OK INLOADED ", "\[$D\] OK INMODSTXT ", "\[$D\] OK INJSON ", "\[$D\] OK INROW2 ", "\[$D\] OK ININSTALLED ", "\[$D\] OK INNOBUTTON2 "
+        "\[$D\] END result=PASS"
+        "!\[$M\] RESTART mode="
+    )) $s2 'session 2: '
 }
 
 function IndexOf([string] $p) { for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match $p) { return $i } } return -1 }

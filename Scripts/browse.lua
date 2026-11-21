@@ -9,10 +9,18 @@
 --   b:openDetails(n) -> lines | nil   the Details window for shown row n, on top; lines = its description lines
 --   b.filters -> { cat, show, scope, for, q }   the current filter (Catalog.filter's f)
 --   b.shown, b.matched            the rows shown now (at most Catalog.MAX_SHOWN) and how many matched
+--   v2 story 5:
+--   b:setPending(set)             ids staged this session ({ [id] = true }): their rows read PENDING RESTART, no INSTALL
+--   b:setInstalling(on)           while a stage runs every INSTALL button is disabled
+--   b:openInstall(spec)           the confirm window (id "install") on top; spec = { title, also = { line, ... } | nil,
+--                                 more = n | nil, size = text }; INSTALL and core's BACK. b:closeInstall()
+--   b:installShown(id) -> bool    whether package id offers INSTALL now (state available, not pending)
 -- data = { rows = Catalog.model's rows, total, state = "checking" | "ok" | "copy" | "unavailable" | "refused" |
 --          "error" | "none", outcome, buildKnown, indexIssued, revokedIssued, now = <UTC seconds> }
 -- Callbacks the caller sets: onFiltered(filters, shown, matched, all) after every fill (open, a filter, a search change,
--- an update), onRefresh() (REFRESH), onDetails(id) (a row's DETAILS, the package id taken at the click; default: openDetailsFor), defer(what, fn) (core calls
+-- an update), onRefresh() (REFRESH), onDetails(id) (a row's DETAILS, the package id taken at the click; default: openDetailsFor),
+-- v2 story 5: onInstall(id) (a row's or Details' INSTALL, the id taken at the click), onInstallConfirm() (the confirm
+-- window's INSTALL); defer(what, fn) (core calls
 -- a control's onChange and a button's onClick inside its Blueprint hook, where no ui work may run: the caller runs fn
 -- after the hook returned; default: at once).
 --
@@ -20,8 +28,12 @@
 -- gamepad reach each control: Up / Down between rows, Left / Right step a choice), the age line, the status line, the
 -- header list and the list stack in the card's top-left corner; REFRESH and the count line in its bottom-right; BACK is
 -- core's. Each package is two list rows: name | category | version | scope icon | state | warning | DETAILS, then its
--- description in the small font. Rows are made as first needed and hidden past the count, never removed. The Details
--- window stacks its texts (nothing clickable but BACK).
+-- description in the small font, with v2 story 5's INSTALL button at its right (only on an available row not staged this
+-- session; in the description's row, so the first row's columns stay aligned whether it shows or not). Rows are made as
+-- first needed and hidden past the count, never removed. The Details window stacks its texts and, for an available
+-- package, INSTALL (v2 story 5; else nothing clickable but BACK). The confirm window stacks its title, ALSO INSTALLS:
+-- with at most INSTALL_LINES lines and AND <n> MORE, DOWNLOAD <size>, then INSTALL; BACK is core's (both reachable with
+-- the keys and a gamepad: core's buttons take focus).
 local Screen = require("screen")
 local Catalog = require("catalog")
 
@@ -41,6 +53,7 @@ Browse.FILTER_FILL = { label = 1, control = 3 }
 Browse.SEARCH_W = 480
 Browse.DESC_LINES, Browse.DESC_WIDTH = 5, 72
 Browse.DEP_LINES = 4
+Browse.INSTALL_LINES = 8 -- v2 story 5: the confirm window's ALSO INSTALLS lines
 Browse.DETAILS_ICON = { game = "/Game/HexTree/Textures/T_Question.T_Question" } -- allow-listed by core (UI-10)
 local STATE_KEY = { update = "stUpdate", installed = "stInstalled", conflict = "stConflict", available = "stAvailable",
     ["other-build"] = "stOtherBuild" }
@@ -49,7 +62,7 @@ local FOR_KEY = { "forGame", "forReady", "forAll" }
 
 function Browse.new(ui, strings)
     return setmetatable({ ui = ui, S = strings, lang = "en", made = 0, cells = {}, data = { rows = {}, state = "none" },
-        shown = {}, matched = 0, filters = { show = "all", ["for"] = "game", q = "" }, message = nil }, Browse)
+        shown = {}, matched = 0, filters = { show = "all", ["for"] = "game", q = "" }, message = nil, pending = {}, installing = false }, Browse)
 end
 
 function Browse:str(key) return self.S.get(key, self.lang) end
@@ -166,6 +179,14 @@ function Browse:makeRow(n)
     local d = "bw.d" .. n
     c.drow = ui.row.create{ id = d, place = { list = self.list } }
     c.descH = ui.text.create{ id = d .. ".text", text = "", place = { row = c.drow, fill = 1 }, style = { font = "small", overflow = "ellipsis" } }
+    -- v2 story 5: INSTALL, hidden until the row offers it
+    c.inst = ui.button.create{ id = p .. ".inst", label = self:str("install"), place = { row = c.drow }, onClick = function()
+        local r = self.shown[n]
+        local id = r and r.id
+        if id then later(self, "INSTALL", function() self:onInstallClick(id) end) end
+    end }
+    ui.button.setVisible(c.inst, false)
+    c.instShown, c.instEnabled = false, true
     self.cells[n] = c
     self.made = n
     return c
@@ -231,7 +252,7 @@ function Browse:fill()
         local c, r = self.cells[n], self.shown[n]
         if r then
             local cat = r.primary and self:str("cat." .. r.primary) or self:str("unknown")
-            local st = self:str(STATE_KEY[r.state] or "stAvailable")
+            local st = self.pending[r.id] and self:str("pendingRestart") or self:str(STATE_KEY[r.state] or "stAvailable")
             if c.name ~= r.name then ui.text.set(c.nameH, r.name ~= "" and r.name or "-"); c.name = r.name end
             if c.cat ~= cat then ui.text.set(c.catH, cat); c.cat = cat end
             local ver = Catalog.clean(r.version, Catalog.MAX_FIELD)
@@ -247,6 +268,9 @@ function Browse:fill()
             if c.warnTip ~= wtip then ui.image.setTooltip(c.w, wtip); c.warnTip = wtip end
             local desc = cut(r.description, Catalog.MAX_DESCRIPTION)
             if c.desc ~= desc then ui.text.set(c.descH, desc); c.desc = desc end
+            local inst = self:installShown(r.id)
+            if c.instShown ~= inst then ui.button.setVisible(c.inst, inst); c.instShown = inst end
+            if inst and c.instEnabled == self.installing then ui.button.setEnabled(c.inst, not self.installing); c.instEnabled = not self.installing end
             if not c.visible then ui.row.setVisible(c.row, true); ui.row.setVisible(c.drow, true); c.visible = true end
         elseif c.visible then
             ui.row.setVisible(c.row, false); ui.row.setVisible(c.drow, false)
@@ -288,6 +312,10 @@ function Browse:onSearch(text)
     self.filters.q = text
     refill(self, "the search")
 end
+function Browse:onInstallClick(id)
+    if self.installing then return end
+    if self.onInstall then self.onInstall(id) end
+end
 function Browse:onDetailsClick(id)
     if self.onDetails then self.onDetails(id) else self:openDetailsFor(id) end
 end
@@ -297,6 +325,84 @@ function Browse:openDetailsFor(id)
         if r.id == id then return self:openDetails(n), r end
     end
     return nil
+end
+
+-- ---------------------------------------------------------------- v2 story 5: INSTALL
+-- The row of package id in the current data, or nil.
+function Browse:rowOf(id)
+    for _, r in ipairs(self.data.rows or {}) do if r.id == id then return r end end
+    return nil
+end
+function Browse:installShown(id)
+    local r = self:rowOf(id)
+    return r ~= nil and r.state == "available" and r.offered ~= nil and not self.pending[id]
+end
+function Browse:setPending(set)
+    self.pending = set or {}
+    if self.built and self:isOpen() then self:fill() end
+    self:applyDetailsInstall()
+end
+function Browse:setInstalling(on)
+    self.installing = on == true
+    if self.built and self:isOpen() then self:fill() end
+    self:applyDetailsInstall()
+    if self.inOk and self.inOkEnabled == self.installing then self.ui.button.setEnabled(self.inOk, not self.installing); self.inOkEnabled = not self.installing end
+end
+-- Details' INSTALL: shown for an available package not staged yet, disabled while a stage runs.
+function Browse:applyDetailsInstall()
+    local dt = self.dt
+    if not (dt and dt.install) then return end
+    local show = self.detId ~= nil and self:installShown(self.detId)
+    if dt.installShown ~= show then self.ui.button.setVisible(dt.install, show); dt.installShown = show end
+    if show and dt.installEnabled == self.installing then self.ui.button.setEnabled(dt.install, not self.installing); dt.installEnabled = not self.installing end
+end
+
+-- The confirm window (id "install"), on top.
+function Browse:openInstall(spec)
+    local ui = self.ui
+    self.inWin = ui.screen.open{ id = "install" }
+    local w = self.inW
+    if not w then
+        w = { lines = {}, shown = {} }
+        local function at(gap) return { screen = self.inWin, corner = "top-left", gap = gap or "tight" } end
+        w.title = ui.text.create{ id = "in.title", text = "", place = at("normal"), style = { font = "title" } }
+        w.also = ui.text.create{ id = "in.also", text = self:str("alsoInstalls"), place = at("normal"), style = { font = "body" } }
+        for k = 1, Browse.INSTALL_LINES do
+            w.lines[k] = ui.text.create{ id = "in.l" .. k, text = "", place = at(), style = { font = "body" } }
+        end
+        w.more = ui.text.create{ id = "in.more", text = "", place = at(), style = { font = "body" } }
+        w.size = ui.text.create{ id = "in.size", text = "", place = at("normal"), style = { font = "body" } }
+        self.inOkSpec = { id = "in.ok", label = self:str("install"), place = at("normal"),
+            onClick = function() later(self, "the install confirm", function() if self.onInstallConfirm then self.onInstallConfirm() end end) end }
+        self.inOk = ui.button.create(self.inOkSpec)
+        self.inOkEnabled = true
+        w.shown = { also = true, more = true }
+        for k = 1, Browse.INSTALL_LINES do w.shown[k] = true end
+        self.inW = w
+    elseif self.inOkSpec.label ~= self:str("install") then
+        self.inOkSpec.label = self:str("install")
+        ui.button.create(self.inOkSpec)
+    end
+    local function show(key, el, on)
+        if w.shown[key] ~= on then ui.text.setVisible(el, on); w.shown[key] = on end
+    end
+    ui.text.set(w.title, cut(spec.title or "", Screen.MAX_TEXT))
+    local also = spec.also or {}
+    show("also", w.also, #also > 0)
+    if #also > 0 then ui.text.set(w.also, self:str("alsoInstalls")) end
+    for k = 1, Browse.INSTALL_LINES do
+        local t = also[k]
+        if t then ui.text.set(w.lines[k], cut(t, Screen.MAX_TEXT)) end
+        show(k, w.lines[k], t ~= nil)
+    end
+    show("more", w.more, (spec.more or 0) > 0)
+    if (spec.more or 0) > 0 then ui.text.set(w.more, self:fmt("alsoMore", spec.more)) end
+    ui.text.set(w.size, cut(spec.size or "", Screen.MAX_TEXT))
+    if self.inOkEnabled == self.installing then ui.button.setEnabled(self.inOk, not self.installing); self.inOkEnabled = not self.installing end
+    return self.inWin
+end
+function Browse:closeInstall()
+    if self.inWin and self.ui.screen.isOpen(self.inWin) then self.ui.screen.close(self.inWin) end
 end
 
 -- ---------------------------------------------------------------- open, update
@@ -394,6 +500,7 @@ function Browse:openDetails(n)
     local ui = self.ui
     local l = self:detailsLines(r)
     self.detWin = ui.screen.open{ id = "details" }
+    self.detId = r.id
     local dt = self.dt
     if not dt then
         dt = { desc = {}, deps = {}, descShown = {}, depShown = {} }
@@ -404,6 +511,12 @@ function Browse:openDetails(n)
         dt.cats, dt.ver, dt.runs, dt.game = body("dt.cats"), body("dt.ver"), body("dt.runs"), body("dt.game")
         for k = 1, Browse.DEP_LINES do dt.deps[k] = body("dt.n" .. k); dt.depShown[k] = true end
         dt.inst, dt.pub, dt.lic = body("dt.inst"), body("dt.pub"), body("dt.lic")
+        -- v2 story 5: INSTALL for an available package (the id at the click: Details may show another mod by then)
+        dt.install = ui.button.create{ id = "dt.install", label = self:str("install"), place = at("normal"), onClick = function()
+            local id = self.detId
+            if id then later(self, "INSTALL", function() self:onInstallClick(id) end) end
+        end }
+        dt.installShown, dt.installEnabled = true, true
         self.dt = dt
     end
     ui.text.set(dt.title, cut(l.title, Screen.MAX_TEXT))
@@ -420,6 +533,7 @@ function Browse:openDetails(n)
         if dt.depShown[k] ~= (t ~= nil) then ui.text.setVisible(dt.deps[k], t ~= nil); dt.depShown[k] = t ~= nil end
     end
     ui.text.set(dt.inst, cut(l.inst, Screen.MAX_TEXT)); ui.text.set(dt.pub, cut(l.pub, Screen.MAX_TEXT)); ui.text.set(dt.lic, cut(l.lic, Screen.MAX_TEXT))
+    self:applyDetailsInstall()
     return #l.desc
 end
 

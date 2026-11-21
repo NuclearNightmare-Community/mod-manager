@@ -2,7 +2,8 @@
 -- filter rows: a textbox and four choices, one control per row; the age and status lines; the header; two list rows per
 -- package; REFRESH and the count line), lazy rows hidden past the count and never removed, the 120 cap and its count
 -- line, filters reset on every open, the status texts per state, and the Details window (wrapped description, the fact
--- lines, the NEEDS lines, nothing clickable).
+-- lines, the NEEDS lines, nothing clickable); v2 story 5: INSTALL on available rows only (in the description's row),
+-- PENDING RESTART, INSTALL disabled while a stage runs, Details' INSTALL and the confirm window.
 -- Run from the repo root:  texlua test/unit/browse_test.lua
 local ROOT = (arg and arg[0] or ""):match("^(.*)[/\\]test[/\\]unit[/\\][^/\\]+$") or "."
 package.path = ROOT .. "/Scripts/?.lua;" .. ROOT .. "/test/unit/?.lua;" .. package.path
@@ -159,7 +160,7 @@ do -- 300 packages: the first 120 shown, the count line says so; rows made lazil
     eq(U.byId["bw.r120"].visible, false, "the other rows hidden, kept")
 end
 
-do -- Details: the wrapped description, the facts, the NEEDS lines; nothing clickable.
+do -- Details: the wrapped description, the facts, the NEEDS lines; nothing clickable but INSTALL on an available package.
     local U = FakeUi.new()
     local b = Browse.new(U, S)
     local long = string.rep("lorem ipsum dolor ", 30)
@@ -186,7 +187,8 @@ do -- Details: the wrapped description, the facts, the NEEDS lines; nothing clic
     eq(U.byId["dt.inst"].text, "INSTALLED NO", "Details: INSTALLED NO")
     eq(U.byId["dt.pub"].text, "PUBLISHER Pub", "Details: PUBLISHER")
     eq(U.byId["dt.lic"].text, "LICENSE MIT", "Details: LICENSE")
-    eq(U.count("button.create"), buttons, "Details: no button (BACK is core's)")
+    eq(U.count("button.create"), buttons + 1, "Details: one button of its own, v2 story 5's INSTALL (BACK is core's)")
+    eq(U.byId["dt.install"].visible, false, "Details: no INSTALL for an other-build package")
     -- Deep is other-build (its needs are not met): ALL BUILDS shows it; Short is installed by folder
     U.back("details")
     eq(b:openDetails(2) ~= nil, true, "Details again for another row")
@@ -234,6 +236,70 @@ do -- A 280-character description: the row shows 256 of it, Details wraps all of
     U.back("details")
     U.typeText("bw.q", "zebrafishy")
     eq(#b.shown, 1, "search matches a word past character 256")
+end
+
+do -- v2 story 5: INSTALL on available rows only, PENDING RESTART, disabled while a stage runs, Details' INSTALL, the confirm.
+    local U = FakeUi.new()
+    local b = Browse.new(U, S)
+    local asked, confirmed = {}, 0
+    b.onInstall = function(id) asked[#asked + 1] = id end
+    b.onInstallConfirm = function() confirmed = confirmed + 1 end
+    local other = { { version = "0.1.0", game = { version = "V1", build = "1" }, scope = "client", dependsOn = {}, sha256 = string.rep("a", 64) } }
+    local rows = Catalog.model({ packages = { pkg(1, { displayName = "Avail" }), pkg(2, { displayName = "Inst" }), pkg(3, { displayName = "Other", versions = other }),
+        pkg(4, { displayName = "Taken" }) } }, nil, { { folder = "Mod 002", id = "x.m002", version = "0.1.0" }, { folder = "Mod 004", id = "someone.else", version = "1.0.0" } }, "1.0.0", B)
+    b:open(data(rows), "en", SIZE)
+    U.pick("bw.for", 3) -- ALL BUILDS
+    local names = {}
+    for n = 1, 4 do names[n] = U.byId["bw.r" .. n .. ".name"].text end
+    eq(table.concat(names, ","), "Avail,Inst,Other,Taken", "install: the rows")
+    ok(U.byId["bw.r1.inst"].visible and U.byId["bw.r1.inst"].label == "INSTALL" and U.byId["bw.r1.inst"].kind == "button", "install: an available row has an INSTALL button")
+    eq(U.byId["bw.r1.inst"].place.row, U.byId["bw.d1"].handle, "install: in the description's row (the first row's columns stay aligned)")
+    eq(U.byId["bw.r2.inst"].visible, false, "install: installed: none")
+    eq(U.byId["bw.r3.inst"].visible, false, "install: other-build: none")
+    eq(U.byId["bw.r4.inst"].visible, false, "install: conflict: none")
+    ok(U.click("bw.r1.inst"), "install: clicked")
+    eq(asked[1], "x.m001", "install: onInstall gets the row's id")
+    b:setPending({ ["x.m001"] = true })
+    eq(U.byId["bw.r1.st"].text, "PENDING RESTART", "pending: the state text")
+    eq(U.byId["bw.r1.inst"].visible, false, "pending: no INSTALL")
+    eq(b:installShown("x.m001"), false, "pending: installShown false")
+    b:setPending({})
+    eq(U.byId["bw.r1.st"].text, "NOT INSTALLED", "pending cleared: the state again")
+    b:setInstalling(true)
+    eq(U.byId["bw.r1.inst"].enabled, false, "installing: INSTALL disabled")
+    eq(U.click("bw.r1.inst"), false, "installing: a click is dropped")
+    b:setInstalling(false)
+    eq(U.byId["bw.r1.inst"].enabled, true, "installing over: enabled again")
+    -- Details: INSTALL for the available package, none for the others
+    b:openDetails(1)
+    eq(U.byId["dt.install"].visible, true, "Details: INSTALL for an available package")
+    U.click("dt.install")
+    eq(asked[2], "x.m001", "Details: INSTALL asks for that package")
+    U.back("details")
+    b:openDetails(2)
+    eq(U.byId["dt.install"].visible, false, "Details: no INSTALL for an installed one")
+    U.back("details")
+    -- the confirm window
+    local also = {}
+    for i = 1, 8 do also[i] = "DEP" .. i .. " 1.0.0 (NEW)" end
+    local w = b:openInstall{ title = "INSTALL AVAIL 0.1.0?", also = also, more = 3, size = "DOWNLOAD 9 KB" }
+    eq(w.id, "install", "confirm: the window's id")
+    eq(U.byId["in.title"].text, "INSTALL AVAIL 0.1.0?", "confirm: the title")
+    eq(U.byId["in.title"].style.font, "title", "confirm: the title font")
+    ok(U.byId["in.also"].visible and U.byId["in.also"].text == "ALSO INSTALLS:", "confirm: ALSO INSTALLS:")
+    eq(U.byId["in.l8"].text, "DEP8 1.0.0 (NEW)", "confirm: eight lines")
+    eq(U.byId["in.more"].text, "AND 3 MORE", "confirm: AND 3 MORE")
+    eq(U.byId["in.size"].text, "DOWNLOAD 9 KB", "confirm: the size")
+    ok(U.byId["in.ok"].kind == "button" and U.byId["in.ok"].label == "INSTALL" and U.byId["in.ok"].visible, "confirm: INSTALL (BACK is core's)")
+    U.click("in.ok")
+    eq(confirmed, 1, "confirm: onInstallConfirm")
+    b:closeInstall()
+    ok(not U.open.install, "confirm: closed")
+    b:openInstall{ title = "INSTALL B 1.0.0?", also = {}, size = "DOWNLOAD 1 KB" }
+    ok(not U.byId["in.also"].visible and not U.byId["in.l1"].visible and not U.byId["in.more"].visible, "confirm: nothing else needed: title, size and INSTALL only")
+    b:setInstalling(true)
+    eq(U.byId["in.ok"].enabled, false, "confirm: disabled while a stage runs")
+    b:setInstalling(false)
 end
 
 io.stdout:write(("browse_test: %d passed, %d failed\n"):format(passed, failed))
