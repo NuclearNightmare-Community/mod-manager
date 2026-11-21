@@ -81,7 +81,8 @@
   nuclearnightmare-community.whistle-mute", "UNINSTALL done outcome=ok ... files=3 kept=0", core's stage and unstage job
   lines, the driver's UP* checks, "RESTART mode=direct", no END line. Session 2: "APPLY status staged=none
   result=applied", "APPLY result applied", "APPLY ack ok", core's READY (the driver's UPCORE: its mod.json at the fixture version), no test main.dll, a
-  "[HudClock]" line, no NOTICE shown, no UPDATE or INSTALL, the helper's renamed copy bin\<Core>Restart.<txn>.old still
+  "[HudClock]" line, CATALOG done ok from the network (the live catalog: the fixture's serials are 1, no higher than
+  its), no NOTICE shown, no UPDATE or INSTALL, the helper's renamed copy bin\<Core>Restart.<txn>.old still
   there (UPOLDBEFORE), then "UNINSTALL ask" HUD Clock, "UNINSTALL done outcome=ok ... kept=0" (its files from
   installed.txt) and "APPLY start ok" (a helper starts: only one in apply mode deletes the .old), the driver's UP*
   checks (UPOLD: the .old gone), END result=PASS.
@@ -525,6 +526,7 @@ if ($Scenario -eq 'update') {
     )) $s1 'session 1: '
     Test-Patterns ($each + @(
         "#1|\[$D\] UPDATE session 2\s*$"
+        "\[$M\] CATALOG done outcome=ok source=network " # the live catalog: the fixture's serials are no higher than its
         "!\[$K\] native: catalog: $marker"
         "\[$K\] READY version=\d+\.\d+\.\d+ "
         "\[HudClock\] "
