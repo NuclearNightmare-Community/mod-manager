@@ -38,7 +38,7 @@ local want = { manage = "MANAGE MODS", title = "MOD MANAGER", name = "NAME", ver
     scopeUnknown = "UNKNOWN", scopeUnknownMeans = "THIS MOD DOESN'T SAY WHERE IT RUNS",
     -- v2 story 4: Browse and Details
     browse = "BROWSE", browseTitle = "BROWSE MODS", search = "SEARCH", searchHint = "TYPE TO SEARCH",
-    searchTip = "WORDS IN THE NAME OR DESCRIPTION", category = "CATEGORY", show = "SHOW", scopeFilter = "RUNS ON", forFilter = "FOR",
+    searchTip = "WORDS IN THE NAME OR DESCRIPTION", category = "CATEGORY", show = "SHOW", scopeFilter = "SCOPE", forFilter = "FOR",
     all = "ALL", showAll = "ALL", showInstalled = "INSTALLED", showNotInstalled = "NOT INSTALLED", showUpdate = "UPDATE AVAILABLE",
     forGame = "THIS GAME", forReady = "READY TO RUN", forAll = "ALL BUILDS", stateHeader = "STATE",
     stInstalled = "INSTALLED", stUpdate = "UPDATE AVAILABLE", stConflict = "FOLDER IN USE", stAvailable = "NOT INSTALLED",

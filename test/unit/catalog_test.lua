@@ -225,5 +225,17 @@ do
     eq(Catalog.token("a b\n"), "a?b?", "token: printable ASCII only")
 end
 
+do -- A full-length description (280 characters): Details and search see all of it; only a row's copy is cut to 256.
+    local desc = string.rep("a", 269) .. " zebrafinch" -- the word ends at character 280
+    eq(#desc, 280, "the description is 280 characters")
+    local vs = { { version = "1.0.0", scope = "client", game = { version = "V1", build = B }, dependsOn = {} } }
+    local r = Catalog.model({ packages = { { id = "x.long", name = "Long", kind = "mod", categories = { "ui" }, description = desc, versions = vs } } }, nil, {}, "1.0.0", B)
+    eq(r[1].description, desc, "the model keeps the whole 280-character description")
+    eq(ids((Catalog.filter(r, { q = "zebrafinch" }))), "x.long", "search finds a word past character 256")
+    eq(#Catalog.wrap(r[1].description, 72, 5), 4, "Details wraps all 280 characters")
+    local big = Catalog.model({ packages = { { id = "x.big", name = "Big", kind = "mod", categories = { "ui" }, description = string.rep("b", 400), versions = vs } } }, nil, {}, "1.0.0", B)
+    eq(#big[1].description, Catalog.MAX_DESCRIPTION_KEPT, "an over-long description is kept to 360 characters")
+end
+
 io.stdout:write(("catalog_test: %d passed, %d failed\n"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

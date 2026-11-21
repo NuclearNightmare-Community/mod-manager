@@ -70,7 +70,7 @@ S.TABLES = {
         searchTip = "WORDS IN THE NAME OR DESCRIPTION",
         category = "CATEGORY",                       -- a filter's label and a header
         show = "SHOW",
-        scopeFilter = "RUNS ON",
+        scopeFilter = "SCOPE",
         forFilter = "FOR",
         all = "ALL",                                 -- CATEGORY and SCOPE: every one
         showAll = "ALL", showInstalled = "INSTALLED", showNotInstalled = "NOT INSTALLED", showUpdate = "UPDATE AVAILABLE",

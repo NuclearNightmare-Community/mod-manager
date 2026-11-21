@@ -39,7 +39,8 @@ Catalog.MAX_DEPTH = 8          -- dependsOn checked recursively to this depth
 Catalog.MAX_QUERY = 64         -- characters of the search text
 Catalog.MAX_TERMS = 8
 Catalog.MAX_NAME = 64
-Catalog.MAX_DESCRIPTION = 256
+Catalog.MAX_DESCRIPTION = 256     -- a row's displayed copy
+Catalog.MAX_DESCRIPTION_KEPT = 360 -- what Details and search see (a valid description is at most 280)
 Catalog.MAX_FIELD = 64         -- a version, a scope, a publisher, a license, a game version or build, in the UI
 Catalog.CORE_ID = "nuclearnightmare-community.nucleus"
 -- The fixed category list (spec-mod-manager-v2/categories.md), in its order; strings.lua has cat.<id> for each.
@@ -239,7 +240,7 @@ function Catalog.model(index, revoked, installedRows, coreVersion, build)
                 local name = clean(str(p.displayName) or p.name, Catalog.MAX_NAME)
                 if name:match("^%s*$") then name = clean(p.name, Catalog.MAX_NAME) end
                 total = total + 1
-                local row = { id = id, name = name, folder = p.name, description = clean(str(p.description) or "", Catalog.MAX_DESCRIPTION),
+                local row = { id = id, name = name, folder = p.name, description = clean(str(p.description) or "", Catalog.MAX_DESCRIPTION_KEPT),
                     categories = cats, primary = cats[1], versions = versions, publisher = clean(str(p.publisher) or "", Catalog.MAX_FIELD),
                     license = clean(str(p.license) or "", Catalog.MAX_FIELD) }
                 byId[id] = row
