@@ -1842,8 +1842,9 @@ local function buildUpdate()
         settle(1)
     end
     local UPD_DONE = "[" .. MOD .. "] UPDATE done "
-    -- The core version the fixture catalog offers (deploy.ps1 made it one patch above core's build): its index.json.
-    local CORE_NEW = (readFile(ME .. "\\fixture\\index.json") or ""):match('"id":%s*"nuclearnightmare%-community%.' .. CORE:lower() .. '".-"versions":%s*%[%s*{%s*"version":%s*"([^"]+)"') or "?"
+    -- The core version the fixture catalog offers (deploy.ps1 made it one patch above core's build): its index.json (the
+    -- package entry: its id followed by its name, unlike a dependsOn entry).
+    local CORE_NEW = (readFile(ME .. "\\fixture\\index.json") or ""):match('"id":%s*"nuclearnightmare%-community%.' .. CORE:lower() .. '",%s*"name".-"versions":%s*%[%s*{%s*"version":%s*"([^"]+)"') or "?"
     local ARROW = "\u{2192}"
 
     waitWorld("menu" .. n, "NewMainMenu", 120)
