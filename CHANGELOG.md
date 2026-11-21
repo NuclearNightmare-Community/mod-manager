@@ -17,6 +17,7 @@ All notable changes to the Mod Manager are recorded here. The format follows [Ke
 
 - Needs Nucleus 0.27.0 or newer (`>=0.27.0`, was `>=0.26.0`), which stages removals (`core.catalog.unstage`).
 - The main window's status slot has four icons (build, dependency, restart, revoked).
+- Opening MANAGE MODS or the REVOKED MODS window works the catalog model out again, as BROWSE does: a startup refresh that finishes before the title screen's footer shows the game's version leaves the build unknown, and then updates and a revoked version's fix only appeared after BROWSE was opened (found in the VM `update` run).
 
 ## [0.7.0] - 2026-11-21
 

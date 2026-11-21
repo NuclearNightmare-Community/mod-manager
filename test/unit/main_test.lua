@@ -1791,6 +1791,7 @@ local function revSession(o)
     local mods2 = { HudClock = modJson(NNC .. "hud-clock", o.hudVersion or "0.3.0", { NNC .. "nucleus" }), WhistleMute = modJson(NNC .. "whistle-mute", "0.2.1") }
     for k, v in pairs(o.mods or {}) do mods2[k] = v end
     boot{ mods = mods2 }
+    if o.footer then W.footer = o.footer end
     W.queue = {}
     os.time = function() return NOW end
     local sp, up, rp = 0, 0, 0
@@ -1828,6 +1829,22 @@ local function openMainWin(core)
     return U
 end
 local function mainRow(U, name) return rowOf(U, name) end
+
+do -- The startup refresh finishes before the menu's footer is up (the VM run): the build is unknown at done, so nothing
+   -- is offered yet; REVIEW and MANAGE MODS work the model out again with the build the footer then shows.
+    local core, U, F = revSession{ footer = "", stagePoll = function() return "running" end }
+    eq(#lines("^%[ModManager%] REVOKED nuclearnightmare%-community%.hud%-clock v=0%.3%.0 action=disable fix=none$"), 1, "early done: revoked, no fix yet (build unknown)")
+    eq(U.byId["tn.text"] and U.byId["tn.text"].text, "HUD CLOCK 0.3.0 WAS REVOKED", "early done: the title-screen notice anyway")
+    W.footer = "NUCLEAR NIGHTMARE EA V8.2.3"
+    U.click("tn.review") tick()
+    ok(U.open.revoked and U.byId["rv.r1.upd"].visible and U.byId["rv.r1.upd"].label == "UPDATE TO 0.3.1", "REVIEW after the footer: UPDATE TO 0.3.1")
+    eq(#lines("^%[ModManager%] REVOKED nuclearnightmare%-community%.hud%-clock v=0%.3%.0 action=disable fix=0%.3%.1$"), 1, "REVIEW: the fix logged")
+    U.back("revoked") tick()
+    openMainWin(core)
+    eq(U.byId["notice.text"].text, "1 REVOKED - 3 UPDATES AVAILABLE", "MANAGE MODS after the footer: the notice line counts the updates")
+    ok(F.stages == nil, "nothing staged")
+    endSession()
+end
 
 do -- Revoked, newer fix: the title-screen notice, REVIEW, LATER stages nothing; the main window's badge and notice line.
     local core, U, F, A = revSession{ stagePoll = function(n) if n == 1 then return "running" end return stageOk({ NNC .. "hud-clock" })() end }
