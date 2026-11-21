@@ -141,10 +141,12 @@ function New-UpdateFixture {
         $pkgs[$mod].versions.Insert(0, $ver) # newest first (each package's versions above are listed oldest first)
     }
     $build = $hc1.Manifest.game
-    $ix = [ordered]@{ schema = 2; serial = 3; issued = $now; game_builds = @([ordered]@{ version = $build.version; build = $build.build })
+    # Serials 1 and 1: session 2 runs the normal core against the live catalog (index serial 2, revoked list serial 1)
+    # with the state session 1 left, so the fixture must not be higher, or the live catalog is refused as a rollback.
+    $ix = [ordered]@{ schema = 2; serial = 1; issued = $now; game_builds = @([ordered]@{ version = $build.version; build = $build.build })
         packages = @($pkgs.Values | ForEach-Object { $_.versions = $_.versions.ToArray(); $_ }) }
     $hcSha = Get-UpdateFixtureSha $zips['hud-clock|0.3.0'].Bytes
-    $rv = [ordered]@{ schema = 1; serial = 2; issued = $now; revoked = @([ordered]@{ id = "$($hc0.Manifest.id)".ToLowerInvariant(); version = '0.3.0'; sha256 = $hcSha
+    $rv = [ordered]@{ schema = 1; serial = 1; issued = $now; revoked = @([ordered]@{ id = "$($hc0.Manifest.id)".ToLowerInvariant(); version = '0.3.0'; sha256 = $hcSha
                 reason = 'Fixture revocation: crashes on map load (update scenario).'; action = 'disable' }) }
     [IO.File]::WriteAllText((Join-Path $Out 'index.json'), ($ix | ConvertTo-Json -Depth 16), $utf8)
     [IO.File]::WriteAllText((Join-Path $Out 'revoked.json'), ($rv | ConvertTo-Json -Depth 16), $utf8)

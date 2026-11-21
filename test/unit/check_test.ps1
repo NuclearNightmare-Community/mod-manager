@@ -526,7 +526,7 @@ function UpdateSession([int] $n) {
         $l += L $D 'CLICK RESTART NOW at (10,10)'
         $l += L $M 'RESTART mode=direct pending=3'
     } else {
-        $l += L $M 'CATALOG done outcome=serial-rollback source=- packages=0 index_issued=-'
+        $l += L $M 'CATALOG done outcome=ok source=network packages=5 index_issued=2026-10-30T23:11:49Z'
         $l += L 'HudClock' 'CONNECT ok Nucleus 0.27.1 (pong 0.27.1 boot=1)'
         $l += L $M 'APPLY result applied reason=- path=- attempts=0'
         $l += L $M 'APPLY ack ok'
