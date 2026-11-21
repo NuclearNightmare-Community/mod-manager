@@ -3,7 +3,9 @@
 -- run alone, a test falls back to the Nucleus checkout beside this repo (mods/Nucleus). Usage, after ROOT is known:
 --   dofile(ROOT .. "/test/unit/nucleus_pkg.lua")(ROOT)
 return function(root)
-    local path = package.path .. ";" .. root .. "/../Nucleus/lua/pkg/?.lua"
+    -- core's own folder first (LUA_PATH from test.ps1, then the sibling checkout): the Mod Manager's Scripts/json.lua must
+    -- never stand in for nucleus.json
+    local path = (os.getenv("LUA_PATH") or ""):gsub(";;", ";") .. ";" .. root .. "/../Nucleus/lua/pkg/?.lua;" .. package.path
     table.insert(package.searchers, 2, function(name)
         local rest = name:match("^nucleus%.([%w_]+)$")
         if not rest then return nil end

@@ -1,0 +1,261 @@
+{
+ "source": "network",
+ "base": "https://nuclearnightmare-community.github.io/catalog/",
+ "index_issued": "2026-11-21T00:59:08Z",
+ "revoked_issued": "2026-10-30T23:11:49Z",
+ "details": [
+  "index serial 2 verified"
+ ],
+ "index": {
+  "schema": 2,
+  "serial": 2,
+  "issued": "2026-11-21T00:59:08Z",
+  "game_builds": [
+   {
+    "version": "V8.2.3",
+    "build": "26601774"
+   }
+  ],
+  "packages": [
+   {
+    "id": "nuclearnightmare-community.base",
+    "name": "Nuclear Nightmare base pack",
+    "kind": "base",
+    "publisher": "Example",
+    "repo": "x/y",
+    "license": "MIT",
+    "versions": [
+     {
+      "version": "0.6.0",
+      "scope": "client",
+      "game": {
+       "version": "V8.2.3",
+       "build": "26601774"
+      },
+      "ue4ss": "v3.0.1-1181-g83330635",
+      "dependsOn": [],
+      "url": "https://github.com/x/y/releases/download/v0.6.0/y-0.6.0.zip",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size": 100,
+      "published": "2026-11-01T00:00:00Z",
+      "installable_after": "2026-11-01T00:00:00Z",
+      "changelog_url": null,
+      "attestation": null
+     }
+    ]
+   },
+   {
+    "id": "nuclearnightmare-community.base-installer",
+    "name": "Nuclear Nightmare installer",
+    "kind": "installer",
+    "publisher": "Example",
+    "repo": "x/y",
+    "license": "MIT",
+    "versions": [
+     {
+      "version": "0.6.0",
+      "scope": "client",
+      "game": {
+       "version": "V8.2.3",
+       "build": "26601774"
+      },
+      "ue4ss": "v3.0.1-1181-g83330635",
+      "dependsOn": [],
+      "url": "https://github.com/x/y/releases/download/v0.6.0/y-0.6.0.zip",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size": 100,
+      "published": "2026-11-01T00:00:00Z",
+      "installable_after": "2026-11-01T00:00:00Z",
+      "changelog_url": null,
+      "attestation": null
+     }
+    ]
+   },
+   {
+    "id": "nuclearnightmare-community.nucleus",
+    "name": "Nucleus",
+    "kind": "mod",
+    "publisher": "Example",
+    "repo": "x/y",
+    "license": "MIT",
+    "versions": [
+     {
+      "version": "0.22.0",
+      "scope": "client",
+      "game": {
+       "version": "V8.2.3",
+       "build": "26601774"
+      },
+      "ue4ss": "v3.0.1-1181-g83330635",
+      "dependsOn": [],
+      "url": "https://github.com/x/y/releases/download/v0.22.0/y-0.22.0.zip",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size": 100,
+      "published": "2026-11-01T00:00:00Z",
+      "installable_after": "2026-11-01T00:00:00Z",
+      "changelog_url": null,
+      "attestation": null
+     }
+    ],
+    "displayName": "Nucleus (Mod Core)",
+    "description": "The shared core that other mods build on.",
+    "categories": [
+     "library"
+    ]
+   },
+   {
+    "id": "nuclearnightmare-community.mod-manager",
+    "name": "ModManager",
+    "kind": "mod",
+    "publisher": "Example",
+    "repo": "x/y",
+    "license": "MIT",
+    "versions": [
+     {
+      "version": "0.4.0",
+      "scope": "client",
+      "game": {
+       "version": "V8.2.3",
+       "build": "26601774"
+      },
+      "ue4ss": "v3.0.1-1181-g83330635",
+      "dependsOn": [
+       {
+        "id": "nuclearnightmare-community.nucleus",
+        "version": ">=0.21.0"
+       }
+      ],
+      "url": "https://github.com/x/y/releases/download/v0.4.0/y-0.4.0.zip",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size": 100,
+      "published": "2026-11-01T00:00:00Z",
+      "installable_after": "2026-11-01T00:00:00Z",
+      "changelog_url": null,
+      "attestation": null
+     }
+    ],
+    "displayName": "Mod Manager",
+    "description": "Adds Manage Mods to the title screen.",
+    "categories": [
+     "tools",
+     "ui"
+    ]
+   },
+   {
+    "id": "nuclearnightmare-community.hud-clock",
+    "name": "HudClock",
+    "kind": "mod",
+    "publisher": "Example",
+    "repo": "x/y",
+    "license": "MIT",
+    "versions": [
+     {
+      "version": "0.3.0",
+      "scope": "client",
+      "game": {
+       "version": "V8.2.3",
+       "build": "26601774"
+      },
+      "ue4ss": "v3.0.1-1181-g83330635",
+      "dependsOn": [
+       {
+        "id": "nuclearnightmare-community.nucleus",
+        "version": ">=0.9.0"
+       }
+      ],
+      "url": "https://github.com/x/y/releases/download/v0.3.0/y-0.3.0.zip",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size": 100,
+      "published": "2026-11-01T00:00:00Z",
+      "installable_after": "2026-11-01T00:00:00Z",
+      "changelog_url": null,
+      "attestation": null
+     }
+    ],
+    "displayName": "HUD Clock",
+    "description": "Shows a clock on the HUD.",
+    "categories": [
+     "ui",
+     "qol"
+    ]
+   },
+   {
+    "id": "nuclearnightmare-community.waypoints",
+    "name": "Waypoints",
+    "kind": "mod",
+    "publisher": "Example",
+    "repo": "x/y",
+    "license": "MIT",
+    "versions": [
+     {
+      "version": "0.3.1",
+      "scope": "client",
+      "game": {
+       "version": "V8.2.3",
+       "build": "26601774"
+      },
+      "ue4ss": "v3.0.1-1181-g83330635",
+      "dependsOn": [
+       {
+        "id": "nuclearnightmare-community.nucleus",
+        "version": ">=0.9.0"
+       }
+      ],
+      "url": "https://github.com/x/y/releases/download/v0.3.1/y-0.3.1.zip",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size": 100,
+      "published": "2026-11-01T00:00:00Z",
+      "installable_after": "2026-11-01T00:00:00Z",
+      "changelog_url": null,
+      "attestation": null
+     }
+    ],
+    "displayName": "Map Waypoints+",
+    "description": "Shared map markers every player can see.",
+    "categories": [
+     "qol",
+     "ui"
+    ]
+   },
+   {
+    "id": "nuclearnightmare-community.whistle-mute",
+    "name": "WhistleMute",
+    "kind": "mod",
+    "publisher": "Example",
+    "repo": "x/y",
+    "license": "MIT",
+    "versions": [
+     {
+      "version": "0.2.1",
+      "scope": "client",
+      "game": {
+       "version": "V8.2.3",
+       "build": "26601774"
+      },
+      "ue4ss": "v3.0.1-1181-g83330635",
+      "dependsOn": [],
+      "url": "https://github.com/x/y/releases/download/v0.2.1/y-0.2.1.zip",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size": 100,
+      "published": "2026-11-01T00:00:00Z",
+      "installable_after": "2026-11-01T00:00:00Z",
+      "changelog_url": null,
+      "attestation": null
+     }
+    ],
+    "displayName": "Whistle Emote Mute",
+    "description": "Mutes the whistle emote.",
+    "categories": [
+     "audio",
+     "qol"
+    ]
+   }
+  ]
+ },
+ "revoked": {
+  "schema": 1,
+  "serial": 1,
+  "issued": "2026-10-30T23:11:49Z",
+  "revoked": []
+ }
+}

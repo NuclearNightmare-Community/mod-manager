@@ -48,6 +48,12 @@
 --             path, attempts 1; A's files byte-identical to the copy deploy.ps1 put in Scripts\apply-expect\; none of
 --             C's files; C not loaded and not in mods.txt; C still staged; the window shows the buttons; END (no QUIT
 --             GAME: the runner ends at END and stops the waiting helper before closing the game).
+--   browse:   Mod Manager v2 story 4 (VM, the live catalog): waits for the startup refresh's "[ModManager] CATALOG done"
+--             (read back from UE4SS.log), opens Manage Mods (ROW <name> | <version> per installed row), BROWSE (BWOPEN,
+--             BWLIST, shot browse), DOWN and four RIGHTs: CATEGORY AUDIO (BWCAT), DOWN and RIGHT: SHOW INSTALLED (BWSHOW),
+--             BACK and BROWSE again: the filters reset (BWRESET), a click on the search box, "type clock", ENTER: only
+--             HUD Clock (BWSEARCH), DETAILS on row 1 (BWDETAILS, shot details), its BACK, REFRESH and a second CATALOG
+--             done (BWDONE); END. check.ps1 judges the Mod Manager's CATALOG, BUILD and BROWSE lines.
 --   no-core:  (run.ps1 moves core aside) the menu has no MANAGE MODS entry.
 --   old-core: (run.ps1 sets core's installed mod.json to 0.1.0) publishes that version as <core>.version before the
 --             Mod Manager connects, as an old core would; the menu has no MANAGE MODS entry.
@@ -1457,6 +1463,142 @@ local function buildApply()
     end
 end
 
+-- ---------------------------------------------------------------- browse (Mod Manager v2 story 4; VM, live catalog)
+-- The Mod Manager's own log lines (CATALOG done) are read back from UE4SS.log next to Mods (the menu spike's way); the
+-- Browse window's elements are found by their tags like the main window's.
+local LOG_FILE = MODS_DIR .. "\\..\\UE4SS.log"
+local function logCount(plain)
+    local f = io.open(LOG_FILE, "rb")
+    if not f then return nil end
+    local s = f:read("a") or ""
+    f:close()
+    local n, i = 0, 1
+    while true do
+        local a, b = s:find(plain, i, true)
+        if not a then break end
+        n, i = n + 1, b + 1
+    end
+    return n
+end
+local DONE_LINE = "[" .. MOD .. "] CATALOG done "
+local function bwEl(id) local _, c = screenOf("browse") return childTagged(c, id) end
+local function bwFilter(k, id) return childTagged(prop(childTagged(prop(bwEl("bw.flist"), "VBox"), "bw.f" .. k), "HBox"), id) end
+local function bwRow(n) return childTagged(prop(bwEl("bw.list"), "VBox"), "bw.r" .. n) end
+local function bwCell(n, part) return childTagged(prop(bwRow(n), "HBox"), "bw.r" .. n .. "." .. part) end
+local function choiceText(w) return try(function() return w.Value:GetText():ToString() end) end
+-- The names of the Browse list's visible package rows, in order.
+local function bwNames()
+    local t = {}
+    for n = 1, 130 do
+        local r = bwRow(n)
+        if not r then break end
+        if shownW(r) then t[#t + 1] = textOf(bwCell(n, "name")) or "?" end
+    end
+    return t
+end
+
+local function buildBrowse()
+    local function waitDone(k, label)
+        step("wait CATALOG done " .. label, function()
+            local t0 = os.clock()
+            return function()
+                local n = logCount(DONE_LINE)
+                if n == nil then return os.clock() - t0 > 20 end -- the log can't be read: go on after 20 s
+                return n >= k
+            end, 150, "CATALOG done " .. label
+        end)
+        step("CATALOG done " .. label, function()
+            local n = logCount(DONE_LINE)
+            check(n == nil or n >= k, "BWDONE %s %d CATALOG done line(s) (want %d)", label, n or -1, k)
+        end)
+    end
+    local function key(k)
+        step("key " .. k, function() say("KEY %s", k) return request("key " .. k), 30, "key " .. k end)
+        settle(1)
+    end
+    local function openBrowse(label)
+        clickOn("BROWSE " .. label, function() return mainEl("browse") end)
+        waitFor("Browse " .. label, function() return screenOf("browse") ~= nil and bwEl("bw.title") ~= nil end, 15)
+        settle(2)
+    end
+
+    -- 1. The menu, the startup refresh's done.
+    waitWorld("menu1", "NewMainMenu", 120)
+    pastStartup()
+    waitFor("the entry", function() return menu() ~= nil and entryOf(menu()) ~= nil end, 60)
+    settle(2)
+    waitDone(1, "startup")
+    -- 2. Manage Mods (the installed rows, ROW lines), then BROWSE.
+    openMain("first")
+    step("rows", function()
+        local rows = readRows()
+        check(#rows >= 3, "BWROWS %d installed rows", #rows)
+        for _, r in ipairs(rows) do say("ROW %s | %s", r.name, r.ver) end
+    end)
+    openBrowse("first")
+    step("browse opened", function()
+        check(textOf(bwEl("bw.title")) == "BROWSE MODS", "BWOPEN the BROWSE MODS window (title %s)", tostring(textOf(bwEl("bw.title"))))
+        local names = bwNames()
+        check(#names >= 5, "BWLIST %d package rows (at least the five for this build): %s", #names, table.concat(names, ", "))
+        say("BROWSE rows %s", table.concat(names, " | "))
+        say("BROWSE age %s", tostring(textOf(bwEl("bw.age"))))
+        say("BROWSE count %s", tostring(textOf(bwEl("bw.count"))))
+    end)
+    step("cursor away", function() return request("move 5 5"), 30, "cursor away" end)
+    settle(1)
+    shot("browse")
+    -- 3. CATEGORY to AUDIO with keys (focus opens on the search box; DOWN to CATEGORY, RIGHT steps it), then SHOW to
+    -- INSTALLED (DOWN, RIGHT).
+    key("DOWN")
+    for _ = 1, 4 do key("RIGHT") end
+    step("category audio", function()
+        local t = choiceText(bwFilter(2, "bw.cat"))
+        check(t == "AUDIO", "BWCAT CATEGORY reads %s after DOWN and four RIGHTs (want AUDIO)", tostring(t))
+    end)
+    key("DOWN")
+    key("RIGHT")
+    step("show installed", function()
+        local t = choiceText(bwFilter(3, "bw.show"))
+        check(t == "INSTALLED", "BWSHOW SHOW reads %s after DOWN and RIGHT (want INSTALLED)", tostring(t))
+    end)
+    -- 4. Reset: BACK, then BROWSE again (filters reset on open); the search box clicked, "clock" typed, ENTER.
+    clickOn("Browse's BACK", function() return closeOf("browse") end)
+    waitFor("Browse closed", function() return screenOf("browse") == nil end, 10)
+    openBrowse("again")
+    step("reset", function()
+        local c, s = choiceText(bwFilter(2, "bw.cat")), choiceText(bwFilter(3, "bw.show"))
+        check(c == "ALL" and s == "ALL", "BWRESET the filters are reset on open (CATEGORY %s, SHOW %s)", tostring(c), tostring(s))
+    end)
+    clickOn("the search box", function() return bwFilter(1, "bw.q") end)
+    step("type clock", function() return request("type clock"), 30, "type clock" end)
+    settle(2)
+    key("ENTER")
+    settle(1)
+    step("search clock", function()
+        local names = bwNames()
+        check(#names == 1 and names[1] == "HUD Clock", "BWSEARCH 'clock' leaves one row: %s", table.concat(names, ", "))
+    end)
+    -- 5. DETAILS on the first row, a screenshot, BACK.
+    clickOn("DETAILS 1", function() return bwCell(1, "det") end)
+    waitFor("Details", function() return screenOf("details") ~= nil end, 10)
+    settle(2)
+    step("details", function()
+        local _, c = screenOf("details")
+        local t = textOf(childTagged(c, "dt.title"))
+        check(t == "HUD Clock", "BWDETAILS the Details window shows %s", tostring(t))
+    end)
+    step("cursor away (details)", function() return request("move 5 5"), 30, "cursor away" end)
+    settle(1)
+    shot("details")
+    clickOn("Details' BACK", function() return closeOf("details") end)
+    waitFor("Details closed", function() return screenOf("details") == nil and screenOf("browse") ~= nil end, 10)
+    -- 6. REFRESH: a second done.
+    clickOn("REFRESH", function() return bwEl("bw.refresh") end)
+    waitDone(2, "after REFRESH")
+    settle(2)
+    step("browse: end", function() finish() end)
+end
+
 -- ---------------------------------------------------------------- no-core and old-core: no entry
 local function buildNoEntry()
     waitWorld("menu1", "NewMainMenu", 120)
@@ -1503,7 +1645,7 @@ local function tick()
     busy = false
 end
 
-local build = ({ screen = buildScreen, restart = buildRestart, apply = buildApply, ["no-core"] = buildNoEntry, ["old-core"] = buildNoEntry })[SCENARIO]
+local build = ({ screen = buildScreen, restart = buildRestart, apply = buildApply, browse = buildBrowse, ["no-core"] = buildNoEntry, ["old-core"] = buildNoEntry })[SCENARIO]
 if not build then
     say("END result=FAIL checks=0 failures=1 reason=unknown-scenario %s", SCENARIO)
     return

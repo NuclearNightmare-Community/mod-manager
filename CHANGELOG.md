@@ -2,6 +2,23 @@
 
 All notable changes to the Mod Manager are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-11-21
+
+### Added
+
+- Browse (Mod Manager v2 story 4). A **BROWSE** button at the top right of the MOD MANAGER window opens **BROWSE MODS**: every mod the verified community catalog offers for this game build. Nucleus's `core.catalog` fetches and verifies the catalog (the Mod Manager reads no catalog file and fetches nothing itself): once when the game starts and again on **REFRESH**, polled from the game thread every 250 ms, one refresh at a time (`CATALOG BUSY` otherwise; never on a timer).
+- Search (a text box: every word must be in the name or the description) and four filters: CATEGORY (the 14 catalog categories), SHOW (all, installed, not installed, update available), RUNS ON (the four scopes) and FOR (this game, ready to run with the installed Nucleus, all builds). All reset when Browse opens. Each filter is its own row, so keys and a gamepad reach every one; search needs a keyboard.
+- Each mod: name, primary category, the version offered for this build (the newest one of this build that isn't revoked and whose dependencies can be met), the scope icon, its state (`INSTALLED`, `UPDATE AVAILABLE`, `NOT INSTALLED`, `FOLDER IN USE`, `OTHER GAME BUILD`), a warning when it needs a newer Nucleus, a DETAILS button, and its description. The catalog's age (`CATALOG UPDATED ...`, `REVOCATIONS CHECKED ...`), `OFFLINE: SAVED CATALOG` when the catalog came from the last verified copy, and `<n> OF <m> MODS` (at most 120 shown).
+- DETAILS: the description, categories, version, RUNS ON, the game it is for, what it needs (met or not), whether it is installed, publisher and license.
+- Offline and refusals: no endpoint reachable and no saved copy shows `CATALOG UNAVAILABLE. CHECK YOUR CONNECTION AND PRESS REFRESH.`; a catalog the verifier rejects shows only `CATALOG REFUSED (<outcome>)`, never the saved copy; a catalog schema too new shows `CATALOG NEEDS A NEWER MOD MANAGER`.
+- Log lines `CATALOG refresh`, `CATALOG done`, `CATALOG message`, `BUILD`, `BROWSE open`, `BROWSE pkg`, `BROWSE filter`, `DETAILS`; the `browse` test scenario (VM, the live catalog).
+- Nothing is installed, downloaded or updated from Browse yet.
+
+### Changed
+
+- Needs Nucleus 0.25.0 or newer (`>=0.25.0`, was `>=0.24.0`), which has the text box (`core.ui.textbox`); `core.catalog` (Nucleus 0.23.0) shows BROWSE, and without it the button is absent (one `WARN`).
+- The `mod.json` description mentions browsing instead of "coming".
+
 ## [0.5.0] - 2026-11-21
 
 ### Added

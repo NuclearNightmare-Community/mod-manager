@@ -38,7 +38,7 @@ os.remove(factsFile)
 -- Mod Manager v2 story 3: the apply scenario counts its sessions in apply-session.txt; four loads in a row are its four.
 local sessionFile = DIR .. "/apply-session.txt"
 os.remove(sessionFile)
-for _, run in ipairs({ "screen", "no-core", "old-core", "restart", "restart session 2", "apply", "apply session 2", "apply session 3", "apply session 4" }) do
+for _, run in ipairs({ "screen", "browse", "no-core", "old-core", "restart", "restart session 2", "apply", "apply session 2", "apply session 3", "apply session 4" }) do
     local sc = run:match("^(%S+)")
     printed, loops, notifies = {}, {}, {}
     local f = assert(io.open(scenarioFile, "w")); f:write(sc); f:close()

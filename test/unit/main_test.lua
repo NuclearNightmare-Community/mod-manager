@@ -165,7 +165,7 @@ local function boot(opts)
         files = { [TXT] = TXT0 } }
     for f, j in pairs(MJ) do W.files[MODS .. "\\" .. f .. "\\mod.json"] = j end
     for k, v in pairs(opts.files or {}) do W.files[k] = v or nil end
-    for _, m in ipairs({ "nucleus.client", "json", "nucleus.modid", "nucleus.semver", "inventory", "strings", "screen", "status", "modstxt", "files", "state" }) do package.loaded[m] = nil end
+    for _, m in ipairs({ "nucleus.client", "json", "nucleus.modid", "nucleus.semver", "nucleus.json", "inventory", "strings", "screen", "status", "modstxt", "files", "state", "catalog", "browse" }) do package.loaded[m] = nil end
     package.preload["nucleus.client"] = nil
     if opts.client ~= false then
         package.preload["nucleus.client"] = function() return { connect = function(o) W.connects[#W.connects + 1] = o end } end
@@ -191,6 +191,9 @@ local function newCore(o)
     local settings = {}
     for i, e in ipairs(FIXTURE_SETTINGS) do local c = {} for k, v in pairs(e) do c[k] = v end settings[i] = c end
     core.settings = FakeUi.settings({ ModManagerFixture = { settings = settings } })
+    -- v2 story 4: a core.catalog that is always busy (no job, no scan, nothing logged but one INFO line), so the
+    -- earlier stories' tests see what they saw before; o.catalog = false: none; the Browse tests set their own.
+    if o.catalog ~= false then core.catalog = o.catalog or { refresh = function() return nil, "busy" end, poll = function() return nil, "unknown job" end } end
     return core
 end
 -- Story 8: core.restart. o.mode: what mode() answers ("direct" by default; false: nil, "unsupported launch");
@@ -228,31 +231,31 @@ do -- Nucleus missing: exactly one [ModManager] line, the bootstrap's own.
     eq(#W.connects, 0, "no core: no connect")
     restore()
 end
-do -- Nucleus present: connect{ mod = "ModManager", need = ">=0.24.0" }, nothing logged before it answers.
+do -- Nucleus present: connect{ mod = "ModManager", need = ">=0.25.0" }, nothing logged before it answers.
     boot()
     eq(#W.connects, 1, "connect called once")
     local c = W.connects[1]
-    ok(c.mod == "ModManager" and c.need == ">=0.24.0", "connect{ mod = 'ModManager', need = '>=0.24.0' }", tostring(c.mod) .. " " .. tostring(c.need))
+    ok(c.mod == "ModManager" and c.need == ">=0.25.0", "connect{ mod = 'ModManager', need = '>=0.25.0' }", tostring(c.mod) .. " " .. tostring(c.need))
     eq(#W.printed, 0, "nothing printed during main.lua")
-    c.onFail("Nucleus 0.20.0 is older than ModManager needs (>=0.24.0). Update Nucleus.")
+    c.onFail("Nucleus 0.20.0 is older than ModManager needs (>=0.25.0). Update Nucleus.")
     eq(#W.printed, 0, "onFail adds no line (connect's is the only one)")
     eq(W.iterations, 0, "onFail scans nothing")
     eq(#W.writes, 0, "onFail writes nothing")
     restore()
 end
-do -- mod.json and main.lua agree on the need; 0.5.0 (v2 story 3: core.apply needs Nucleus 0.24.0).
+do -- mod.json and main.lua agree on the need; 0.6.0 (v2 story 4: core.ui.textbox needs Nucleus 0.25.0).
     local mj = assert(realOpen(ROOT .. "/mod.json", "rb")):read("a")
-    ok(mj:find('"version": ">=0.24.0"', 1, true) and mj:find('"id": "nuclearnightmare-community.nucleus"', 1, true), "mod.json dependsOn nuclearnightmare-community.nucleus >=0.24.0")
-    ok(mj:find('"version": "0.5.0"', 1, true), "mod.json version 0.5.0")
+    ok(mj:find('"version": ">=0.25.0"', 1, true) and mj:find('"id": "nuclearnightmare-community.nucleus"', 1, true), "mod.json dependsOn nuclearnightmare-community.nucleus >=0.25.0")
+    ok(mj:find('"version": "0.6.0"', 1, true), "mod.json version 0.6.0")
     local src = assert(realOpen(MAIN, "rb")):read("a")
-    ok(src:find('local CORE, NEED, ME = "Nucleus", ">=0.24.0", "ModManager"', 1, true), "main.lua NEED = dependsOn")
+    ok(src:find('local CORE, NEED, ME = "Nucleus", ">=0.25.0", "ModManager"', 1, true), "main.lua NEED = dependsOn")
 end
 
 -- ---------------------------------------------------------------- start
 do -- No UI helpers: one ERROR line, no entry.
     boot()
     connect(newCore{ ui = false })
-    eq(#lines("^%[ModManager%] ERROR Nucleus's UI helpers lack menu, screen, list, row, image, text, button, checkbox, choice, slider%. ModManager will not run%.$"), 1, "no core.ui: one ERROR line")
+    eq(#lines("^%[ModManager%] ERROR Nucleus's UI helpers lack menu, screen, list, row, image, text, button, checkbox, choice, slider, textbox%. ModManager will not run%.$"), 1, "no core.ui: one ERROR line")
     eq(#lines("READY"), 0, "no core.ui: no READY")
     restore()
 end
@@ -274,7 +277,7 @@ do -- The entry, READY, a click, the window, the gear, warnings once, faults onc
     eq(#U.entries, 1, "one menu entry")
     local e = U.entries[1]
     ok(e.id == "manage" and e.style == "options" and e.label.en == "MANAGE MODS" and type(e.onClick) == "function", "entry{ id = 'manage', label = { en = 'MANAGE MODS' }, style = 'options' }")
-    eq(#lines("^%[ModManager%] READY entry=manage need=>=0%.24%.0$"), 1, "one READY line after onReady")
+    eq(#lines("^%[ModManager%] READY entry=manage need=>=0%.25%.0$"), 1, "one READY line after onReady")
     eq(W.iterations, 1, "onReady scans once (the session baseline)")
     eq(U.count("screen.open"), 0, "no window before a click")
     eq(#W.writes, 0, "onReady writes nothing")
@@ -1164,12 +1167,286 @@ do -- German: the entry label table carries every language; the window follows t
 end
 
 do -- The sources: no shell, no load of data; writes only through the adapter's three primitives.
-    for _, f in ipairs({ "main", "screen", "status", "modstxt", "files", "state", "json", "strings" }) do
+    for _, f in ipairs({ "main", "screen", "status", "modstxt", "files", "state", "json", "strings", "catalog", "browse" }) do
         local src = assert(realOpen(ROOT .. "/Scripts/" .. f .. ".lua", "rb")):read("a"):gsub("%-%-[^\n]*", "")
         ok(not src:find("popen") and not src:find("os%.execute") and not src:find("loadfile") and not src:find("[^%w_%.:]load%(")
             and not src:find("os%.rename") and not src:find("os%.remove") and not src:find('"wb"') and not src:find('"w"'),
             f .. ".lua: no shell, no load, no direct file write")
     end
+end
+
+-- ---------------------------------------------------------------- v2 story 4: the catalog and Browse
+local POLLCAPS = { maxBytes = 9437184, maxDepth = 66, maxValues = 2000000, maxString = 4194304 } -- core.catalog.poll's
+local function fixture(name)
+    local t = assert(realOpen(ROOT .. "/test/unit/fixtures/" .. name, "rb")):read("a")
+    return assert(require("nucleus.json").decode(t, POLLCAPS))
+end
+local NOW = 1795233548 -- 2026-11-21T03:59:08Z: the ok fixture's index is 3 hours old, its revoked list 21 days
+local realTime = os.time
+-- A fake core.catalog: refresh() gives jobs 1, 2, ... (or o.refresh(n)'s answer); poll(job) answers o.poll(n, job) for
+-- the n-th poll.
+local function fakeCatalog(o)
+    local F = { refreshes = 0, polls = 0 }
+    F.api = {
+        refresh = function()
+            F.refreshes = F.refreshes + 1
+            if o.refresh then return o.refresh(F.refreshes) end
+            return F.refreshes
+        end,
+        poll = function(job) F.polls = F.polls + 1 return o.poll(F.polls, job) end,
+    }
+    return F
+end
+local function done(outcome, payload, message) return function() return "done", { outcome = outcome, message = message or "", payload = payload } end end
+-- One game-thread tick: what was queued before it (a poll, a deferred click) runs; what that queues waits.
+local function tick() local q = W.queue W.queue = {} for _, f in ipairs(q) do f() end end
+-- A session with a fake catalog; W.queue on (nothing scheduled runs until tick). Returns core, U, F.
+local function browseSession(o)
+    boot()
+    if o.footer then W.footer = o.footer end
+    W.queue = {}
+    os.time = function() return NOW end
+    local F = fakeCatalog(o)
+    local core = newCore{ catalog = F.api }
+    connect(core)
+    return core, core.ui, F
+end
+local function openBrowse(core)
+    local U = core.ui
+    U.open.main, U.open.browse, U.open.details = nil, nil, nil
+    U.order = {}
+    U.entries[1].onClick()
+    ok(U.click("browse"), "the main window has BROWSE")
+    tick()
+    return U
+end
+local function endSession() os.time = realTime restore() end
+local function names(U)
+    local t = {}
+    for n = 1, 200 do
+        local el = U.byId["bw.r" .. n]
+        if not el then break end
+        if el.visible then t[#t + 1] = U.byId["bw.r" .. n .. ".name"].text end
+    end
+    return table.concat(t, ",")
+end
+
+do -- Online: the startup refresh, polled every 250 ms from the game thread, then BROWSE.
+    local core, U, F = browseSession{ poll = function(n) if n == 1 then return "running" end return done("ok", fixture("catalog-ok.json"), "index serial 2 verified")() end }
+    eq(#lines("^%[ModManager%] CATALOG refresh job=1$"), 1, "online: the startup refresh")
+    eq(F.polls, 0, "online: nothing polled inside onReady")
+    eq(W.delayed, 1, "online: one poll scheduled")
+    tick()
+    eq(F.polls, 1, "online: first poll: running")
+    eq(#lines("CATALOG done"), 0, "online: not done yet")
+    tick()
+    eq(#lines("^%[ModManager%] CATALOG done outcome=ok source=network packages=5 index_issued=2026%-11%-21T00:59:08Z$"), 1, "online: CATALOG done")
+    eq(#lines("^%[ModManager%] BUILD 26601774 from=index$"), 1, "online: BUILD from the index (no appmanifest)")
+    eq(#lines("^%[ModManager%] BROWSE pkg "), 5, "online: one BROWSE pkg line per package")
+    eq(#lines("BROWSE pkg nuclearnightmare%-community%.base "), 0, "online: no base line")
+    eq(#lines("BROWSE pkg nuclearnightmare%-community%.base%-installer"), 0, "online: no installer line")
+    eq(#lines("^%[ModManager%] BROWSE pkg nuclearnightmare%-community%.hud%-clock v=0%.3%.0 cat=ui,qol scope=client state=available core=ok$"), 1, "online: HUD Clock's line")
+    eq(#lines("^%[ModManager%] BROWSE pkg nuclearnightmare%-community%.mod%-manager v=0%.4%.0 cat=tools,ui scope=client state=update core=needs$"), 1, "online: Mod Manager (0.2.0 installed, core 0.12.1 < 0.21.0)")
+    tick()
+    eq(F.polls, 2, "online: the chain stopped at done")
+    U = openBrowse(core)
+    ok(U.open.browse, "online: Browse opens on top")
+    eq(#lines("^%[ModManager%] BROWSE open shown=5 total=5 state=ok$"), 1, "online: BROWSE open")
+    eq(#lines("^%[ModManager%] BROWSE filter cat=all show=all scope=all for=game q= shown=5 ids=nuclearnightmare%-community%.hud%-clock,nuclearnightmare%-community%.waypoints,nuclearnightmare%-community%.mod%-manager,nuclearnightmare%-community%.nucleus,nuclearnightmare%-community%.whistle%-mute$"), 1, "online: the filter line, sorted by name")
+    eq(names(U), "HUD Clock,Map Waypoints+,Mod Manager,Nucleus (Mod Core),Whistle Emote Mute", "online: the rows")
+    eq(U.byId["bw.age"].text, "CATALOG UPDATED 3 HOURS AGO - REVOCATIONS CHECKED 21 DAYS AGO", "online: the age line")
+    ok(U.byId["bw.age"].visible and not U.byId["bw.status"].visible, "online: no status line")
+    eq(U.byId["bw.count"].text, "5 OF 5 MODS", "online: the count line")
+    -- a filter (inside core's hook: nothing done there), then after the hook
+    local h0 = #U.hookCalls
+    U.pick("bw.cat", 5) -- AUDIO
+    eq(#U.hookCalls, h0, "a filter's change does no ui work inside the hook")
+    tick()
+    eq(#lines("^%[ModManager%] BROWSE filter cat=audio show=all scope=all for=game q= shown=1 ids=nuclearnightmare%-community%.whistle%-mute$"), 1, "CATEGORY audio")
+    U.pick("bw.show", 2) -- INSTALLED
+    tick()
+    eq(#lines("^%[ModManager%] BROWSE filter cat=audio show=installed scope=all for=game q= shown=0 ids=%-$"), 1, "SHOW INSTALLED")
+    eq(U.byId["bw.status"].text, "NO MODS MATCH", "no match: the status line says so")
+    U.pick("bw.cat", 1); U.pick("bw.show", 3) -- ALL, NOT INSTALLED
+    tick()
+    eq(#lines("show=not%-installed .* shown=3 ids=nuclearnightmare%-community%.hud%-clock,nuclearnightmare%-community%.waypoints,nuclearnightmare%-community%.whistle%-mute$"), 1, "SHOW NOT INSTALLED")
+    U.pick("bw.show", 1); U.pick("bw.for", 2) -- READY TO RUN: not Mod Manager (needs Nucleus 0.21.0)
+    tick()
+    eq(#lines("show=all scope=all for=ready q= shown=4 "), 1, "FOR READY TO RUN drops a mod that needs a newer Nucleus")
+    U.pick("bw.for", 1)
+    tick()
+    local h1 = #U.hookCalls
+    U.typeText("bw.q", "clock")
+    eq(#U.hookCalls, h1, "typing does no ui work inside the hook")
+    tick()
+    eq(#lines("^%[ModManager%] BROWSE filter cat=all show=all scope=all for=game q=clock shown=1 ids=nuclearnightmare%-community%.hud%-clock$"), 1, "search clock")
+    eq(names(U), "HUD Clock", "search clock: one row")
+    U.commit("bw.q") tick()
+    eq(#lines("q=clock shown=1"), 1, "a commit of the same text doesn't filter again")
+    -- the needsCore warning on Mod Manager's row
+    U.typeText("bw.q", "manage") tick()
+    eq(U.byId["bw.r1.w"].image.icon, "warning", "needsCore: the warning icon")
+    eq(U.byId["bw.r1.w"].tooltip, "NEEDS NUCLEUS >=0.21.0", "needsCore: its tooltip")
+    eq(U.byId["bw.r1.st"].text, "UPDATE AVAILABLE", "state text: update")
+    -- Details
+    U.click("bw.r1.det")
+    tick()
+    ok(U.open.details, "DETAILS opens the Details window")
+    eq(#lines("^%[ModManager%] DETAILS nuclearnightmare%-community%.mod%-manager lines=1$"), 1, "DETAILS line")
+    eq(U.byId["dt.title"].text, "Mod Manager", "Details: the title")
+    eq(U.byId["dt.n1"].text, "NEEDS Nucleus (Mod Core) >=0.21.0: MET", "Details: NEEDS met through the catalog's Nucleus")
+    eq(U.byId["dt.inst"].text, "INSTALLED 0.2.0", "Details: INSTALLED")
+    -- REFRESH: a second job, a second done
+    U.back("details")
+    U.click("bw.refresh") tick()
+    eq(#lines("^%[ModManager%] CATALOG refresh job=2$"), 1, "REFRESH: a second job")
+    eq(U.byId["bw.status"].text, "CHECKING CATALOG...", "REFRESH: checking")
+    tick()
+    eq(#lines("CATALOG done outcome=ok"), 2, "REFRESH: a second done")
+    eq(#lines("^%[ModManager%] BROWSE pkg "), 5, "REFRESH: unchanged packages are not logged again")
+    eq(#lines("WARN"), 0, "online: no WARN")
+    eq(W.async, 0, "never LoopAsync or ExecuteInGameThread")
+    endSession()
+end
+
+do -- Still running when Browse opens: CHECKING; the list fills in when done arrives; REFRESH meanwhile is busy.
+    local release = false
+    local core, U, F = browseSession{ poll = function() if not release then return "running" end return done("ok", fixture("catalog-ok.json"))() end }
+    tick()
+    U = openBrowse(core)
+    eq(#lines("^%[ModManager%] BROWSE open shown=0 total=0 state=checking$"), 1, "running: BROWSE open state=checking")
+    eq(U.byId["bw.status"].text, "CHECKING CATALOG...", "running: CHECKING CATALOG...")
+    U.click("bw.refresh") tick()
+    eq(F.refreshes, 1, "busy: no second job")
+    eq(#lines("^%[ModManager%] CATALOG refresh busy$"), 1, "busy: logged")
+    eq(U.byId["bw.status"].text, "CATALOG BUSY", "busy: CATALOG BUSY")
+    release = true
+    tick()
+    eq(#lines("CATALOG done outcome=ok"), 1, "running: done")
+    eq(names(U), "HUD Clock,Map Waypoints+,Mod Manager,Nucleus (Mod Core),Whistle Emote Mute", "running: the open window filled in")
+    eq(F.refreshes, 1, "busy: never retried by itself")
+    endSession()
+end
+
+do -- core's "busy" answer at REFRESH: CATALOG BUSY, no retry.
+    local core, U, F = browseSession{ refresh = function(n) if n == 1 then return 1 end return nil, "busy" end, poll = done("ok", fixture("catalog-ok.json")) }
+    tick()
+    U = openBrowse(core)
+    U.click("bw.refresh") tick()
+    eq(#lines("^%[ModManager%] CATALOG refresh busy$"), 1, "core busy: logged")
+    eq(U.byId["bw.status"].text, "CATALOG BUSY", "core busy: CATALOG BUSY")
+    tick() tick()
+    eq(F.refreshes, 2, "core busy: not retried")
+    endSession()
+end
+
+do -- Offline with a verified copy: the same list, OFFLINE: SAVED CATALOG and the copy's ages.
+    local core, U = browseSession{ poll = done("ok", fixture("catalog-copy.json")) }
+    tick()
+    eq(#lines("^%[ModManager%] CATALOG done outcome=ok source=copy packages=5 "), 1, "copy: CATALOG done source=copy")
+    U = openBrowse(core)
+    eq(#lines("BROWSE open shown=5 total=5 state=copy$"), 1, "copy: state=copy")
+    eq(U.byId["bw.age"].text, "OFFLINE: SAVED CATALOG - CATALOG UPDATED 3 HOURS AGO - REVOCATIONS CHECKED 21 DAYS AGO", "copy: OFFLINE and the ages")
+    endSession()
+end
+
+do -- Offline without a copy: an empty list and the REFRESH hint.
+    local core, U = browseSession{ poll = done("error", nil, "no endpoint reachable and no verified copy") }
+    tick()
+    eq(#lines("^%[ModManager%] CATALOG done outcome=error source=%- packages=0 index_issued=%-$"), 1, "unavailable: CATALOG done")
+    U = openBrowse(core)
+    eq(#lines("BROWSE open shown=0 total=0 state=unavailable$"), 1, "unavailable: state")
+    eq(U.byId["bw.status"].text, "CATALOG UNAVAILABLE. CHECK YOUR CONNECTION AND PRESS REFRESH.", "unavailable: the hint")
+    ok(not U.byId["bw.age"].visible, "unavailable: no age line")
+    eq(U.byId["bw.count"].text, "0 OF 0 MODS", "unavailable: empty")
+    endSession()
+end
+
+do -- A rejection: the refusal only, never the copy; logged with its message.
+    local core, U = browseSession{ poll = done("bad-signature", nil, "index.json: the signature does not verify") }
+    tick()
+    eq(#lines("^%[ModManager%] CATALOG message bad%-signature: index%.json: the signature does not verify$"), 1, "refused: logged with the message")
+    U = openBrowse(core)
+    eq(#lines("BROWSE open shown=0 total=0 state=refused$"), 1, "refused: state")
+    eq(U.byId["bw.status"].text, "CATALOG REFUSED (bad-signature)", "refused: the text")
+    endSession()
+end
+
+do -- Too new: CATALOG NEEDS A NEWER MOD MANAGER.
+    local core, U = browseSession{ poll = done("schema-too-new", nil, "update the manager") }
+    tick()
+    U = openBrowse(core)
+    eq(#lines("BROWSE open shown=0 total=0 state=refused$"), 1, "too new: state=refused")
+    eq(U.byId["bw.status"].text, "CATALOG NEEDS A NEWER MOD MANAGER", "too new: the text")
+    endSession()
+end
+
+do -- A payload that won't decode or has the wrong types: CATALOG ERROR, one WARN.
+    local core, U = browseSession{ poll = done("ok", fixture("catalog-bad.json")) }
+    tick()
+    U = openBrowse(core)
+    eq(#lines("BROWSE open shown=0 total=0 state=error$"), 1, "bad payload: state=error")
+    eq(U.byId["bw.status"].text, "CATALOG ERROR", "bad payload: CATALOG ERROR")
+    eq(#lines("^%[ModManager%] WARN the catalog could not be read %(payload: index%.packages must be an array%)"), 1, "bad payload: one WARN")
+    eq(#lines("WARN"), 1, "bad payload: only that WARN")
+    U.click("bw.refresh") tick() tick()
+    eq(#lines("WARN"), 1, "bad payload: still one WARN after a second refresh")
+    endSession()
+    local core2, U2 = browseSession{ poll = function() return "done", { outcome = "ok", message = "", payloadError = "1:1 unexpected" } end }
+    tick()
+    U2 = openBrowse(core2)
+    eq(U2.byId["bw.status"].text, "CATALOG ERROR", "undecodable payload: CATALOG ERROR")
+    eq(#lines("WARN the catalog could not be read"), 1, "undecodable payload: one WARN")
+    endSession()
+end
+
+do -- Build unknown: no manifest, the footer's version not in game_builds.
+    local core, U = browseSession{ footer = "NUCLEAR NIGHTMARE EA V9.9.9", poll = done("ok", fixture("catalog-ok.json")) }
+    tick()
+    eq(#lines("^%[ModManager%] BUILD %- from=none$"), 1, "build unknown: BUILD - from=none")
+    U = openBrowse(core)
+    eq(U.byId["bw.status"].text, "GAME BUILD UNKNOWN", "build unknown: the status line")
+    eq(#lines("BROWSE open shown=0 total=5 state=ok$"), 1, "build unknown: FOR THIS GAME is empty")
+    U.pick("bw.for", 3) tick()
+    eq(#lines("for=all q= shown=5 "), 1, "build unknown: ALL BUILDS shows them")
+    eq(U.byId["bw.r1.st"].text, "OTHER GAME BUILD", "build unknown: other-build rows")
+    endSession()
+end
+
+do -- The poll chain stops on "unknown job" and after 10 minutes (error); a refresh that can't start is error.
+    local core, U, F = browseSession{ poll = function() return nil, "unknown job" end }
+    tick()
+    eq(#lines("^%[ModManager%] CATALOG done outcome=error "), 1, "unknown job: done as error")
+    tick()
+    eq(F.polls, 1, "unknown job: the chain stopped")
+    endSession()
+    core, U, F = browseSession{ poll = function() return "running" end }
+    for _ = 1, 2400 do tick() end
+    eq(F.polls, 2400, "10 minutes of polls")
+    eq(#lines("^%[ModManager%] CATALOG message error: no answer in 10 minutes$"), 1, "10 minutes: error")
+    tick()
+    eq(F.polls, 2400, "10 minutes: the chain stopped")
+    U = openBrowse(core)
+    eq(#lines("BROWSE open shown=0 total=0 state=error$"), 1, "10 minutes: state=error")
+    endSession()
+    core, U, F = browseSession{ refresh = function() return nil, "native part missing" end, poll = function() return "running" end }
+    eq(#lines("^%[ModManager%] CATALOG refresh error native part missing$"), 1, "refresh refused: CATALOG refresh error")
+    eq(W.delayed, 0, "refresh refused: nothing polled")
+    endSession()
+end
+
+do -- No core.catalog: one WARN, no BROWSE button, no refresh.
+    boot()
+    local core = newCore{ catalog = false }
+    connect(core)
+    eq(#lines("^%[ModManager%] WARN Nucleus has no core%.catalog: the main window has no BROWSE button$"), 1, "no core.catalog: one WARN")
+    core.ui.entries[1].onClick()
+    core.ui.open.main = nil
+    core.ui.entries[1].onClick()
+    eq(core.ui.byId.browse, nil, "no core.catalog: no BROWSE button")
+    eq(#lines("WARN"), 1, "no core.catalog: only that WARN")
+    eq(#lines("CATALOG"), 0, "no core.catalog: no refresh")
+    restore()
 end
 
 io.stdout:write(("main_test: %d passed, %d failed\n"):format(passed, failed))

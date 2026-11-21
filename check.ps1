@@ -56,8 +56,16 @@
   path=<A's Scripts\main.lua> attempts=1", "APPLY ack ok", the AP*4 checks (A byte-identical, none of C's files, C
   still pending, the buttons shown), END result=PASS. Any detection, event or block fails the run with a line saying
   the story stops blocked with that evidence.
+  browse (Mod Manager v2 story 4; VM, the live catalog): two refreshes (startup and REFRESH), each "CATALOG done
+  outcome=ok source=network", "BUILD <this repo's mod.json game.build> from=index|manifest", BROWSE open with at least five
+  packages and state=ok, no base or installer package, Nucleus and the Mod Manager installed with their Nucleus need met,
+  the CATEGORY audio and SHOW installed filter lines, the "clock" search leaving only HUD Clock, one DETAILS line, the
+  driver's BW* checks, FILES unchanged; computed: every BROWSE filter line's ids recomputed from the run's own BROWSE
+  pkg lines (equal without a search, a subset with one), the five mods of this build present, each package's state
+  agreeing with the driver's ROW lines (named through -CatalogIndex: installed or update when a ROW line has its display
+  name, else available), the second CATALOG done after DETAILS.
   Exit code 1 when any check fails; otherwise prints "All checks passed."
-  Scenarios: screen, no-core, old-core, restart, apply (run.ps1 drives them); unit needs no log: it runs test.ps1.
+  Scenarios: screen, no-core, old-core, restart, apply, browse (run.ps1 drives them); unit needs no log: it runs test.ps1.
   -Target vm: a log from run.ps1 -Target vm. The VM's game shares the CPU with the host, so core's "hud slow tick"
   WARN under the Mod Manager's tag is soft there.
 .EXAMPLE
@@ -66,10 +74,11 @@
 param(
     [string] $Instance,
     [string] $Log,
-    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply', 'unit')]
+    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply', 'browse', 'unit')]
     [string] $Scenario = 'screen',
     [ValidateSet('host', 'vm')] [string] $Target = 'host',
-    [string] $CoreManifest # Nucleus's deployed mod.json; default: -Instance's, else the workspace's mods/Nucleus/build/package
+    [string] $CoreManifest, # Nucleus's deployed mod.json; default: -Instance's, else the workspace's mods/Nucleus/build/package
+    [string] $CatalogIndex  # browse: the catalog's index.json to name packages by (default: the workspace's catalog/index.json)
 )
 if ($Scenario -eq 'unit') { & pwsh -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'test.ps1'); exit $LASTEXITCODE }
 . (Join-Path $PSScriptRoot 'deploy-lib.ps1')
@@ -175,6 +184,28 @@ $expect = @{
         "\[$D\] OK ENTRYLOOK menu3 ", "\[$D\] OK ENTRYLOOK menu4 "
         "!\[$M\] WARN .*column.*still hidden"
         "\[$M\] CONFIGURE \d+ "
+    )
+    # Mod Manager v2 story 4: Browse against the live catalog (VM).
+    'browse' = $running + @(
+        "\[$D\] SCENARIO browse\s*$"
+        "\[$D\] END result=PASS"
+        "#2|\[$M\] CATALOG refresh job=\d+\s*$"
+        "!\[$M\] CATALOG refresh (busy|error)"
+        "\[$M\] CATALOG done outcome=ok source=network packages=\d+ index_issued=\S+\s*$"
+        "#2|\[$M\] CATALOG done outcome=ok source=network "
+        "\[$M\] BUILD $([regex]::Escape($manifest.game.build)) from=(index|manifest)\s*$"
+        "\[$M\] BROWSE open shown=([5-9]|\d\d+) total=\d+ state=ok\s*$"
+        "!\[$M\] BROWSE open .* state=(?!ok)"
+        "!\[$M\] BROWSE pkg nuclearnightmare-community\.base(-installer)? "
+        "\[$M\] BROWSE pkg nuclearnightmare-community\.nucleus v=\S+ cat=\S+ scope=\S+ state=installed core=ok\s*$"
+        "\[$M\] BROWSE pkg nuclearnightmare-community\.mod-manager v=\S+ cat=\S+ scope=\S+ state=installed core=ok\s*$"
+        "\[$M\] BROWSE filter cat=audio show=all "
+        "\[$M\] BROWSE filter cat=audio show=installed "
+        "\[$M\] BROWSE filter cat=all show=all scope=all for=game q=clock shown=1 ids=nuclearnightmare-community\.hud-clock\s*$"
+        "#1|\[$M\] DETAILS nuclearnightmare-community\.hud-clock lines=[1-5]\s*$"
+        "\[$D\] OK BWDONE startup ", "\[$D\] OK BWROWS ", "\[$D\] OK BWOPEN ", "\[$D\] OK BWLIST ", "\[$D\] OK BWCAT ", "\[$D\] OK BWSHOW "
+        "\[$D\] OK BWRESET ", "\[$D\] OK BWSEARCH ", "\[$D\] OK BWDETAILS ", "\[$D\] OK BWDONE after REFRESH "
+        '^\[run\.ps1\] FILES unchanged$'
     )
     'no-core' = @(
         '^\[run\.ps1\] FILES unchanged$'
@@ -464,6 +495,85 @@ if ($Scenario -eq 'screen') {
     # ---- QUIT: QUIT GAME after END result=PASS, then the game closed itself (no crash: the $always patterns)
     $iend, $iquit = (IndexOf "\[$D\] END result=PASS"), (IndexOf "\[$M\] QUIT pending=")
     if ($iend -ge 0 -and $iquit -gt $iend) { Pass 'QUIT GAME clicked after END result=PASS' } else { Fail "QUIT GAME clicked after END result=PASS (END at line $iend, QUIT at line $iquit)" }
+}
+
+if ($Scenario -eq 'browse') {
+    # ---- BROWSE pkg lines: the run's own model (the last line per id before each point of the log)
+    $pkgRx = "\[$M\] BROWSE pkg (\S+) v=(\S+) cat=(\S+) scope=(\S+) state=(\S+) core=(ok|needs)\s*$"
+    $filterRx = "\[$M\] BROWSE filter cat=(\S+) show=(\S+) scope=(\S+) for=(\S+) q=(.*) shown=(\d+) ids=(\S+)\s*$"
+    $pkgs = @{}
+    $nFilters = 0
+    $anyPkg = $false
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $l = $lines[$i]
+        if ($l -match $pkgRx) {
+            $anyPkg = $true
+            $pkgs[$Matches[1]] = [pscustomobject]@{ Id = $Matches[1]; Cats = @($Matches[3] -split ','); Scope = $Matches[4]; State = $Matches[5]; Core = $Matches[6] }
+            continue
+        }
+        if ($l -notmatch $filterRx) { continue }
+        $nFilters++
+        $f = [pscustomobject]@{ Cat = $Matches[1]; Show = $Matches[2]; Scope = $Matches[3]; For = $Matches[4]; Q = $Matches[5]; Shown = [int]$Matches[6]; Ids = $Matches[7] }
+        # The filters recomputed from the pkg lines (the search can't be: names and descriptions aren't logged, so a
+        # query's ids must be a subset of the recomputed ones).
+        $want = @($pkgs.Values | Where-Object {
+            $p = $_
+            $keep = switch ($f.Show) { 'all' { $true } 'installed' { $p.State -in 'installed', 'update' } 'not-installed' { $p.State -in 'available', 'conflict' } 'update' { $p.State -eq 'update' } default { $false } }
+            if ($keep -and $f.Cat -ne 'all') { $keep = $p.Cats -contains $f.Cat }
+            if ($keep -and $f.Scope -ne 'all') { $keep = $p.Scope -eq $f.Scope }
+            if ($keep -and $f.For -ne 'all') { $keep = $p.State -ne 'other-build' -and ($f.For -ne 'ready' -or $p.Core -eq 'ok') }
+            $keep
+        } | ForEach-Object Id | Sort-Object)
+        $got = if ($f.Ids -eq '-') { @() } else { @($f.Ids -split ',' | Sort-Object) }
+        $label = "BROWSE filter line $($i + 1) (cat=$($f.Cat) show=$($f.Show) scope=$($f.Scope) for=$($f.For) q=$($f.Q))"
+        if ($got -contains '...') { Write-Host "warn: $label ids were cut; not recomputed"; $warned++; continue }
+        if ($f.Shown -ne $got.Count) { Fail "$label shown=$($f.Shown) but $($got.Count) ids"; continue }
+        if ($f.Q -eq '') {
+            if (($want -join ',') -ceq ($got -join ',')) { Pass "$label ids equal the recomputation ($($got.Count))" }
+            else { Fail "$label ids $($got -join ',') differ from the recomputation $($want -join ',')" }
+        } else {
+            $extra = @($got | Where-Object { $_ -notin $want })
+            if (-not $extra) { Pass "$label ids are within the recomputation (a search narrows it)" } else { Fail "$label ids outside the recomputation: $($extra -join ',')" }
+        }
+    }
+    if ($nFilters -ge 3) { Pass "BROWSE filter lines: $nFilters" } else { Fail "BROWSE filter lines: $nFilters (at least 3: open, CATEGORY, SHOW)" }
+    if (-not $anyPkg) { Fail 'no BROWSE pkg line' }
+    # ---- the five mods of this build, base and installer absent, each state agreeing with the run's own ROW lines
+    $five = 'nucleus', 'mod-manager', 'hud-clock', 'waypoints', 'whistle-mute' | ForEach-Object { "nuclearnightmare-community.$_" }
+    $missing = @($five | Where-Object { -not $pkgs.ContainsKey($_) })
+    if (-not $missing) { Pass 'BROWSE pkg lines for the five mods of this build' } else { Fail "BROWSE pkg lines missing: $($missing -join ', ')" }
+    $rowNames = @($lines | Where-Object { $_ -match "\[$D\] ROW (.*) \| (\S*)\s*$" } | ForEach-Object { if ($_ -match "\[$D\] ROW (.*) \| (\S*)\s*$") { $Matches[1] } })
+    if (-not $CatalogIndex) {
+        $up = $PSScriptRoot
+        while ($up -and -not (Test-Path (Join-Path $up 'catalog\index.json'))) { $up = Split-Path $up }
+        if ($up) { $CatalogIndex = Join-Path $up 'catalog\index.json' }
+    }
+    $display = @{}
+    if ($CatalogIndex -and (Test-Path $CatalogIndex)) {
+        # a main-window row shows a mod's display name, or its folder name (Nucleus's row): either counts
+        foreach ($p in @((Get-Content $CatalogIndex -Raw | ConvertFrom-Json).packages)) { $display[([string]$p.id).ToLowerInvariant()] = @(@($p.displayName, $p.name) | Where-Object { $_ }) }
+    }
+    if (-not $rowNames) { Fail 'no driver ROW line (the installed mods)' }
+    elseif (-not $display.Count) { Write-Host "warn: no catalog index to map ids to names ($CatalogIndex); states not compared with the ROW lines"; $warned++ }
+    else {
+        foreach ($p in $pkgs.Values) {
+            $dname = $display[$p.Id]
+            if (-not $dname) { Write-Host "warn: $($p.Id) is not in $CatalogIndex"; $warned++; continue }
+            $inst = [bool](@($dname | Where-Object { $rowNames -ccontains $_ }).Count)
+            $okState = if ($inst) { $p.State -in 'installed', 'update' } else { $p.State -eq 'available' }
+            $label = "STATE $($p.Id) $($p.State): '$($dname -join "' or '")' $(if ($inst) { 'has' } else { 'has no' }) ROW line"
+            if ($okState) { Pass $label } else { Fail $label }
+        }
+    }
+    # ---- the clock search: only HUD Clock
+    $clock = @($lines | Where-Object { $_ -match "\[$M\] BROWSE filter cat=all show=all scope=all for=game q=clock shown=" })
+    if ($clock -and $clock[-1] -match 'shown=1 ids=nuclearnightmare-community\.hud-clock\s*$') { Pass "'clock' leaves only nuclearnightmare-community.hud-clock" }
+    else { Fail "'clock' leaves only nuclearnightmare-community.hud-clock: $($clock | Select-Object -Last 1)" }
+    # ---- REFRESH reached a second done after the Details window
+    $idet, $idone2 = (IndexOf "\[$M\] DETAILS "), -1
+    $dones = @(for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match "\[$M\] CATALOG done ") { $i } })
+    if ($dones.Count -ge 2) { $idone2 = $dones[1] }
+    if ($idet -ge 0 -and $idone2 -gt $idet) { Pass 'REFRESH: the second CATALOG done after DETAILS' } else { Fail "REFRESH: the second CATALOG done after DETAILS (DETAILS at line $idet, second done at line $idone2)" }
 }
 
 if ($failed) { Write-Host "$failed check(s) failed."; exit 1 }

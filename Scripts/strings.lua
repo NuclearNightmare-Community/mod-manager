@@ -62,6 +62,54 @@ S.TABLES = {
         scopeBothMeans = "THE HOST AND EVERY PLAYER NEED IT",
         scopeUnknown = "UNKNOWN",
         scopeUnknownMeans = "THIS MOD DOESN'T SAY WHERE IT RUNS",
+        -- v2 story 4: Browse (the catalog's mods for this game build) and its Details window
+        browse = "BROWSE",                           -- the main window's button
+        browseTitle = "BROWSE MODS",
+        search = "SEARCH",                           -- the filter rows' labels
+        searchHint = "TYPE TO SEARCH",
+        searchTip = "WORDS IN THE NAME OR DESCRIPTION",
+        category = "CATEGORY",                       -- a filter's label and a header
+        show = "SHOW",
+        scopeFilter = "RUNS ON",
+        forFilter = "FOR",
+        all = "ALL",                                 -- CATEGORY and SCOPE: every one
+        showAll = "ALL", showInstalled = "INSTALLED", showNotInstalled = "NOT INSTALLED", showUpdate = "UPDATE AVAILABLE",
+        forGame = "THIS GAME", forReady = "READY TO RUN", forAll = "ALL BUILDS",
+        stateHeader = "STATE",
+        stInstalled = "INSTALLED", stUpdate = "UPDATE AVAILABLE", stConflict = "FOLDER IN USE", stAvailable = "NOT INSTALLED",
+        stOtherBuild = "OTHER GAME BUILD",
+        needsCore = "NEEDS NUCLEUS %s",              -- the warning icon's tooltip
+        details = "DETAILS",
+        refresh = "REFRESH",
+        catalogUpdated = "CATALOG UPDATED %s",
+        revocationsChecked = "REVOCATIONS CHECKED %s",
+        justNow = "JUST NOW", hoursAgo = "%d HOURS AGO", daysAgo = "%d DAYS AGO",
+        offline = "OFFLINE: SAVED CATALOG",
+        checking = "CHECKING CATALOG...",
+        unavailable = "CATALOG UNAVAILABLE. CHECK YOUR CONNECTION AND PRESS REFRESH.",
+        refused = "CATALOG REFUSED (%s)",
+        tooNew = "CATALOG NEEDS A NEWER MOD MANAGER",
+        catalogError = "CATALOG ERROR",
+        busy = "CATALOG BUSY",
+        buildUnknown = "GAME BUILD UNKNOWN",
+        noMatch = "NO MODS MATCH",
+        count = "%d OF %d MODS",
+        capped = "SHOWING THE FIRST %d",
+        categoriesLine = "CATEGORIES: %s",           -- the Details window
+        forGameLine = "FOR GAME %s (%s)",
+        needLine = "NEEDS %s %s: %s",
+        needsNothing = "NEEDS NOTHING ELSE",
+        andMoreNeeds = "AND %d MORE",
+        met = "MET", notMet = "NOT MET",
+        installedLine = "INSTALLED %s", no = "NO",
+        publisherLine = "PUBLISHER %s",
+        licenseLine = "LICENSE %s",
+        -- the 14 categories (spec-mod-manager-v2/categories.md), cat.<id>
+        ["cat.gameplay"] = "GAMEPLAY", ["cat.content"] = "CONTENT", ["cat.visuals"] = "VISUALS", ["cat.audio"] = "AUDIO",
+        ["cat.ui"] = "USER INTERFACE", ["cat.qol"] = "QUALITY OF LIFE", ["cat.tools"] = "UTILITIES & TOOLS",
+        ["cat.library"] = "LIBRARIES & FRAMEWORKS", ["cat.performance"] = "PERFORMANCE & OPTIMIZATION",
+        ["cat.multiplayer"] = "MULTIPLAYER & NETWORKING", ["cat.localization"] = "LOCALIZATION", ["cat.overhaul"] = "OVERHAULS",
+        ["cat.bug-fixes"] = "BUG FIXES", ["cat.maps"] = "MAPS",
     },
 }
 
