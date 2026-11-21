@@ -38,7 +38,11 @@ os.remove(factsFile)
 -- Mod Manager v2 story 3: the apply scenario counts its sessions in apply-session.txt; four loads in a row are its four.
 local sessionFile = DIR .. "/apply-session.txt"
 os.remove(sessionFile)
-for _, run in ipairs({ "screen", "browse", "no-core", "old-core", "restart", "restart session 2", "apply", "apply session 2", "apply session 3", "apply session 4" }) do
+-- Mod Manager v2 story 5: the install scenario counts its two sessions in install-session.txt.
+local installFile = DIR .. "/install-session.txt"
+os.remove(installFile)
+for _, run in ipairs({ "screen", "browse", "no-core", "old-core", "restart", "restart session 2", "apply", "apply session 2", "apply session 3", "apply session 4",
+    "install", "install session 2" }) do
     local sc = run:match("^(%S+)")
     printed, loops, notifies = {}, {}, {}
     local f = assert(io.open(scenarioFile, "w")); f:write(sc); f:close()
@@ -53,6 +57,13 @@ for _, run in ipairs({ "screen", "browse", "no-core", "old-core", "restart", "re
         for _, l in ipairs(printed) do if l == "[ModManagerDriver] APPLY session " .. want then said = true end end
         ok(said, run .. ": APPLY session " .. want)
         if want == 4 then os.remove(sessionFile) end
+    end
+    if sc == "install" then
+        local want = tonumber(run:match("session (%d)")) or 1
+        local said = false
+        for _, l in ipairs(printed) do if l == "[ModManagerDriver] INSTALL session " .. want then said = true end end
+        ok(said, run .. ": INSTALL session " .. want)
+        if want == 2 then os.remove(installFile) end
     end
     if sc == "restart" then
         local want = run == "restart" and 1 or 2

@@ -55,7 +55,13 @@ local want = { manage = "MANAGE MODS", title = "MOD MANAGER", name = "NAME", ver
     ["cat.ui"] = "USER INTERFACE", ["cat.qol"] = "QUALITY OF LIFE", ["cat.tools"] = "UTILITIES & TOOLS",
     ["cat.library"] = "LIBRARIES & FRAMEWORKS", ["cat.performance"] = "PERFORMANCE & OPTIMIZATION",
     ["cat.multiplayer"] = "MULTIPLAYER & NETWORKING", ["cat.localization"] = "LOCALIZATION", ["cat.overhaul"] = "OVERHAULS",
-    ["cat.bug-fixes"] = "BUG FIXES", ["cat.maps"] = "MAPS" }
+    ["cat.bug-fixes"] = "BUG FIXES", ["cat.maps"] = "MAPS",
+    -- v2 story 5: INSTALL
+    install = "INSTALL", pendingRestart = "PENDING RESTART", installTitle = "INSTALL %s %s?", alsoInstalls = "ALSO INSTALLS:",
+    alsoNew = "%s %s (NEW)", alsoUpdate = "%s %s (UPDATE FROM %s)", alsoMore = "AND %d MORE", downloadSize = "DOWNLOAD %s",
+    sizeKB = "%d KB", sizeMB = "%s MB", downloading = "DOWNLOADING %s...", installsOnRestart = "%s INSTALLS WHEN THE GAME RESTARTS",
+    installRefused = "INSTALL REFUSED (%s)", installFailed = "INSTALL FAILED", cantInstallNeeds = "CAN'T INSTALL: %s NEEDS %s %s",
+    cantInstall = "CAN'T INSTALL %s (%s)" }
 for k, v in pairs(want) do eq(S.TABLES.en[k], v, "en." .. k) end
 for k, v in pairs(S.TABLES.en) do
     ok(want[k] ~= nil, "en." .. k .. " is a string the spec names")

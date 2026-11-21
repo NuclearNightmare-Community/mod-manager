@@ -25,6 +25,9 @@
   ue4ss/NucleusData/staged/, for core's relaunch helper to install; a copy of its files goes to the driver's
   Scripts/apply-expect/ModManagerApplyA/ (what session 4 compares A's installed files with). It refuses when a change
   that is not the scenario's is already staged there. ModManagerApplyB and C are staged by the run ("stage B|C").
+  Mod Manager v2 story 5, only with -Scenario install (VM only: -Staged): no fixture of its own; the copy must have no
+  HudClock (the live catalog's HUD Clock, which the scenario installs through core): Mods/HudClock, its paks and its
+  mods.txt line are taken out of the stage, so the VM run moves the VM copy's HudClock aside and its restore puts it back.
   A deploy without -Test removes the driver and the fixtures. -Remove deletes all of it and their mods.txt lines;
   nothing else changes (mods.txt keeps its bytes when it had none of these lines). Both also delete the apply
   fixtures' folders (core's helper installs them) and a staged change of only those fixtures (NucleusData/staged/).
@@ -39,7 +42,7 @@
 param(
     [Parameter(Mandatory)] [string] $Instance,
     [switch] $Test,
-    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply', 'browse')]
+    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply', 'browse', 'install')]
     [string] $Scenario = 'screen',
     [switch] $Force,
     [switch] $Remove,
@@ -63,6 +66,7 @@ $modsDir  = Join-Path $ue4ss 'Mods'
 $modsTxt  = Join-Path $modsDir 'mods.txt'
 $paksDir  = Join-Path $inst 'NuclearNightmare\Content\Paks'
 $coreData = Join-Path $ue4ss "${CoreName}Data"   # core's data folder (staged changes: staged\)
+$installTarget = 'HudClock' # Mod Manager v2 story 5: the install scenario's mod (the live catalog's HUD Clock)
 
 function Stop-Deploy([string] $why) { Write-Host "$name not deployed: $why"; exit 1 }
 
@@ -73,6 +77,11 @@ if (-not $Staged -and (Get-Process -Name 'NuclearNightmare*' -ErrorAction Silent
 
 $file  = Read-ModsTxt $modsTxt
 $mine  = @($name, $driver) + $fixtures + $applyFixtures
+# Story 5 (v2): the install scenario installs HudClock itself, so the copy starts without it (VM stage only).
+if ($Test -and $Scenario -eq 'install') {
+    if (-not $Staged) { Stop-Deploy 'the install scenario runs only in the VM (run.ps1 -Scenario install), which deploys into its stage with -Staged.' }
+    $mine += $installTarget
+}
 $clean = Edit-ModsTxt -Lines $file.Lines -Remove $mine
 
 # Story 3 (v2): a staged change of the apply scenario's fixtures only; any other staged change is left alone.
@@ -153,7 +162,7 @@ $add = @($name)
 $off = @()
 if ($Test) {
     Copy-Item (Join-Path $here "test\$driver") (Join-Path $modsDir $driver) -Recurse -Force
-    foreach ($f in 'scenario.txt', 'request.txt', 'done.txt', 'restart-facts.txt', 'apply-session.txt') { Remove-Item (Join-Path $modsDir "$driver\Scripts\$f") -ErrorAction SilentlyContinue }
+    foreach ($f in 'scenario.txt', 'request.txt', 'done.txt', 'restart-facts.txt', 'apply-session.txt', 'install-session.txt') { Remove-Item (Join-Path $modsDir "$driver\Scripts\$f") -ErrorAction SilentlyContinue }
     [IO.File]::WriteAllText((Join-Path $modsDir "$driver\Scripts\scenario.txt"), $Scenario)
     New-Item -ItemType Directory -Force (Join-Path $modsDir "${name}Fixture"), (Join-Path $modsDir "${name}Bare\Scripts"), (Join-Path $modsDir "${name}Long") | Out-Null
     Copy-Item (Join-Path $here "test\${name}Fixture\mod.json") (Join-Path $modsDir "${name}Fixture") -Force
@@ -171,6 +180,12 @@ if ($Test) {
         # Story 8: the mod the scenario turns off before RESTART NOW (the relaunched game must not load it).
         Copy-Item (Join-Path $here "test\${name}Restart") (Join-Path $modsDir "${name}Restart") -Recurse -Force
         $add += "${name}Restart"
+    }
+    if ($Scenario -eq 'install') {
+        # Story 5 (v2): no HudClock in the stage (its folder and paks; its mods.txt line went with $mine above).
+        Remove-Item (Join-Path $modsDir $installTarget) -Recurse -Force -ErrorAction SilentlyContinue
+        foreach ($p in (Join-Path $paksDir "LogicMods\$installTarget.pak"), (Join-Path $paksDir "${installTarget}_P.pak")) { Remove-Item $p -Force -ErrorAction SilentlyContinue }
+        Write-Host "No $installTarget in the stage: the install scenario installs it through core."
     }
     if ($Scenario -eq 'apply') {
         # Story 3 (v2): plan A staged for core's helper (the Mod Manager starts it at launch), and the driver's copy of A's

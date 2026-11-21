@@ -54,6 +54,18 @@
 --             BACK and BROWSE again: the filters reset (BWRESET), a click on the search box, "type clock", ENTER: only
 --             HUD Clock (BWSEARCH), DETAILS on row 1 (BWDETAILS, shot details), its BACK, REFRESH and a second CATALOG
 --             done (BWDONE); END. check.ps1 judges the Mod Manager's CATALOG, BUILD and BROWSE lines.
+--   install:  Mod Manager v2 story 5, two sessions (VM, the live catalog; -RepeatUntilEnd), counted in
+--             install-session.txt next to this file; deploy.ps1 made sure HudClock isn't installed. Session 1: the
+--             startup refresh's CATALOG done; Manage Mods, BROWSE, the search box, "type clock", ENTER: one row, HUD
+--             Clock, NOT INSTALLED, with INSTALL (INROW, INSTATE, INBUTTON); INSTALL: the confirm reads INSTALL HUD CLOCK
+--             0.3.0?, no ALSO INSTALLS, DOWNLOAD 9 KB (INTITLE, INNOALSO, INSIZE, INOK; shot install-confirm); its
+--             INSTALL; "[ModManager] INSTALL done" read back from UE4SS.log: ok, core's helper waiting, the row PENDING
+--             RESTART without INSTALL, the message (INDONE, INWAIT, INPENDING, INNOBUTTON, INMSG; shot install-pending);
+--             BACK, QUIT GAME and RESTART NOW shown (INRESTART), a real click on RESTART NOW (the helper applies the
+--             change, then relaunches the game). Session 2: "[HudClock]" in UE4SS.log, nothing staged, mods.txt's
+--             HudClock line above Keybinds, Mods/HudClock/mod.json 0.3.0 (INAPPLIED, INLOADED, INMODSTXT, INJSON);
+--             BROWSE, "clock": HUD Clock INSTALLED without INSTALL (INROW2, ININSTALLED, INNOBUTTON2; shot
+--             install-installed); END.
 --   no-core:  (run.ps1 moves core aside) the menu has no MANAGE MODS entry.
 --   old-core: (run.ps1 sets core's installed mod.json to 0.1.0) publishes that version as <core>.version before the
 --             Mod Manager connects, as an old core would; the menu has no MANAGE MODS entry.
@@ -1606,6 +1618,144 @@ local function buildBrowse()
     step("browse: end", function() finish() end)
 end
 
+-- ---------------------------------------------------------------- install (Mod Manager v2 story 5; VM, live catalog)
+-- Two sessions, counted in install-session.txt next to this file. Session 1: INSTALL on HUD Clock (its confirm, the
+-- stage, RESTART NOW); session 2: HUD Clock applied by core's helper, loaded, and listed INSTALLED.
+local function bwDesc(n, part) return childTagged(prop(childTagged(prop(bwEl("bw.list"), "VBox"), "bw.d" .. n), "HBox"), "bw.r" .. n .. "." .. part) end
+local function buildInstall()
+    local HC_NAME, HC_TAG = "HUD Clock", "[HudClock]"
+    local SESSION = scriptDir .. "\\install-session.txt"
+    local n = 1
+    do
+        local f = io.open(SESSION, "r")
+        if f then n = (tonumber((f:read("a") or ""):match("%d+")) or 0) + 1; f:close() end
+        local g = io.open(SESSION, "w")
+        if g then g:write(tostring(n)); g:close() end
+    end
+    say("INSTALL session %d", n)
+    local function applyStatus()
+        local mods = scriptDir:match("^(.*)[/\\][^/\\]+[/\\][Ss]cripts$") or "."
+        local add = mods .. "\\" .. CORE .. "\\Scripts\\?.lua"
+        if not package.path:find(add, 1, true) then package.path = package.path .. ";" .. add end
+        local okM, M = pcall(require, CORE:lower() .. ".apply")
+        if not (okM and type(M) == "table") then return nil, "no " .. CORE:lower() .. ".apply" end
+        return M.status()
+    end
+    local function show(s, why)
+        if not s then return "nil, " .. tostring(why) end
+        return string.format("staged=%s result=%s reason=%s attempts=%s changes=%s", tostring(s.staged), tostring(s.result), tostring(s.reason), tostring(s.attempts), tostring(s.changes))
+    end
+    local function waitLog(plain, label, sec)
+        step("wait " .. label, function()
+            return function() local k = logCount(plain) return k ~= nil and k >= 1 end, sec, label
+        end)
+    end
+    local function search(text)
+        clickOn("the search box", function() return bwFilter(1, "bw.q") end)
+        step("type " .. text, function() return request("type " .. text), 30, "type " .. text end)
+        settle(2)
+        step("key ENTER", function() return request("key ENTER"), 30, "key ENTER" end)
+        settle(1)
+    end
+    local function openBrowse(label)
+        clickOn("BROWSE " .. label, function() return mainEl("browse") end)
+        waitFor("Browse " .. label, function() return screenOf("browse") ~= nil and bwEl("bw.title") ~= nil end, 15)
+        settle(2)
+    end
+
+    waitWorld("menu" .. n, "NewMainMenu", 120)
+    pastStartup()
+    waitFor("the entry", function() return menu() ~= nil and entryOf(menu()) ~= nil end, 60)
+    settle(2)
+    step("wait CATALOG done", function() return function() local k = logCount(DONE_LINE) return k ~= nil and k >= 1 end, 150, "CATALOG done" end)
+    if n == 1 then
+        openMain("first")
+        openBrowse("first")
+        search("clock")
+        step("install: the row", function()
+            local names = bwNames()
+            check(#names == 1 and names[1] == HC_NAME, "INROW 'clock' leaves %s (%s)", HC_NAME, table.concat(names, ", "))
+            check(textOf(bwCell(1, "st")) == "NOT INSTALLED", "INSTATE %s reads NOT INSTALLED (%s)", HC_NAME, tostring(textOf(bwCell(1, "st"))))
+            check(shownW(bwDesc(1, "inst")), "INBUTTON %s's row shows INSTALL", HC_NAME)
+        end)
+        clickOn("INSTALL", function() return bwDesc(1, "inst") end)
+        waitFor("the install confirm", function() return screenOf("install") ~= nil end, 15)
+        settle(2)
+        step("install: the confirm", function()
+            local _, c = screenOf("install")
+            local title = textOf(childTagged(c, "in.title"))
+            check(title == "INSTALL HUD CLOCK 0.3.0?", "INTITLE the confirm reads %s", tostring(title))
+            check(not shownW(childTagged(c, "in.also")), "INNOALSO no ALSO INSTALLS (the installed Nucleus meets HUD Clock's need)")
+            local size = textOf(childTagged(c, "in.size"))
+            check(size == "DOWNLOAD 9 KB", "INSIZE the confirm reads %s (8620 bytes)", tostring(size))
+            check(shownW(childTagged(c, "in.ok")), "INOK the confirm shows INSTALL")
+        end)
+        step("cursor away", function() return request("move 5 5"), 30, "cursor away" end)
+        settle(1)
+        shot("install-confirm")
+        clickOn("the confirm's INSTALL", function() local _, c = screenOf("install") return childTagged(c, "in.ok") end)
+        waitLog("[" .. MOD .. "] INSTALL done ", "INSTALL done", 300)
+        settle(2)
+        step("install: done", function()
+            check((logCount("[" .. MOD .. "] INSTALL done outcome=ok ") or 0) == 1, "INDONE the stage ended ok")
+            local s, why = applyStatus()
+            check(s ~= nil and s.staged == "waiting", "INWAIT core's helper waits for the game to exit (%s)", show(s, why))
+            check(textOf(bwCell(1, "st")) == "PENDING RESTART", "INPENDING the row reads PENDING RESTART (%s)", tostring(textOf(bwCell(1, "st"))))
+            check(not shownW(bwDesc(1, "inst")), "INNOBUTTON no INSTALL on a staged row")
+            local msg = textOf(bwEl("bw.status"))
+            check(msg == "HUD CLOCK INSTALLS WHEN THE GAME RESTARTS", "INMSG the message reads %s", tostring(msg))
+        end)
+        step("cursor away", function() return request("move 5 5"), 30, "cursor away" end)
+        settle(1)
+        shot("install-pending")
+        clickOn("Browse's BACK", function() return closeOf("browse") end)
+        waitFor("Browse closed", function() return screenOf("browse") == nil end, 10)
+        step("install: RESTART NOW shown", function()
+            check(shownW(mainEl("quit")) and shownW(mainEl("restart")), "INRESTART QUIT GAME and RESTART NOW are shown")
+        end)
+        step("install: click RESTART NOW", function()
+            if S.failures > 0 then
+                say("RESTART not clicked: %d check(s) failed in session 1", S.failures)
+                finish()
+                return
+            end
+            local r = absR(mainEl("restart"))
+            if not check(r ~= nil, "INPOINT RESTART NOW has a point to click") then finish() return end
+            local x, y = center(r)
+            say("CLICK RESTART NOW at (%d,%d)", x, y)
+            request(string.format("click %d %d", x, y))
+            -- The game closes, core's helper applies the staged change and starts the game again: no END line here.
+            return after(120), 130, "the game to close after RESTART NOW"
+        end)
+        step("install: still running", function() check(false, "INQUIT the game did not close within 120 s of the RESTART NOW click") end)
+    else
+        waitLog(HC_TAG, "HUD Clock's log line", 60)
+        step("install: session 2", function()
+            local s, why = applyStatus()
+            check(s ~= nil and (s.result == "applied" or s.result == "none") and s.staged == "none", "INAPPLIED nothing staged any more (%s)", show(s, why))
+            check((logCount(HC_TAG) or 0) >= 1, "INLOADED %s logs: HUD Clock runs", HC_TAG)
+            local t = readFile("mods.txt") or ""
+            local ih, ik = t:find("HudClock : 1", 1, true), t:find("Keybinds : 1", 1, true)
+            check(ih ~= nil and ik ~= nil and ih < ik, "INMODSTXT mods.txt has HudClock : 1 above Keybinds : 1")
+            local j = readFile("HudClock\\mod.json") or ""
+            check(j:find('"version": "0.3.0"', 1, true) ~= nil or j:find('"version":"0.3.0"', 1, true) ~= nil, "INJSON Mods/HudClock/mod.json is 0.3.0")
+        end)
+        openMain("session 2")
+        openBrowse("session 2")
+        search("clock")
+        step("install: installed", function()
+            local names = bwNames()
+            check(#names == 1 and names[1] == HC_NAME, "INROW2 'clock' leaves %s (%s)", HC_NAME, table.concat(names, ", "))
+            check(textOf(bwCell(1, "st")) == "INSTALLED", "ININSTALLED %s reads INSTALLED (%s)", HC_NAME, tostring(textOf(bwCell(1, "st"))))
+            check(not shownW(bwDesc(1, "inst")), "INNOBUTTON2 no INSTALL on an installed row")
+        end)
+        step("cursor away", function() return request("move 5 5"), 30, "cursor away" end)
+        settle(1)
+        shot("install-installed")
+        step("install: end", function() finish() end)
+    end
+end
+
 -- ---------------------------------------------------------------- no-core and old-core: no entry
 local function buildNoEntry()
     waitWorld("menu1", "NewMainMenu", 120)
@@ -1652,7 +1802,7 @@ local function tick()
     busy = false
 end
 
-local build = ({ screen = buildScreen, restart = buildRestart, apply = buildApply, browse = buildBrowse, ["no-core"] = buildNoEntry, ["old-core"] = buildNoEntry })[SCENARIO]
+local build = ({ screen = buildScreen, restart = buildRestart, apply = buildApply, browse = buildBrowse, install = buildInstall, ["no-core"] = buildNoEntry, ["old-core"] = buildNoEntry })[SCENARIO]
 if not build then
     say("END result=FAIL checks=0 failures=1 reason=unknown-scenario %s", SCENARIO)
     return

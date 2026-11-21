@@ -16,7 +16,11 @@
 -- (core's native part fetches and verifies it); the job is polled from the game thread every 250 ms
 -- (ExecuteInGameThreadWithDelay, chained), one job at a time, never on a timer. The Mod Manager reads no catalog file
 -- and fetches nothing itself.
-local CORE, NEED, ME = "Nucleus", ">=0.25.0", "ModManager"
+-- v2 story 5: INSTALL on an available Browse row (and in Details) works out the install set (catalog.lua installSet:
+-- the mod and every dependency missing or too old), asks in a confirm window, then stages it through
+-- core.catalog.stage (core downloads, verifies and opens the zips; nothing from Lua becomes a path), polls that job like a
+-- refresh, starts core's apply helper (core.apply.start) and shows RESTART NOW. The Mod Manager writes no install file.
+local CORE, NEED, ME = "Nucleus", ">=0.26.0", "ModManager"
 local ENTRY = "manage"
 local MAX_WARN_KEYS = 64     -- distinct warnings logged per session; then one line says the rest are dropped
 local MAX_LOGGED_ROWS = 512  -- distinct mods whose data is logged per session
@@ -26,6 +30,7 @@ local POLL_MS = 250          -- v2 story 4: the catalog job's poll interval
 local MAX_POLLS = 2400       -- 10 minutes of polls: then the refresh counts as error
 local MAX_LOGGED_PKGS = 512  -- distinct packages whose BROWSE pkg line is logged per session
 local MAX_IDS_LOG = 2000     -- bytes of ids on a BROWSE filter line
+local MAX_SET_LOG = 1000     -- v2 story 5: bytes of id@version pairs on an INSTALL ask line
 
 local source = debug.getinfo(1, "S").source:gsub("^@", "")
 local scriptDir = source:match("^(.*)[/\\]") or "."
@@ -744,6 +749,152 @@ local function start(core)
         local lines, r = browse:openDetailsFor(id)
         if lines and r then log.info("DETAILS %s lines=%d", r.id, lines) end
     end
+
+    -- ---------------------------------------------------------------- v2 story 5: INSTALL
+    -- ins.ask: { id, name, set } while the confirm window asks; ins.job: the stage job while it runs; ins.staged: the ids
+    -- this session staged ({ [id] = true }), shown PENDING RESTART.
+    local ins = { ask = nil, job = nil, polls = 0, name = nil, staged = {} }
+    local stageApi = catalogApi and type(catalogApi.stage) == "function" and catalogApi.stage or nil
+    local function upper(s) return (Catalog.clean(s or "", 64):upper()) end
+    local function say(text)
+        browse:setMessage(text)
+        view:setMessage(text)
+    end
+    local function setLog(set)
+        local parts, bytes = {}, 0
+        for _, e in ipairs(set) do
+            local p = e.id .. "@" .. Catalog.token(e.version)
+            if bytes + #p + 1 > MAX_SET_LOG then parts[#parts + 1] = "..." break end
+            parts[#parts + 1] = p
+            bytes = bytes + #p + 1
+        end
+        return table.concat(parts, ",")
+    end
+
+    -- A finished stage (or a poll chain that gave up: error).
+    local function installDone(res)
+        ins.job = nil
+        browse:setInstalling(false)
+        local outcome = Catalog.token(type(res.outcome) == "string" and res.outcome or "error")
+        local p = type(res.payload) == "table" and res.payload or {}
+        local owners = type(p.owners) == "table" and p.owners or {}
+        log.info("INSTALL done outcome=%s txn=%s owners=%d ops=%s", outcome, Catalog.token(p.txn), #owners, math.type(p.ops) == "integer" and tostring(p.ops) or "-")
+        if outcome ~= "ok" then
+            if type(res.message) == "string" and res.message ~= "" then log.info("INSTALL message %s: %s", outcome, Catalog.clean(res.message, 200)) end
+            say(outcome == "error" and fmt("installFailed") or fmt("installRefused", outcome))
+            return
+        end
+        for _, o in ipairs(owners) do
+            local id = type(o) == "table" and type(o.id) == "string" and o.id or nil
+            if id then ins.staged[id] = true end
+        end
+        -- core's apply helper waits for this game to exit ("already started": one waits already)
+        if applyApi then
+            local okA, r, why = pcall(applyApi.start)
+            local started = okA and r == true
+            log.info("APPLY start %s", started and "ok" or Screen.clean(tostring(okA and why or r), 64))
+        else
+            log.info("APPLY start none (%s has no core.apply)", CORE)
+        end
+        -- the status again, so the pending count (QUIT GAME, RESTART NOW) includes this change
+        if view.built then refresh() else
+            local st = applyStatus()
+            if st then session.applyStaged = st.staged end
+        end
+        browse:setPending(ins.staged)
+        say(fmt("installsOnRestart", ins.name or "-"))
+    end
+
+    local installPoll
+    local function installLater()
+        if type(ExecuteInGameThreadWithDelay) == "function" and pcall(ExecuteInGameThreadWithDelay, POLL_MS, installPoll) then return end
+        installDone({ outcome = "error", message = "the game thread can't be scheduled" })
+    end
+    installPoll = function()
+        local okG = guard("the install poll", function()
+            local job = ins.job
+            if not job then return end
+            ins.polls = ins.polls + 1
+            local okP, st, res = pcall(catalogApi.poll, job)
+            if not okP then
+                warnOnce("install-poll", "core.catalog.poll failed: %s", Catalog.clean(tostring(st), 200))
+                installDone({ outcome = "error", message = "poll failed" })
+                return
+            end
+            if st == "done" and type(res) == "table" then installDone(res) return end
+            if st == nil then installDone({ outcome = "error", message = Catalog.clean(tostring(res), 200) }) return end
+            if ins.polls >= MAX_POLLS then installDone({ outcome = "error", message = "no answer in 10 minutes" }) return end
+            installLater()
+        end)
+        if not okG and ins.job then pcall(installDone, { outcome = "error", message = "the poll faulted" }) end
+    end
+
+    -- INSTALL on a row or in Details (after core's hook): the install set, then the confirm window, or why not.
+    browse.onInstall = function(id)
+        if ins.job or not stageApi then return end
+        if not browse:installShown(id) then return end -- staged meanwhile, or the catalog changed
+        local set, why, info = Catalog.installSet(cat.rows, id)
+        if not set then
+            log.info("INSTALL refuse %s reason=%s", id, Catalog.token(why))
+            info = info or {}
+            if why == "unsatisfiable" and info.dep then
+                say(fmt("cantInstallNeeds", upper(info.name), upper(info.dep), Catalog.clean(info.need or "", 64)))
+            else
+                say(fmt("cantInstall", upper(info.name or id), upper(why)))
+            end
+            return
+        end
+        local target = set[#set]
+        local also, bytes = {}, 0
+        for i, e in ipairs(set) do
+            bytes = bytes + (e.size or 0)
+            if i < #set then
+                also[#also + 1] = e.flag == "update" and fmt("alsoUpdate", upper(e.name), Catalog.clean(e.version, 64), Catalog.clean(e.from or "-", 64))
+                    or fmt("alsoNew", upper(e.name), Catalog.clean(e.version, 64))
+            end
+        end
+        local more = #also > Browse.INSTALL_LINES and #also - Browse.INSTALL_LINES or nil
+        while #also > Browse.INSTALL_LINES do table.remove(also) end
+        local size = Catalog.sizeText(bytes)
+        ins.ask = { id = id, name = upper(target.name), set = set }
+        log.info("INSTALL ask %s set=%s", id, setLog(set))
+        browse:openInstall{ title = fmt("installTitle", upper(target.name), Catalog.clean(target.version, 64)), also = also, more = more,
+            size = fmt("downloadSize", fmt(size.key, size.n)) }
+    end
+    -- The confirm window's INSTALL (after core's hook): the stage job, polled from the game thread.
+    browse.onInstallConfirm = function()
+        local a = ins.ask
+        if not a then return end
+        ins.ask = nil
+        browse:closeInstall()
+        if ins.job or not stageApi then return end
+        local list = {}
+        for _, e in ipairs(a.set) do list[#list + 1] = { id = e.id, version = e.version } end
+        local okS, job, why = pcall(stageApi, list)
+        if okS and math.type(job) == "integer" then
+            ins.job, ins.polls, ins.name = job, 0, a.name
+            log.info("INSTALL stage job=%d", job)
+            browse:setInstalling(true)
+            say(fmt("downloading", a.name))
+            installLater()
+            return
+        end
+        local reason = Catalog.clean(tostring(okS and why or job), 64)
+        log.info("INSTALL stage job=%s", reason ~= "" and reason or "-")
+        if okS and why == "busy" then say(fmt("busy"))
+        elseif not okS or reason:find("^error") then say(fmt("installFailed"))
+        else say(fmt("installRefused", reason)) end
+    end
+    -- Any other close of the confirm window (BACK, Escape, a parent closed): nothing is staged.
+    local okIW, errIW = pcall(ui.screen.watch, function(_, info)
+        if type(info) == "table" and info.id == "install" and info.event ~= "opened" and ins.ask then
+            local a = ins.ask
+            ins.ask = nil
+            log.info("INSTALL cancel %s (%s)", a.id, tostring(info.reason or info.event))
+        end
+    end)
+    if not okIW then warnOnce("watch-install", "the install window can't be watched: %s", tostring(errIW):match("^[^\n]*")) end
+    if catalogApi and not stageApi then warnOnce("no-stage", "%s has no core.catalog.stage: Browse has no INSTALL", CORE) end
     if catalogApi then
         view.onBrowse = function() soon("Browse", openBrowse) end
         startRefresh()

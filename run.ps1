@@ -45,6 +45,12 @@
   with "close" (WM_CLOSE, as Alt+F4) while A's main.lua is locked (C fails and is rolled back), session 4 checks the
   failure and ends at the driver's END line; the runner then stops the waiting helper and releases the lock. Like
   restart: -MarkOfTheWeb on the helper, -DefenderReport (with Controlled Folder Access) and the BUILDSCAN lines.
+  The install scenario (Mod Manager v2 story 5; VM only, the live catalog, two game sessions in one run) installs HUD
+  Clock from Browse: deploy.ps1 -Test -Scenario install leaves HudClock out of the stage (the VM copy's HudClock, its
+  paks and mods.txt are saved and put back by the VM restore). The VM runner is called with -RepeatUntilEnd and -DataDirs
+  NucleusData (core's data folder with its downloads, staged change, installed.txt and result, moved aside for the run
+  and put back after). Session 1 ends with RESTART NOW (core's helper applies the staged HUD Clock, then relaunches the
+  game); session 2 checks it runs and ends at the driver's END line.
   The browse scenario (Mod Manager v2 story 4; VM only) runs against the live catalog: the Mod Manager's startup refresh
   and one REFRESH reach the catalog's endpoints through core's native part; it ends at the driver's END line.
   Keeps the log as <workspace>/dumps/<copy>/mod-manager/<scenario>[.vm].log (ignored by git) and runs check.ps1 on it.
@@ -57,15 +63,15 @@
 #>
 param(
     [Parameter(Mandatory)] [string] $Instance,
-    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply', 'browse')]
+    [ValidateSet('screen', 'no-core', 'old-core', 'restart', 'apply', 'browse', 'install')]
     [string] $Scenario = 'screen',
-    [int] $TimeoutSec = 0, # 0: screen 1200 s (about 90 requests and two map loads), restart 600 s (two launches), apply 1200 s (four launches and three helper runs), browse 600 s (two live refreshes), others 420 s; x1.5 in the VM
+    [int] $TimeoutSec = 0, # 0: screen 1200 s (about 90 requests and two map loads), restart 600 s (two launches), apply 1200 s (four launches and three helper runs), browse 600 s (two live refreshes), install 900 s (two launches, a download and an apply), others 420 s; x1.5 in the VM
     [ValidateSet('host', 'vm')] [string] $Target = 'vm',
     [switch] $AllowOtherDrivers # run even when another runner's test mod is enabled in the copy (tools/run-guard)
 )
 $ErrorActionPreference = 'Stop'
-$hostTimeout = switch ($Scenario) { 'screen' { 1200 } 'restart' { 600 } 'apply' { 1200 } 'browse' { 600 } default { 420 } }
-if ($Scenario -in 'restart', 'apply' -and $Target -ne 'vm') { throw "The $Scenario scenario runs only in the VM (-Target vm): the host runner does not follow a game that starts itself again." }
+$hostTimeout = switch ($Scenario) { 'screen' { 1200 } 'restart' { 600 } 'apply' { 1200 } 'browse' { 600 } 'install' { 900 } default { 420 } }
+if ($Scenario -in 'restart', 'apply', 'install' -and $Target -ne 'vm') { throw "The $Scenario scenario runs only in the VM (-Target vm): the host runner does not follow a game that starts itself again." }
 if ($Scenario -eq 'browse' -and $Target -ne 'vm') { throw "The browse scenario runs only in the VM (-Target vm): its driver asks for 'key RIGHT', 'type <text>' and screenshots, which only the VM runner serves (the host runner serves key ENTER, UP and DOWN, clicks, moves and wheels)." }
 if ($TimeoutSec -le 0 -and $Target -eq 'host') { $TimeoutSec = $hostTimeout }
 $CoreName = 'Nucleus'
@@ -186,6 +192,16 @@ if ($Target -eq 'vm') {
             MarkOfTheWeb = "NuclearNightmare\Binaries\Win64\ue4ss\Mods\$CoreName\bin\${CoreName}Restart.exe" }
     }
     $runMods = @($CoreName, $driver, $name) + $fixtures
+    $runPaks = @("$CoreName.pak")
+    $runBasePaks = $fixturePaks
+    if ($Scenario -eq 'install') {
+        # Story 5 (v2): HudClock is installed by core's helper during the run; listing it makes the VM restore remove it
+        # (and put back whatever the copy had). Two sessions; core's data folder saved and put back.
+        $runMods += 'HudClock'
+        $runPaks += 'HudClock.pak'
+        $runBasePaks += 'HudClock_P.pak'
+        $relaunch = @{ RepeatUntilEnd = $true; DataDirs = "${CoreName}Data" }
+    }
     if ($Scenario -eq 'apply') {
         # Story 3 (v2): four sessions; core's data folder saved and put back; plans B and C staged on request. The blocks
         # run inside vm-sp.ps1's functions (dot-sourced here), which see this script's functions; its variables are
@@ -201,7 +217,7 @@ if ($Target -eq 'vm') {
             } }
     }
     try {
-        $run = Invoke-NNBSpRun -Instance $inst -TestMod $driver -Mods $runMods -Paks "$CoreName.pak" -BasePaks $fixturePaks -FileState `
+        $run = Invoke-NNBSpRun -Instance $inst -TestMod $driver -Mods $runMods -Paks $runPaks -BasePaks $runBasePaks -FileState `
             -EndPattern $endRx -TimeoutSec (Get-NNBSpTimeout $hostTimeout $TimeoutSec) -LogOut $kept @relaunch -Prepare {
                 param($stage)
                 $refusal = Get-RunGuardRefusal -Workspace $root -Instance $stage -Owner 'mod-manager' -Bypass:$AllowOtherDrivers -Vm

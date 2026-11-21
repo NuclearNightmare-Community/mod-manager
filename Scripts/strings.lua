@@ -104,6 +104,22 @@ S.TABLES = {
         installedLine = "INSTALLED %s", no = "NO",
         publisherLine = "PUBLISHER %s",
         licenseLine = "LICENSE %s",
+        -- v2 story 5: INSTALL (a Browse row's button and Details'), its confirm window and the results
+        install = "INSTALL",                         -- the buttons
+        pendingRestart = "PENDING RESTART",          -- a row staged this session
+        installTitle = "INSTALL %s %s?",             -- the confirm window
+        alsoInstalls = "ALSO INSTALLS:",
+        alsoNew = "%s %s (NEW)",
+        alsoUpdate = "%s %s (UPDATE FROM %s)",
+        alsoMore = "AND %d MORE",
+        downloadSize = "DOWNLOAD %s",
+        sizeKB = "%d KB", sizeMB = "%s MB",
+        downloading = "DOWNLOADING %s...",            -- the message line while it runs
+        installsOnRestart = "%s INSTALLS WHEN THE GAME RESTARTS",
+        installRefused = "INSTALL REFUSED (%s)",
+        installFailed = "INSTALL FAILED",
+        cantInstallNeeds = "CAN'T INSTALL: %s NEEDS %s %s",
+        cantInstall = "CAN'T INSTALL %s (%s)",
         -- the 14 categories (spec-mod-manager-v2/categories.md), cat.<id>
         ["cat.gameplay"] = "GAMEPLAY", ["cat.content"] = "CONTENT", ["cat.visuals"] = "VISUALS", ["cat.audio"] = "AUDIO",
         ["cat.ui"] = "USER INTERFACE", ["cat.qol"] = "QUALITY OF LIFE", ["cat.tools"] = "UTILITIES & TOOLS",

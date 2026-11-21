@@ -72,6 +72,8 @@ function F.new()
         create = function(o) return create("button", o) end,
         setVisible = vis("button"),
         setLabel = function(h, l) rec("button.setLabel", h, l) elOf(h).label = l end,
+        -- v2 story 5: INSTALL is disabled while a stage runs
+        setEnabled = function(h, e) rec("button.setEnabled", h, e) assert(type(e) == "boolean") elOf(h).enabled = e end,
     }
     U.checkbox = {
         create = function(o) assert(type(o.onChange) == "function", "checkbox: onChange") return create("checkbox", o) end,
