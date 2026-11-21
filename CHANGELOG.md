@@ -18,6 +18,10 @@ All notable changes to the Mod Manager are recorded here. The format follows [Ke
 - Needs Nucleus 0.27.0 or newer (`>=0.27.0`, was `>=0.26.0`), which stages removals (`core.catalog.unstage`).
 - The main window's status slot has four icons (build, dependency, restart, revoked).
 - Opening MANAGE MODS or the REVOKED MODS window works the catalog model out again, as BROWSE does: a startup refresh that finishes before the title screen's footer shows the game's version leaves the build unknown, and then updates and a revoked version's fix only appeared after BROWSE was opened (found in the VM `update` run).
+- Browse's `REVOKED` state text sits on a red box in the badge colour.
+- The revocations of the last verified catalog stay when a later REFRESH fails (refused, unavailable or error): the title-screen notice, the red badges and the REVOKED MODS window keep them until resolved.
+- An installed version of a package the catalog dropped entirely counts as revoked when the verified revoked list names its id and version ("the index no longer lists that version"): it gets the red badge, the notice and a REVOKED MODS row with UNINSTALL only (`Catalog.model` returns these as a fourth value, the orphans).
+- The `update` test scenario's session 2 also uninstalls HUD Clock 0.3.1 (its files from `installed.txt`), which starts Nucleus's helper, and checks that the helper's renamed copy from the self-update (`bin\<Core>Restart.<txn>.old`) is deleted (it was only reported).
 
 ## [0.7.0] - 2026-11-21
 

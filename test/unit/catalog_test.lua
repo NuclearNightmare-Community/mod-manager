@@ -429,6 +429,22 @@ do
     local rows2 = Catalog.model(index, revoked, {}, "0.26.0", B)
     eq(#Catalog.revokedInstalled(rows2), 0, "revoked versions that aren't installed are not flagged")
     eq(byId(rows2, "x.newer").offered.version, "0.3.1", "the offered version skips the revoked one")
+    -- a package the index dropped entirely: an orphan, revoked by id and version (any sha), no Browse row, no fix
+    local orphRev = { revoked = { { id = "X.Dropped", version = "1.0.0", sha256 = SHA_A, reason = "pulled", action = "block" },
+        { id = "x.dropped2", version = "9.9.9", sha256 = SHA_A, reason = "other version", action = "block" } } }
+    local rows3, _, _, orphans = Catalog.model(index, orphRev, { { folder = "Dropped", id = "x.dropped", version = "1.0.0", name = "Dropped Mod" },
+        { folder = "Dropped2", id = "x.dropped2", version = "1.0.0" }, { folder = "NewerFix", id = "x.newer", version = "0.3.0" } }, "0.26.0", B)
+    eq(byId(rows3, "x.dropped"), nil, "orphan: no Browse row")
+    ok(#orphans == 1 and orphans[1].id == "x.dropped" and orphans[1].name == "Dropped Mod" and orphans[1].installedVersion == "1.0.0"
+        and orphans[1].revoked.reason == "pulled" and orphans[1].revoked.action == "block" and orphans[1].revoked.fix == nil,
+        "orphan: an installed version of a dropped package, revoked by id (without case) and version")
+    local all3 = {}
+    for _, x in ipairs(rows3) do all3[#all3 + 1] = x end
+    for _, x in ipairs(orphans) do all3[#all3 + 1] = x end
+    local l3 = Catalog.revokedInstalled(all3)
+    ok(#l3 == 1 and l3[1].id == "x.dropped" and l3[1].fix == nil, "orphan: in revokedInstalled, no fix")
+    ok(Catalog.canUninstall(orphans[1]), "orphan: UNINSTALL")
+    eq(Catalog.action(orphans[1]), nil, "orphan: no UPDATE")
 end
 do -- dependents: installed rows and staged owners whose dependsOn names the id (normalized)
     local rows = {

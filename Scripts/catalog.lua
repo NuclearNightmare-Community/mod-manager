@@ -40,7 +40,9 @@
 --       index no longer lists that version (Catalog.revokedMatch). Both actions only flag; nothing is turned off.
 --   Catalog.installSet also takes an update target, and a revoked one whose fix is older (the only downgrade).
 --   Catalog.action(row, pending) -> "install" | "update" | nil;  Catalog.canUninstall(row, pending) -> boolean
---   Catalog.revokedInstalled(rows, pending) -> { { id, name, version, reason, action, fix }, ... }
+--   Catalog.model's 4th result: orphans, installed revoked versions whose whole package the index dropped (no fix)
+--   Catalog.revokedInstalled(rows, pending) -> { { id, name, version, reason, action, fix }, ... }   rows: the model's
+--       rows and its orphans
 --   Catalog.dependents(installedRows, staged, id) -> names, ids   who still needs id (installed rows, staged owners)
 local CORE = "Nucleus"
 local J = require(CORE:lower() .. ".json")
@@ -382,7 +384,26 @@ function Catalog.model(index, revoked, installedRows, coreVersion, build)
         end
     end
     for _, row in ipairs(rows) do row.versions = nil end -- only the shown version is kept
-    return rows, warns, total
+    -- v2 story 6: an installed version whose whole package the index no longer lists is revoked as well ("the index no
+    -- longer lists that version") when a verified entry names its id and version. It has no Browse row and no fix:
+    -- orphans = { { id, name, folder, installedVersion, state = "installed", orphan = true, revoked = { reason, action } } }
+    local orphans, seenOrphan = {}, {}
+    for _, r in ipairs(installedRows or {}) do
+        if type(r) == "table" and type(r.folder) == "string" and type(r.id) == "string" and type(r.version) == "string" and r.version ~= "" then
+            local id = MID.normalize(r.id)
+            if id and not byId[id] and not seenOrphan[id] and #orphans < Catalog.MAX_PACKAGES then
+                local rv = Catalog.revokedMatch(rver, id, r.version, nil)
+                if rv then
+                    seenOrphan[id] = true
+                    local name = clean(type(r.name) == "string" and r.name or r.folder, Catalog.MAX_NAME)
+                    if name:match("^%s*$") then name = clean(r.folder, Catalog.MAX_NAME) end
+                    orphans[#orphans + 1] = { id = id, name = name, folder = r.folder, installedVersion = r.version, state = "installed",
+                        orphan = true, revoked = { reason = rv.reason, action = rv.action } }
+                end
+            end
+        end
+    end
+    return rows, warns, total, orphans
 end
 
 -- ---------------------------------------------------------------- v2 story 5: the install set

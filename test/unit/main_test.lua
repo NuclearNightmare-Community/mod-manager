@@ -1926,6 +1926,7 @@ do -- Revoked, newer fix: the title-screen notice, REVIEW, LATER stages nothing;
     eq(U.byId["bw.r" .. hn .. ".st"].text, "PENDING RESTART", "UPDATES: the staged row reads PENDING RESTART")
     eq(U.byId["bw.r" .. hn .. ".inst"].visible, false, "UPDATES: and offers no UPDATE")
     ok(U.byId["bw.r" .. hn .. ".w"].style == nil, "UPDATES: and has no red badge")
+    ok(not (U.byId["bw.r" .. hn .. ".st"].style or {}).background, "UPDATES: and its state text has no badge colour")
     endSession()
 end
 
@@ -1937,6 +1938,11 @@ do -- The notice reappears on the next launch (no seen-state); a revoked row in 
             U = openBrowse(core)
             local n = rowNamed(U, "HUD Clock")
             eq(U.byId["bw.r" .. n .. ".st"].text, "REVOKED", "browse: the state reads REVOKED")
+            local sb = U.byId["bw.r" .. n .. ".st"].style
+            ok(sb and sb.background and sb.background.r == 0.85 and sb.background.g == 0.1 and sb.background.b == 0.1 and sb.background.a == 1,
+                "browse: REVOKED in the badge colour (a red box behind it)")
+            local m0 = rowNamed(U, "Map Waypoints+")
+            ok(not (U.byId["bw.r" .. m0 .. ".st"].style or {}).background, "browse: other rows' state text without the badge colour")
             local w = U.byId["bw.r" .. n .. ".w"]
             ok(w.image and w.image.icon == "warning" and w.style and w.style.tint and w.style.tint.r == 0.85, "browse: core's warning icon tinted red")
             eq(w.tooltip, "REVOKED: crash on map load", "browse: its tooltip")
@@ -1955,6 +1961,78 @@ do -- The notice reappears on the next launch (no seen-state); a revoked row in 
         end
         endSession()
     end
+end
+
+do -- The revoked window with a gamepad (or the keys): focus moves through UPDATE TO, UNINSTALL and BACK; accept opens
+   -- the matching confirm; BACK there and LATER stage nothing.
+    local core, U, F = revSession{ stagePoll = stageOk({ NNC .. "hud-clock" }), unstagePoll = unstageOk() }
+    U.click("tn.review") tick()
+    ok(U.open.revoked, "pad: REVIEW opens the revoked window")
+    local P = U.pad("revoked")
+    eq(table.concat(P.items(), ","), "rv.r1.upd,rv.r1.un,BACK", "pad: the focus order is UPDATE TO, UNINSTALL, BACK")
+    eq(P.at(), "rv.r1.upd", "pad: focus starts on UPDATE TO")
+    ok(P.accept(), "pad: accept on UPDATE TO") tick()
+    ok(U.open.install and U.byId["in.title"].text == "UPDATE HUD CLOCK 0.3.0 → 0.3.1?", "pad: UPDATE TO opens the UPDATE confirm")
+    local Pi = U.pad("install")
+    eq(Pi.items()[1], "in.ok", "pad: the confirm's focus starts on UPDATE")
+    eq(Pi.down(), "BACK", "pad: down reaches BACK")
+    Pi.accept() tick()
+    ok(not U.open.install and U.open.revoked, "pad: BACK closes the confirm, the revoked window stays")
+    eq(F.stages, nil, "pad: BACK staged nothing")
+    eq(P.down(), "rv.r1.un", "pad: down reaches UNINSTALL")
+    P.accept() tick()
+    ok(U.open.uninstall, "pad: UNINSTALL opens its confirm")
+    eq(U.byId["un.title"].text, "UNINSTALL HUD CLOCK 0.3.0?", "pad: the UNINSTALL confirm names the revoked mod")
+    local Pu = U.pad("uninstall")
+    Pu.down() Pu.accept() tick()
+    ok(not U.open.uninstall, "pad: BACK closes the UNINSTALL confirm")
+    eq(F.unstages, nil, "pad: BACK unstaged nothing")
+    eq(P.down(), "BACK", "pad: down reaches LATER (core's BACK)")
+    P.accept() tick()
+    ok(not U.open.revoked, "pad: LATER closes the revoked window")
+    ok(F.stages == nil and F.unstages == nil, "pad: LATER staged nothing")
+    ok(U.byId["tn.text"].visible, "pad: the notice stays")
+    endSession()
+end
+
+do -- A later REFRESH that fails keeps the notice until resolved; a revoked mod whose whole package the index dropped
+   -- (an orphan) is flagged too, with UNINSTALL only.
+    local pl = revPayload{ revoked = {
+        { id = NNC .. "hud-clock", version = "0.3.0", sha256 = A64, reason = "crash on map load", action = "disable" },
+        { id = NNC .. "gone-mod", version = "1.0.0", sha256 = B64, reason = "steals saves", action = "block" } } }
+    local core, U, F = revSession{ mods = { GoneMod = modJson(NNC .. "gone-mod", "1.0.0") }, payload = pl,
+        refreshPoll = function(n) if n == 1 then return done("ok", pl)() end return done("bad-signature", nil, "bad sig")() end,
+        stagePoll = stageOk({}), unstagePoll = unstageOk(2, 0) }
+    eq(#lines("^%[ModManager%] REVOKED nuclearnightmare%-community%.gone%-mod v=1%.0%.0 action=block fix=none$"), 1, "orphan: REVOKED logged, no fix")
+    eq(U.byId["tn.text"].text, "2 INSTALLED MODS WERE REVOKED", "orphan: counted in the title-screen notice")
+    eq(#lines("^%[ModManager%] NOTICE shown n=2$"), 1, "orphan: NOTICE shown n=2")
+    openMainWin(core)
+    eq(U.byId["notice.text"].text, "2 REVOKED - 3 UPDATES AVAILABLE", "orphan: the notice line counts it")
+    local g = mainRow(U, "GoneMod")
+    local badge
+    for k = 1, 4 do local el = U.byId["r" .. g .. ".s" .. k] if el and el.style and el.style.tint then badge = el end end
+    eq(badge and badge.tooltip, "REVOKED: steals saves", "orphan: the main window's red badge")
+    -- a later REFRESH that fails (bad signature): the notice and the badge stay
+    U.click("browse") tick()
+    U.click("bw.refresh") tick() tick()
+    eq(#lines("CATALOG done outcome=bad%-signature"), 1, "refresh: the second done is refused")
+    eq(#lines("NOTICE removed"), 0, "refresh: the notice is not removed")
+    ok(U.byId["tn.text"].visible and U.byId["tn.text"].text == "2 INSTALLED MODS WERE REVOKED", "refresh: the notice stays")
+    U.back("browse") tick()
+    openMainWin(core)
+    eq(U.byId["notice.text"].text, "2 REVOKED", "refresh: the notice line keeps the revocations (no updates without a catalog)")
+    -- REVIEW: the orphan's row has UNINSTALL only
+    U.click("notice.review") tick()
+    eq(U.byId["rv.r1.name"].text, "GoneMod", "orphan: its row in the revoked window")
+    eq(U.byId["rv.d1.why"].text, "steals saves", "orphan: its reason")
+    ok(not U.byId["rv.r1.upd"].visible and U.byId["rv.r1.un"].visible, "orphan: UNINSTALL only")
+    U.click("rv.r1.un") tick()
+    eq(U.byId["un.title"].text, "UNINSTALL GONEMOD 1.0.0?", "orphan: the UNINSTALL confirm")
+    U.click("un.ok") tick() tick()
+    ok(F.unstaged and F.unstaged.id == NNC .. "gone-mod" and F.unstaged.version == "1.0.0", "orphan: core.catalog.unstage(id, version)")
+    eq(#lines("^%[ModManager%] UNINSTALL done outcome=ok "), 1, "orphan: UNINSTALL done")
+    eq(U.byId["tn.text"].text, "HUD CLOCK 0.3.0 WAS REVOKED", "orphan: staged, it leaves the notice")
+    endSession()
 end
 
 do -- Revoked, older fix: UPDATE TO 0.3.1 from 0.4.0 (the only downgrade); revoked, no fix: UNINSTALL only; sha differs.
