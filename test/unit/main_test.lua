@@ -1996,13 +1996,17 @@ do -- The revoked window with a gamepad (or the keys): focus moves through UPDAT
 end
 
 do -- A later REFRESH that fails keeps the notice until resolved; a revoked mod whose whole package the index dropped
-   -- (an orphan) is flagged too, with UNINSTALL only.
+   -- (an orphan) is flagged too, with UNINSTALL only. Core refuses its unstage (not-in-catalog: the id is not in the
+   -- index, install.cpp run_unstage), so nothing is staged and the notice stays.
     local pl = revPayload{ revoked = {
         { id = NNC .. "hud-clock", version = "0.3.0", sha256 = A64, reason = "crash on map load", action = "disable" },
         { id = NNC .. "gone-mod", version = "1.0.0", sha256 = B64, reason = "steals saves", action = "block" } } }
-    local core, U, F = revSession{ mods = { GoneMod = modJson(NNC .. "gone-mod", "1.0.0") }, payload = pl,
+    local core, U, F, A = revSession{ mods = { GoneMod = modJson(NNC .. "gone-mod", "1.0.0") }, payload = pl,
         refreshPoll = function(n) if n == 1 then return done("ok", pl)() end return done("bad-signature", nil, "bad sig")() end,
-        stagePoll = stageOk({}), unstagePoll = unstageOk(2, 0) }
+        stagePoll = stageOk({}), unstagePoll = function()
+            return "done", { outcome = "not-in-catalog", message = "nuclearnightmare-community.gone-mod 1.0.0: the id is not in the catalog",
+                payload = { failed = NNC .. "gone-mod" } }
+        end }
     eq(#lines("^%[ModManager%] REVOKED nuclearnightmare%-community%.gone%-mod v=1%.0%.0 action=block fix=none$"), 1, "orphan: REVOKED logged, no fix")
     eq(U.byId["tn.text"].text, "2 INSTALLED MODS WERE REVOKED", "orphan: counted in the title-screen notice")
     eq(#lines("^%[ModManager%] NOTICE shown n=2$"), 1, "orphan: NOTICE shown n=2")
@@ -2030,8 +2034,14 @@ do -- A later REFRESH that fails keeps the notice until resolved; a revoked mod 
     eq(U.byId["un.title"].text, "UNINSTALL GONEMOD 1.0.0?", "orphan: the UNINSTALL confirm")
     U.click("un.ok") tick() tick()
     ok(F.unstaged and F.unstaged.id == NNC .. "gone-mod" and F.unstaged.version == "1.0.0", "orphan: core.catalog.unstage(id, version)")
-    eq(#lines("^%[ModManager%] UNINSTALL done outcome=ok "), 1, "orphan: UNINSTALL done")
-    eq(U.byId["tn.text"].text, "HUD CLOCK 0.3.0 WAS REVOKED", "orphan: staged, it leaves the notice")
+    eq(#lines("^%[ModManager%] UNINSTALL done outcome=not%-in%-catalog "), 1, "orphan: UNINSTALL done outcome=not-in-catalog")
+    eq(#lines("^%[ModManager%] UNINSTALL done outcome=ok "), 0, "orphan: never ok")
+    eq(U.byId["rv.msg"].text, "UNINSTALL REFUSED (not-in-catalog)", "orphan: UNINSTALL REFUSED (not-in-catalog)")
+    eq(A.calls.start, 0, "orphan: nothing staged, no helper")
+    ok(not (U.byId.restart and U.byId.restart.visible), "orphan: nothing staged, no RESTART NOW")
+    ok(U.byId["tn.text"].visible and U.byId["tn.text"].text == "2 INSTALLED MODS WERE REVOKED", "orphan: refused, the notice stays")
+    eq(#lines("NOTICE removed"), 0, "orphan: the notice is never removed")
+    ok(U.byId["rv.r1"].visible and U.byId["rv.r1.un"].visible, "orphan: still in the revoked window with UNINSTALL")
     endSession()
 end
 
