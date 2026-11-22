@@ -4,6 +4,8 @@ All notable changes to the Mod Manager are recorded here. The format follows [Ke
 
 ## [0.8.0] - 2026-11-21
 
+- Catalog listing: the description now says what Mod Manager does with browsing and installing in place.
+
 ### Added
 
 - UPDATE (Mod Manager v2 story 6). Browse rows with an update (`UPDATE AVAILABLE`), and installed mods whose version was revoked when the catalog offers another good version, get an **UPDATE** button where INSTALL sits, and so does their DETAILS window. It works like INSTALL: the confirm window reads `UPDATE <NAME> <FROM> → <TO>?` with ALSO INSTALLS and DOWNLOAD, its button UPDATE; the result reads `<NAME> UPDATES WHEN THE GAME RESTARTS`, `UPDATE REFUSED (<outcome>)` or `UPDATE FAILED`. Nucleus and the Mod Manager update like any mod. Going down a version is offered only away from a revoked version (Nucleus checks that again against its own verified list).
